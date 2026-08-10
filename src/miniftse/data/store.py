@@ -320,7 +320,14 @@ class PitStore:
             part["identifier_type"] = id_type
             part["identifier_value"] = wide[id_type]
             frames.append(part)
-        self.register("identifier_map", pd.concat(frames, ignore_index=True))
+        table = pd.concat(frames, ignore_index=True)
+        # `valid_to` is NULL for every currently-open mapping, and an all-None column
+        # reaches DuckDB as INTEGER. Every as-of query then fails on
+        # "Cannot compare INTEGER and DATE" - and it fails precisely on the open
+        # intervals, which are the normal case.
+        for column in ("valid_from", "valid_to"):
+            table[column] = pd.to_datetime(table[column], errors="coerce")
+        self.register("identifier_map", table)
 
     def index_tables(self) -> None:
         """Indexes on the columns every query filters on. DuckDB is columnar and often

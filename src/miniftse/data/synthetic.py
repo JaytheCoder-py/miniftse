@@ -687,11 +687,22 @@ class SyntheticUniverse:
 
         # --- spin-off children get their own price series ------------------------
         spin_rows: list[dict[str, Any]] = []
-        for spin in spinoffs:
+        for spin_index, spin in enumerate(spinoffs):
             i, j0 = int(spin["parent_row"]), int(spin["ex_index"])
             spin_price = spin["value_per_share"] / spin["ratio"]
             spin_shares = spin["parent_shares"] * spin["ratio"]
-            srng = np.random.default_rng(self.config.seed + 5 + hash(spin["spin_id"]) % 10_000)
+            # Seed from the spin-off's position, NOT from hash(spin_id).
+            #
+            # Python randomises string hashing per process unless PYTHONHASHSEED is
+            # fixed, so the previous version produced a different spinco price series
+            # on every run. It survived the small-universe determinism test because
+            # that window happens to contain no spin-offs, and was caught by the golden
+            # master at 300 securities: 5.3bp of drift between two supposedly identical
+            # builds.
+            #
+            # Exactly the class of defect a run manifest exists to surface - identical
+            # code, identical inputs, different output.
+            srng = np.random.default_rng(self.config.seed + 5 + spin_index * 7919)
             pp = spin_price
             for j in range(j0, t):
                 pp *= math.exp(float(rets.iat[i, j]) + float(srng.normal(0, 0.012)))

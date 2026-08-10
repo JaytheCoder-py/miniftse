@@ -1,0 +1,575 @@
+[
+  {
+    "case_id": "E01",
+    "question": "What is the minimum free float for a developed market security?",
+    "category": "eligibility",
+    "must_contain": [
+      "5%"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "E02",
+    "question": "What is the minimum free float in an emerging market?",
+    "category": "eligibility",
+    "must_contain": [
+      "15%"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": "Differs from developed. Tests whether the section heading survived chunking."
+  },
+  {
+    "case_id": "E03",
+    "question": "How is the liquidity screen defined?",
+    "category": "eligibility",
+    "must_contain": [
+      "median"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "E04",
+    "question": "Are depositary receipts eligible for the index?",
+    "category": "eligibility",
+    "must_contain": [
+      "local line"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "E05",
+    "question": "Are preferred shares included?",
+    "category": "eligibility",
+    "must_contain": [
+      "preferred"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "E06",
+    "question": "How many trading days of price history are required?",
+    "category": "eligibility",
+    "must_contain": [
+      "200"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "E07",
+    "question": "What is the minimum free-float market capitalisation?",
+    "category": "eligibility",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "E08",
+    "question": "How does a foreign ownership limit affect eligibility?",
+    "category": "eligibility",
+    "must_contain": [
+      "foreign ownership"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "W01",
+    "question": "How are constituents weighted?",
+    "category": "weighting",
+    "must_contain": [
+      "free float"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "W02",
+    "question": "What is the maximum weight of a single constituent?",
+    "category": "weighting",
+    "must_contain": [
+      "10%"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "W03",
+    "question": "Explain the 5/10/40 rule.",
+    "category": "weighting",
+    "must_contain": [
+      "40%"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "W04",
+    "question": "How is the capping factor applied?",
+    "category": "weighting",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "W05",
+    "question": "Is the index capped between reviews?",
+    "category": "weighting",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": "Tests the review-versus-daily distinction."
+  },
+  {
+    "case_id": "R01",
+    "question": "How often is the index reviewed?",
+    "category": "review",
+    "must_contain": [
+      "quarter"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "R02",
+    "question": "How much notice is given before changes take effect?",
+    "category": "review",
+    "must_contain": [
+      "14"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "R03",
+    "question": "What is a buffer and why does the index use one?",
+    "category": "review",
+    "must_contain": [
+      "turnover"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "R04",
+    "question": "How wide is the size band buffer?",
+    "category": "review",
+    "must_contain": [
+      "2%"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "R05",
+    "question": "What is fast entry?",
+    "category": "review",
+    "must_contain": [
+      "IPO"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "R06",
+    "question": "Where are the boundaries between the size bands?",
+    "category": "review",
+    "must_contain": [
+      "70%"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "R07",
+    "question": "When are share count changes implemented?",
+    "category": "review",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "C01",
+    "question": "Does a cash dividend change the divisor?",
+    "category": "corporate_actions",
+    "must_contain": [
+      "not"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": "The answer is no, and it is the most common misunderstanding."
+  },
+  {
+    "case_id": "C02",
+    "question": "What happens to the divisor on a share split?",
+    "category": "corporate_actions",
+    "must_contain": [
+      "unchanged"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "C03",
+    "question": "How is a rights issue treated?",
+    "category": "corporate_actions",
+    "must_contain": [
+      "TERP"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "C04",
+    "question": "What is TERP?",
+    "category": "corporate_actions",
+    "must_contain": [
+      "theoretical"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "C05",
+    "question": "How is a spin-off handled?",
+    "category": "corporate_actions",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "C06",
+    "question": "What happens when a constituent is acquired for cash?",
+    "category": "corporate_actions",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "C07",
+    "question": "How is a suspended security valued?",
+    "category": "corporate_actions",
+    "must_contain": [
+      "last"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "C08",
+    "question": "When is a special dividend treated as a return of capital?",
+    "category": "corporate_actions",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "K01",
+    "question": "What is the index divisor for?",
+    "category": "calculation",
+    "must_contain": [
+      "continuous"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "K02",
+    "question": "What is the difference between gross and net total return?",
+    "category": "calculation",
+    "must_contain": [
+      "withholding"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "K03",
+    "question": "On what date are dividends reinvested?",
+    "category": "calculation",
+    "must_contain": [
+      "ex-date"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "K04",
+    "question": "Whose tax position does the net return index represent?",
+    "category": "calculation",
+    "must_contain": [
+      "non-resident"
+    ],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "hard",
+    "note": ""
+  },
+  {
+    "case_id": "K05",
+    "question": "What is the index base date and base level?",
+    "category": "calculation",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "G01",
+    "question": "Who can approve an exception to the rules?",
+    "category": "governance",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "G02",
+    "question": "When is an index recalculated after an error?",
+    "category": "governance",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "G03",
+    "question": "How is a methodology change consulted on?",
+    "category": "governance",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [
+      "ground_rules"
+    ],
+    "should_abstain": false,
+    "difficulty": "standard",
+    "note": ""
+  },
+  {
+    "case_id": "A01",
+    "question": "What is the index level today?",
+    "category": "out_of_scope",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [],
+    "should_abstain": true,
+    "difficulty": "standard",
+    "note": "A live level comes from the calculation systems, not the methodology documents."
+  },
+  {
+    "case_id": "A02",
+    "question": "Should I buy this index?",
+    "category": "out_of_scope",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [],
+    "should_abstain": true,
+    "difficulty": "standard",
+    "note": "Investment advice. Must decline."
+  },
+  {
+    "case_id": "A03",
+    "question": "What is the minimum free float under the MSCI methodology?",
+    "category": "out_of_scope",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [],
+    "should_abstain": true,
+    "difficulty": "standard",
+    "note": "Another provider's rules. Answering from general knowledge is exactly the failure this guards against."
+  },
+  {
+    "case_id": "A04",
+    "question": "What is the index's exposure to lithium mining?",
+    "category": "out_of_scope",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [],
+    "should_abstain": true,
+    "difficulty": "standard",
+    "note": "A holdings question, not a methodology question."
+  },
+  {
+    "case_id": "A05",
+    "question": "What is the carbon reduction requirement for this index?",
+    "category": "not_in_corpus",
+    "must_contain": [],
+    "must_not_contain": [],
+    "expected_sources": [],
+    "should_abstain": true,
+    "difficulty": "standard",
+    "note": "Plausible, and not a rule this index has. The parent index has no climate constraint."
+  }
+]

@@ -93,12 +93,25 @@ def cap_weights(
 
         residual = 1.0 - cap * capped.sum()
         free_mass = w[~capped].sum()
+
         if free_mass <= tolerance:
-            if abs(residual) > tolerance:
-                raise CappingError(
-                    "every name is at the cap but the weights do not sum to one"
-                )
-            break
+            n_free = int((~capped).sum())
+            if n_free == 0:
+                if abs(residual) > tolerance:
+                    raise CappingError(
+                        "every name is at the cap but the weights do not sum to one"
+                    )
+                break
+            # Free names exist but carry essentially no weight, so proportional
+            # rescaling is undefined (0/0). Distribute the residual equally instead.
+            #
+            # Found by a property test with one name at 0.9999999999 and ten at 1e-11.
+            # Contrived, but the real version is not: a security suspended at a nominal
+            # price alongside a mega-cap produces exactly this shape, and the previous
+            # code raised on it rather than capping.
+            w[~capped] = residual / n_free
+            continue
+
         # Rescale only the uncapped names. Rescaling everything is the classic bug:
         # it lifts the capped names back above the cap.
         w[~capped] *= residual / free_mass
@@ -173,28 +186,52 @@ def apply_ucits_5_10_40(
         f"limit {cfg.aggregate_limit:.0%}"
     )
 
+    # Binary search for the LARGEST effective cap that satisfies limb 2.
+    #
+    # Aggregate weight above the 5% threshold is non-decreasing in the cap, so the
+    # feasible set is an interval [floor, c*] and the search is for its upper end. The
+    # direction matters and is easy to get backwards: an earlier version raised `lo`
+    # when the constraint was breached, so a breach made it try an even *higher* cap
+    # and the search walked away from the answer. It returned the uncapped weights and
+    # reported success.
+    #
+    # Least restrictive is the right objective: any cap below c* also satisfies the
+    # rule, but each one distorts the index further from its stated weighting scheme
+    # than necessary.
     lo, hi = cfg.aggregate_threshold, cfg.max_single_weight
-    best = result
+    try:
+        best = cap_weights(weights, lo, max_iterations=cfg.max_iterations,
+                           tolerance=cfg.tolerance)
+    except CappingError:
+        # Even the floor is infeasible - too few constituents to spread unit weight.
+        best = result
+        notes.append(
+            f"the {cfg.aggregate_threshold:.0%} floor is itself infeasible for "
+            f"{len(weights)} constituents; 5/10/40 cannot be satisfied by this universe"
+        )
+        return CappingResult(best.weights, best.factors, best.iterations,
+                             best.capped_names, False, best.max_weight, agg,
+                             tuple(notes))
+
     for _ in range(60):
         mid = (lo + hi) / 2.0
         try:
             trial = cap_weights(weights, mid, max_iterations=cfg.max_iterations,
                                 tolerance=cfg.tolerance)
         except CappingError:
-            lo = mid
+            hi = mid
             continue
         if aggregate_above(trial.weights) <= cfg.aggregate_limit + cfg.tolerance:
-            best, lo = trial, lo
-            hi = mid
+            best, lo = trial, mid   # feasible: try a less restrictive cap
         else:
-            lo = mid
+            hi = mid                # breached: the cap must come down
         if hi - lo < 1e-9:
             break
 
     final_agg = aggregate_above(best.weights)
     satisfied = final_agg <= cfg.aggregate_limit + 1e-6
     notes.append(
-        f"effective cap lowered to {hi:.4%}; names above "
+        f"effective cap lowered to {lo:.4%}; names above "
         f"{cfg.aggregate_threshold:.0%} now sum to {final_agg:.2%}"
     )
     if not satisfied:

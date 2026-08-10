@@ -347,10 +347,16 @@ class SyntheticUniverse:
                 vol_state = float(rng.choice([0.80, 1.0, 1.0, 1.35, 1.9]))
             vol_state = 0.995 * vol_state + 0.005 * 1.0
             regime[i] = vol_state
-        mkt = (
-            self.config.market_drift / 252.0
-            + self.config.market_vol * sqrt_dt * regime * rng.standard_normal(t)
-        )
+        # The market factor carries the SHOCK only; the drift is applied uniformly in
+        # `_returns_matrix` rather than scaled by beta.
+        #
+        # That flattens the security market line, which is deliberate. Scale the drift
+        # by beta and high-beta names mechanically out-earn low-beta ones, so sorting on
+        # low volatility sorts on low beta and the low-volatility factor comes out with
+        # the wrong sign. The empirical SML *is* flat - that flatness is the entire
+        # low-volatility anomaly - so a universe that prices beta linearly cannot
+        # contain the effect it claims to.
+        mkt = self.config.market_vol * sqrt_dt * regime * rng.standard_normal(t)
 
         out = {"market": mkt}
         for name, (mu, sigma) in STYLE_PARAMS.items():
@@ -375,6 +381,7 @@ class SyntheticUniverse:
         n, t = len(secs), self.n_days
 
         r = np.outer(secs["beta"].to_numpy(), f["market"].to_numpy())
+        r += self.config.market_drift / 252.0  # uniform, not beta-scaled: flat SML
         for name in STYLE_FACTORS:
             r += np.outer(secs[f"expo_{name}"].to_numpy(), f[name].to_numpy())
 
@@ -384,11 +391,38 @@ class SyntheticUniverse:
             if mask.any():
                 r[mask] += f[f"ind_{ind.value}"].to_numpy()
 
-        idio = secs["idio_vol"].to_numpy()[:, None] / math.sqrt(252.0)
+        idio_vol = secs["idio_vol"].to_numpy()
+        idio = idio_vol[:, None] / math.sqrt(252.0)
         # Student-t innovations: real equity returns are fat-tailed, and a Gaussian
         # universe would make every outlier check in the quality layer look effective.
         shocks = rng.standard_t(df=5, size=(n, t)) / math.sqrt(5 / 3)
         r += idio * shocks
+
+        # Convexity compensation: SUBTRACT half each security's own variance from its
+        # log drift.
+        #
+        # Returns here are compounded as logs, so a security's expected *simple* return
+        # is exp(mu + sigma^2/2) - 1, which rises with volatility for free. Between a
+        # 15%-vol and a 40%-vol name that is roughly 0.5*(0.40^2 - 0.15^2) = 7%/yr of
+        # pure Jensen's inequality - far larger than any premium in STYLE_PARAMS, and
+        # enough on its own to reverse the sign of the measured low-volatility factor.
+        #
+        # Setting mu = drift - var/2 makes expected simple returns equal across
+        # securities, so the only thing separating them is the intended factor premia
+        # and a measured IC recovers what STYLE_PARAMS configured rather than an
+        # artefact of the compounding convention.
+        var_mkt = float(f["market"].var())
+        var_ind = float(np.mean([f[f"ind_{i.value}"].var() for i in IcbIndustry]))
+        total_var = (
+            secs["beta"].to_numpy() ** 2 * var_mkt
+            + sum(
+                secs[f"expo_{name}"].to_numpy() ** 2 * float(f[name].var())
+                for name in STYLE_FACTORS
+            )
+            + var_ind
+            + idio_vol**2 / 252.0
+        )
+        r -= 0.5 * total_var[:, None]
 
         return pd.DataFrame(r, index=secs["security_id"].to_numpy(), columns=self.calendar)
 
@@ -1008,6 +1042,15 @@ class SyntheticUniverse:
             latest_period=("period_end", "max"),
         )
         return agg[agg["n_periods"] == 4].reset_index(drop=True)
+
+    def get_fundamentals_raw(self) -> pd.DataFrame:
+        """The whole bitemporal fundamentals table, unfiltered.
+
+        For callers that will apply their own `filed_date` bound and want to do it once
+        rather than per query. Named `_raw` as a warning: using it without a PIT filter
+        is a look-ahead bug, and the name is there so that shows up in review.
+        """
+        return self._fundamentals
 
     def get_corp_actions(self, security_ids: list[str] | None, start: dt.date,
                          end: dt.date) -> pd.DataFrame:

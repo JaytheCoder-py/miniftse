@@ -273,6 +273,114 @@ def test_404_renders_inside_the_site_layout(client):
     assert "Traceback" not in body
 
 
+# --------------------------------------------------------------------------------------
+# Task 4: `explain_day` / `notable_days`
+# --------------------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def desk_state(desk_data_dir):
+    """The service layer needs a `DeskState`, not a running app - `load_desk_state`
+    reads the same on-disk snapshot the `client` fixture serves, without paying for a
+    FastAPI/TestClient lifespan.
+    """
+    from miniftse.desk.state import load_desk_state
+
+    return load_desk_state(desk_data_dir)
+
+
+@pytest.mark.slow
+def test_explain_day_no_event_day_is_all_market(desk_state):
+    """(a) A date with no divisor events: `events == []` and the narrative says the
+    whole move was the market's doing."""
+    from miniftse.desk.services import explain_day
+
+    days = desk_state.days
+    plain_days = days.loc[(days["n_divisor_events"] == 0) & (~days["is_review"])]
+    assert not plain_days.empty, "fixture must contain at least one plain trading day"
+    # The last such day, not the first: the first plain day may be the index's
+    # inception date, which has no prior session and so a trivially zero move - a
+    # weaker exercise of the market-move arithmetic than a genuine mid-series day.
+    date = plain_days.iloc[-1]["date"].date()
+
+    explanation = explain_day(desk_state, date)
+
+    assert explanation.events == []
+    assert explanation.review is None
+    assert explanation.structural_move_bps == 0.0
+    assert "market" in explanation.narrative.lower()
+
+
+@pytest.mark.slow
+def test_explain_day_event_date_reports_audit_figures(desk_state):
+    """(b) A date with a divisor event: each event dict carries `continuity_error_bps`
+    and `realised_return_bps` straight from the audit frame, plus its `apply_order`."""
+    from miniftse.desk.services import explain_day
+
+    audit = desk_state.divisor_audit
+    corp_events = audit.loc[audit["event_type"] != "REVIEW"]
+    assert not corp_events.empty, "fixture must contain at least one corporate action"
+    date = corp_events.iloc[0]["date"].date()
+    expected = corp_events.loc[corp_events["date"] == pd.Timestamp(date)]
+
+    explanation = explain_day(desk_state, date)
+
+    assert len(explanation.events) == len(expected)
+    assert explanation.events
+    for event in explanation.events:
+        assert "continuity_error_bps" in event
+        assert "realised_return_bps" in event
+        assert "apply_order" in event
+        assert isinstance(event["apply_order"], int)
+    assert explanation.divisor_before == pytest.approx(float(expected.iloc[0]["divisor_before"]))
+
+
+@pytest.mark.slow
+def test_explain_day_review_date_carries_turnover(desk_state):
+    """(c) A review date's `review` dict carries the review row, turnover included."""
+    from miniftse.desk.services import explain_day
+
+    reviews = desk_state.reviews
+    assert not reviews.empty, "fixture must contain at least one review"
+    row = reviews.iloc[0]
+    date = row["date"].date()
+
+    explanation = explain_day(desk_state, date)
+
+    assert explanation.review is not None
+    assert explanation.review["one_way_turnover"] == pytest.approx(
+        float(row["one_way_turnover"])
+    )
+    assert explanation.review["n_additions"] == row["n_additions"]
+
+
+@pytest.mark.slow
+def test_explain_day_out_of_index_date_raises_key_error(desk_state):
+    """(d) A date outside the index raises `KeyError`, not a lookup that silently
+    returns nothing - the route layer turns this into a 400."""
+    from miniftse.desk.services import explain_day
+
+    with pytest.raises(KeyError):
+        explain_day(desk_state, dt.date(1990, 1, 1))
+
+
+@pytest.mark.slow
+def test_notable_days_covers_all_four_categories(desk_state):
+    from miniftse.desk.services import notable_days
+
+    entries = notable_days(desk_state)
+    categories = {entry["category"] for entry in entries}
+    assert categories == {
+        "largest_divisor_event",
+        "largest_review_turnover",
+        "largest_continuity_error",
+        "largest_single_day_move",
+    }
+    for entry in entries:
+        assert isinstance(entry["date"], dt.date)
+        assert entry["reason"]
+
+
 @pytest.mark.slow
 def test_500_renders_inside_the_site_layout(desk_data_dir):
     """Same rule for an unhandled exception. A route that always raises is added to a

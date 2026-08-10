@@ -1,0 +1,308 @@
+"""Desk service layer: pure-pandas functions over a `DeskState`'s precomputed frames.
+
+No I/O and no FastAPI import lives here - every function takes a `DeskState` already
+loaded into memory and returns plain dataclasses/dicts a route can render. No index
+mathematics either: every bps figure this module reports is either read straight off a
+column `desk/snapshot.py` already wrote (`continuity_error_bps`, `realised_return_bps`,
+`worst_continuity_error_bps`, `one_way_turnover`, ...) or, for the one figure with no
+library equivalent - a day's total headline move - derived by the single small helper
+at the bottom of this file, `_to_bps`.
+
+`explain_day`'s `narrative` is assembled by plain string formatting over numbers this
+module already computed - **not by a language model**. This is exactly the kind of
+client-facing output `agents/llm.py`'s first rule governs ("no number in a client-facing
+output may originate from a language model"), and the cheapest way to comply with that
+rule here is to not involve a model at all: there is nothing about "why did the level
+move" that formatting a handful of already-correct numbers doesn't answer.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import dataclass
+from typing import Any
+
+import pandas as pd
+
+from miniftse.corpactions.events import apply_order
+from miniftse.desk.state import DeskState
+
+
+@dataclass(frozen=True)
+class DayExplanation:
+    """Everything the day screen (Task 5) needs to explain one session.
+
+    `levels` is keyed by the same three series names `days.parquet` already uses
+    (`price_return`, `gross_total_return`, `net_total_return`), each mapping to
+    `{"open": ..., "close": ...}`. "Open" is the prior session's close - this index
+    publishes one level per day, not an intraday print, so there is no other honest
+    reading of "open" available from the data.
+    """
+
+    levels: dict[str, dict[str, float]]
+    divisor_before: float
+    divisor_after: float
+    events: list[dict[str, Any]]
+    review: dict[str, Any] | None
+    market_move_bps: float
+    structural_move_bps: float
+    narrative: str
+
+
+def explain_day(state: DeskState, date: dt.date) -> DayExplanation:
+    """Assemble the day screen's content for one session, from precomputed frames only.
+
+    Raises `KeyError` for any date the snapshot never published a level for - a
+    silently empty explanation would be worse than an error the route layer (Task 5)
+    can turn into a 400.
+    """
+    target = pd.Timestamp(date)
+    days = state.days.sort_values("date").reset_index(drop=True)
+    matches = days.index[days["date"] == target]
+    if len(matches) == 0:
+        raise KeyError(f"{date} is not a date this index published a level for")
+
+    i = int(matches[0])
+    today = _row(days, i)
+    # The prior session's close stands in for "today's open" - see `DayExplanation`.
+    # On the index's very first published date there is no prior session; treat that
+    # as a zero-move day rather than fabricating one.
+    prior = _row(days, i - 1) if i > 0 else today
+
+    open_pr = float(prior["price_return"])
+    close_pr = float(today["price_return"])
+    total_move_bps = _to_bps(close_pr / open_pr - 1.0) if open_pr else 0.0
+
+    # A genuine, already-scaled bps figure straight off the audit trail's aggregate -
+    # not derived here. Zero on a day with no divisor events (`_days_frame` fills it).
+    structural_move_bps = float(today["realised_return_bps"])
+    market_move_bps = total_move_bps - structural_move_bps
+
+    events = _event_dicts(state.divisor_audit, target)
+    review = _review_dict(state.reviews, target)
+
+    levels = {
+        "price_return": {"open": open_pr, "close": close_pr},
+        "gross_total_return": {
+            "open": float(prior["gross_total_return"]),
+            "close": float(today["gross_total_return"]),
+        },
+        "net_total_return": {
+            "open": float(prior["net_total_return"]),
+            "close": float(today["net_total_return"]),
+        },
+    }
+
+    narrative = _narrative(
+        date=date,
+        close_pr=close_pr,
+        total_move_bps=total_move_bps,
+        events=events,
+        review=review,
+        market_move_bps=market_move_bps,
+        structural_move_bps=structural_move_bps,
+        worst_continuity_error_bps=float(today["worst_continuity_error_bps"]),
+    )
+
+    return DayExplanation(
+        levels=levels,
+        divisor_before=float(today["divisor_before"]),
+        divisor_after=float(today["divisor_after"]),
+        events=events,
+        review=review,
+        market_move_bps=market_move_bps,
+        structural_move_bps=structural_move_bps,
+        narrative=narrative,
+    )
+
+
+def notable_days(state: DeskState) -> list[dict[str, Any]]:
+    """Four pinned dropdown entries: the largest divisor event, the largest review
+    turnover, the largest continuity error, and the largest single-day move.
+
+    Each is an existing column's `idxmax`, not a recomputation of any figure - the one
+    exception is the day-move ranking, which reuses the same `_to_bps` helper
+    `explain_day` uses, for the same reason (no precomputed column holds it).
+    """
+    notable: list[dict[str, Any]] = []
+
+    audit = state.divisor_audit
+    corp_events = audit.loc[audit["event_type"] != "REVIEW"]
+    if not corp_events.empty:
+        row = _row(corp_events, corp_events["divisor_change_pct"].abs().idxmax())
+        notable.append({
+            "category": "largest_divisor_event",
+            "date": _as_date(row["date"]),
+            "reason": (
+                f"{row['event_type']} on {row['security_id']} moved the divisor "
+                f"{float(row['divisor_change_pct']):+.2%}."
+            ),
+            "value": float(row["divisor_change_pct"]),
+        })
+
+    reviews = state.reviews
+    if not reviews.empty:
+        row = _row(reviews, reviews["one_way_turnover"].idxmax())
+        notable.append({
+            "category": "largest_review_turnover",
+            "date": _as_date(row["date"]),
+            "reason": (
+                f"the periodic review turned over "
+                f"{float(row['one_way_turnover']):.2%} of index weight one-way."
+            ),
+            "value": float(row["one_way_turnover"]),
+        })
+
+    if not audit.empty:
+        row = _row(audit, audit["continuity_error_bps"].abs().idxmax())
+        notable.append({
+            "category": "largest_continuity_error",
+            "date": _as_date(row["date"]),
+            "reason": (
+                f"{row['event_type']} on {row['security_id']} carried a continuity "
+                f"error of {float(row['continuity_error_bps']):+.2f} bps."
+            ),
+            "value": float(row["continuity_error_bps"]),
+        })
+
+    days = state.days.sort_values("date").reset_index(drop=True)
+    if len(days) > 1:
+        moves = days["price_return"].pct_change().map(_to_bps)
+        idx = moves.abs().idxmax()
+        row = _row(days, idx)
+        notable.append({
+            "category": "largest_single_day_move",
+            "date": _as_date(row["date"]),
+            "reason": (
+                f"the price-return level moved {float(moves.loc[idx]):+.1f} bps in "
+                "one session."
+            ),
+            "value": float(moves.loc[idx]),
+        })
+
+    return notable
+
+
+# --------------------------------------------------------------------------------------
+# Internals
+# --------------------------------------------------------------------------------------
+
+
+def _event_dicts(divisor_audit: pd.DataFrame, date: pd.Timestamp) -> list[dict[str, Any]]:
+    """One dict per corporate-action divisor event on `date`, in application order.
+
+    Excludes the audit trail's synthetic ``"REVIEW"`` rows (`security_id == "*"`,
+    appended by `IndexCalculator._apply_review`) - a periodic review is not a
+    corporate action and has no entry in the apply-order table; it gets its own,
+    richer record via `review` instead.
+    """
+    day_events = divisor_audit.loc[
+        (divisor_audit["date"] == date) & (divisor_audit["event_type"] != "REVIEW")
+    ].copy()
+    if day_events.empty:
+        return []
+    day_events["apply_order"] = day_events["event_type"].map(apply_order)
+    day_events = day_events.sort_values(["apply_order", "security_id"])
+    return [
+        {str(k): v for k, v in record.items()} for record in day_events.to_dict("records")
+    ]
+
+
+def _review_dict(reviews: pd.DataFrame, date: pd.Timestamp) -> dict[str, Any] | None:
+    """The single review row effective on `date`, or `None` if this was not a review
+    date. `reviews` carries at most one row per date - a review is a periodic, whole-
+    index event, not something that happens twice in a day."""
+    match = reviews.loc[reviews["date"] == date]
+    if match.empty:
+        return None
+    return {str(k): v for k, v in match.iloc[0].to_dict().items()}
+
+
+def _narrative(
+    date: dt.date,
+    close_pr: float,
+    total_move_bps: float,
+    events: list[dict[str, Any]],
+    review: dict[str, Any] | None,
+    market_move_bps: float,
+    structural_move_bps: float,
+    worst_continuity_error_bps: float,
+) -> str:
+    """Plain-English string formatting over numbers already computed above. See the
+    module docstring: this is deliberately not a language model."""
+    sentences = [
+        f"On {date.isoformat()}, the price-return level closed at {close_pr:.2f}, "
+        f"a move of {total_move_bps:+.1f} bps versus the prior close."
+    ]
+
+    if not events:
+        sentences.append(
+            "No divisor events were recorded on this date, so the entire move "
+            f"reflects market price changes ({market_move_bps:+.1f} bps)."
+        )
+    else:
+        kinds = ", ".join(sorted({str(event["event_type"]) for event in events}))
+        plural = "event" if len(events) == 1 else "events"
+        sentences.append(
+            f"{len(events)} divisor {plural} were recorded ({kinds}), contributing "
+            f"{structural_move_bps:+.1f} bps of realised structural return; the "
+            f"market accounted for the remaining {market_move_bps:+.1f} bps. The "
+            "worst continuity error across these events was "
+            f"{worst_continuity_error_bps:+.2f} bps."
+        )
+
+    if review is not None:
+        n_additions = int(review["n_additions"])
+        n_deletions = int(review["n_deletions"])
+        turnover = float(review["one_way_turnover"])
+        sentences.append(
+            "This date was also a periodic constituent review: "
+            f"{n_additions} addition{'s' if n_additions != 1 else ''}, "
+            f"{n_deletions} deletion{'s' if n_deletions != 1 else ''}, one-way "
+            f"turnover {turnover:.2%}."
+        )
+
+    return " ".join(sentences)
+
+
+def _row(frame: pd.DataFrame, label: Any) -> pd.Series:
+    """A single row by index label, typed unambiguously.
+
+    `frame.loc[label]` alone is typed by pandas-stubs as `Series[Any] | DataFrame`,
+    because the `.loc` overloads can't tell a scalar label from a list of labels from
+    the argument's static type - `label` here is usually the result of `.idxmax()`, an
+    `int`, or a `pd.Timestamp` filter, all of which are always scalar in this module.
+    The `isinstance` assert is not just for mypy's benefit: a frame with a duplicate
+    index label would make `.loc[label]` return a `DataFrame` instead, and every
+    caller here would then silently read the wrong thing out of it.
+    """
+    row = frame.loc[label]
+    assert isinstance(row, pd.Series), f"expected a single row for label {label!r}"
+    return row
+
+
+def _as_date(value: Any) -> dt.date:
+    """A frame's `date` cell - a `pd.Timestamp` after the parquet round trip, in
+    practice - into a plain `dt.date`. Mirrors the private helper of the same name in
+    `corpactions.events` and `calc.index`; kept local rather than imported because it
+    is three lines and each module already carries its own copy."""
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    return pd.Timestamp(value).date()
+
+
+def _to_bps(ratio: float) -> float:
+    """Convert a level ratio (``close / open - 1``) into a basis-point display figure.
+
+    The one place in this module allowed to touch a bps conversion directly. No column
+    `desk/snapshot.py` writes carries the whole day's (or the whole history's)
+    close-over-close move already scaled to bps - only the audit trail's *event-level*
+    figures are precomputed that way. Everything else in this module reads a bps figure
+    straight off a column; this helper exists only for the one figure that has no
+    library equivalent, using the same scaling convention `calc.state.DivisorChange`
+    already uses for the same purpose (`level_continuity_error_bps`,
+    `realised_return_bps`) - so a reader comparing the two sees one convention, not two.
+    """
+    return ratio * 10_000

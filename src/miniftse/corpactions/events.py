@@ -660,6 +660,28 @@ _APPLY_ORDER: dict[EventType, int] = {
 }
 
 
+_APPLY_ORDER_BY_VALUE: dict[str, int] = {str(k): v for k, v in _APPLY_ORDER.items()}
+"""`_APPLY_ORDER` re-keyed by plain `str`. `EventType` is a `StrEnum`, so a plain string
+already looks up correctly against `_APPLY_ORDER` at runtime - but `dict.get`'s
+overloads are keyed on the literal `EventType` type, so a `str` argument does not
+type-check even though it behaves identically. This copy exists to give `apply_order`
+a signature callers outside this module can use without importing `EventType` too."""
+
+
+def apply_order(event_type: str) -> int:
+    """Where an event type sits in same-date application order.
+
+    A small public accessor over `_APPLY_ORDER`, for callers outside this module - the
+    ops desk's day explanation, in particular - that want to show *why* a same-date
+    dividend applies before a split without reaching into a private module attribute.
+    Anything not in the table (there is no `EventType` member missing from it; this
+    only matters for a caller passing something else, such as the divisor audit
+    trail's synthetic ``"REVIEW"`` rows) gets the same default `parse_events` falls back
+    to for an unrecognised type.
+    """
+    return _APPLY_ORDER_BY_VALUE.get(event_type, 50)
+
+
 def _as_date(value: Any) -> dt.date:
     if isinstance(value, dt.datetime):
         return value.date()

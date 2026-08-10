@@ -1,5 +1,6 @@
 .PHONY: help setup test test-fast lint format typecheck build-index factsheet \
-        chaos-drill evals pin-golden check-golden daily docs docker clean all ci
+        chaos-drill evals pin-golden check-golden daily docs docker clean all ci \
+        desk-data desk-serve
 
 UV ?= uv
 SECURITIES ?= 300
@@ -58,6 +59,12 @@ daily-late-data:  ## Same, simulating a late market data file
 
 daily-blocked:  ## Same, simulating a price outlier that blocks publication
 	$(UV) run miniftse daily --simulate outlier
+
+desk-data:  ## Precompute every artefact the ops desk serves
+	$(UV) run miniftse desk-snapshot
+
+desk-serve:  ## Run the ops desk locally
+	$(UV) run uvicorn miniftse.desk.app:app --reload --port 8000
 
 docs:  ## Regenerate the documents that are generated from code
 	$(UV) run miniftse sql-cookbook

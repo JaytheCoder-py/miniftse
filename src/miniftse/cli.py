@@ -2,6 +2,7 @@
 
     miniftse build-index          build a full history and run the publication gate
     miniftse chaos-drill          inject faults and report validation coverage
+    miniftse desk-snapshot        precompute every artefact the ops desk serves
     miniftse pin-golden           pin the current history as the golden master
     miniftse check-golden         verify the current build against the pinned master
     miniftse daily                run the production DAG for one date
@@ -125,6 +126,37 @@ def chaos_drill_cmd(
             console.print(f"  - {gap}")
     else:
         console.print("\n[green]No coverage gaps.[/green]")
+
+
+@app.command("desk-snapshot")
+def desk_snapshot_cmd(
+    out: Path = typer.Option(Path("desk/data"), help="snapshot output directory"),
+    securities: int = typer.Option(300),
+    start: str = typer.Option("2016-01-04"),
+    end: str = typer.Option("2024-12-31"),
+    seed: int = typer.Option(20260809),
+) -> None:
+    """Build every artefact the ops desk serves. Run before deploying.
+
+    One reference build produces the lot, so the deployed application never recomputes
+    anything: it loads these files at startup and serves from memory. The command
+    either writes a complete snapshot or fails - a half-written one must never be
+    committed.
+    """
+    from miniftse.desk.snapshot import EXPECTED_FILES, build_snapshot, reference_spec
+
+    spec = reference_spec(
+        securities=securities,
+        start=dt.date.fromisoformat(start),
+        end=dt.date.fromisoformat(end),
+        seed=seed,
+    )
+    manifest = build_snapshot(out, spec)
+
+    console.print(f"\n[green]wrote[/green] {len(EXPECTED_FILES)} artefacts to {out}")
+    console.print(f"  git sha {manifest.git_sha[:12]}"
+                  f"{' [yellow](dirty tree)[/yellow]' if manifest.git_dirty else ''}")
+    console.print(f"  built in {manifest.duration_seconds}s")
 
 
 @app.command("pin-golden")

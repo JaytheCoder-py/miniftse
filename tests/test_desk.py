@@ -116,3 +116,33 @@ def test_validation_context_save_rejects_config_not_built_by_name(tmp_path):
 
     with pytest.raises(ValueError, match="not one of the named constructors"):
         ctx.save(tmp_path / "bad-config")
+
+
+# --------------------------------------------------------------------------------------
+# Task 2: the snapshot build
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_build_snapshot_writes_every_expected_file(tmp_path):
+    from miniftse.data.synthetic import SyntheticConfig
+    from miniftse.desk.snapshot import EXPECTED_FILES, build_snapshot
+    from miniftse.production.build import BuildSpec
+
+    spec = BuildSpec(
+        universe_config=SyntheticConfig(n_securities=100, seed=20260809),
+        start=dt.date(2019, 1, 2), end=dt.date(2019, 12, 31),
+    )
+    build_snapshot(tmp_path, spec)
+    for name in EXPECTED_FILES:
+        assert (tmp_path / name).exists(), f"snapshot did not write {name}"
+
+
+def test_build_snapshot_fails_loudly_on_missing_artefact(tmp_path, monkeypatch):
+    """A partial snapshot must never be written."""
+    from miniftse.desk import snapshot as snap
+    monkeypatch.setattr(snap, "_read_onepagers", lambda *a, **k: (_ for _ in ()).throw(
+        FileNotFoundError("risk_onepager.md")))
+    with pytest.raises(FileNotFoundError, match="risk_onepager"):
+        snap.build_snapshot(tmp_path)
+    assert not (tmp_path / "manifest.json").exists()

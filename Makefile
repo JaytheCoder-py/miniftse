@@ -64,7 +64,7 @@ desk-data:  ## Precompute every artefact the ops desk serves
 	$(UV) run miniftse desk-snapshot
 
 desk-serve:  ## Run the ops desk locally
-	$(UV) run uvicorn miniftse.desk.app:app --reload --port 8000
+	$(UV) run uvicorn miniftse.desk.app:create_app --factory --reload --port 8000
 
 docs:  ## Regenerate the documents that are generated from code
 	$(UV) run miniftse sql-cookbook

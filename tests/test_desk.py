@@ -180,3 +180,80 @@ def test_failed_rerun_leaves_no_stale_manifest(tmp_path, monkeypatch):
         "the test is only meaningful if the rerun got far enough to overwrite an "
         "artefact before failing"
     )
+
+
+# --------------------------------------------------------------------------------------
+# Task 3: the FastAPI skeleton
+# --------------------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def desk_data_dir(tmp_path_factory):
+    """One snapshot, built once, shared by every test in this section.
+
+    `client` and `test_startup_is_under_two_seconds` both need a real snapshot on disk
+    but must not each pay to build one - the startup-time test in particular has to
+    measure `create_app`/`TestClient` alone, not a 100-security build hiding inside it.
+    """
+    from miniftse.data.synthetic import SyntheticConfig
+    from miniftse.desk.snapshot import build_snapshot
+    from miniftse.production.build import BuildSpec
+
+    data = tmp_path_factory.mktemp("desk-data")
+    build_snapshot(data, BuildSpec(
+        universe_config=SyntheticConfig(n_securities=100, seed=20260809),
+        start=dt.date(2019, 1, 2), end=dt.date(2019, 12, 31),
+    ))
+    return data
+
+
+@pytest.fixture(scope="module")
+def client(desk_data_dir):
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk.app import create_app
+
+    with TestClient(create_app(data_dir=desk_data_dir)) as c:
+        yield c
+
+
+@pytest.mark.slow
+def test_healthz(client):
+    body = client.get("/healthz").json()
+    assert body["status"] == "ok"
+    assert body["snapshot_git_sha"]
+
+
+@pytest.mark.slow
+def test_root_redirects_to_day(client):
+    assert client.get("/", follow_redirects=False).status_code in (302, 307)
+
+
+@pytest.mark.slow
+def test_startup_is_under_two_seconds(desk_data_dir):
+    """A hiring manager gives the page ninety seconds. Startup is not where they go."""
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk.app import create_app
+
+    # Reuse the module-scoped snapshot directory rather than rebuilding: only the
+    # `TestClient`/lifespan cost inside this block counts against the budget.
+    data = desk_data_dir
+    start = time.perf_counter()
+    with TestClient(create_app(data_dir=data)):
+        pass
+    assert time.perf_counter() - start < 2.0
+
+
+def test_missing_snapshot_refuses_to_start(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk.app import create_app
+
+    with (
+        pytest.raises(FileNotFoundError, match="make desk-data"),
+        TestClient(create_app(data_dir=tmp_path)),
+    ):
+        pass

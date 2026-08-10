@@ -1,0 +1,175 @@
+/* miniftse ops desk - base layout.
+ *
+ * Screen-specific styling belongs with the screen that introduces it; this file only
+ * holds the shell every template shares: banner, nav, footer, typography, and the
+ * handful of primitives (cards, tables, buttons) later screens build on rather than
+ * reinvent.
+ */
+
+:root {
+  --bg: #0f1115;
+  --bg-raised: #171a21;
+  --border: #2a2e38;
+  --text: #e6e8eb;
+  --text-dim: #9aa1ac;
+  --accent: #4f8cff;
+  --warn-bg: #3a2e0f;
+  --warn-border: #6b5417;
+  --warn-text: #f3d78a;
+  --error: #ff6b6b;
+  --radius: 6px;
+  --content-width: 1100px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Persistent synthetic-data banner. Deliberately loud - the whole site's honesty rests
+ * on a visitor reading this before the first number, not on it being tasteful. */
+.banner {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-bottom: 1px solid var(--warn-border);
+  padding: 0.6rem 1rem;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  max-width: var(--content-width);
+  margin: 0 auto;
+}
+
+.site-header .brand {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.site-header nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.site-header nav a {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.site-header nav a.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.content {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 1.5rem;
+  min-height: 60vh;
+}
+
+.site-footer {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 1rem 1.5rem 2rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+/* Shared primitives ------------------------------------------------------ */
+
+.card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+button, .btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.htmx-indicator {
+  opacity: 0;
+  transition: opacity 150ms ease-in;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+}
+
+/* Error card, used inside partials/error.html for both 404 and 500. */
+.error-card {
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.error-card .error-code {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--error);
+  margin: 0;
+}
+
+.error-card .error-detail {
+  color: var(--text-dim);
+}

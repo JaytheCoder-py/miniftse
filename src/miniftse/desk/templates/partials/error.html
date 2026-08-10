@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{# Rendered by app.py's HTTPException and generic-Exception handlers, for both a 404
+   (no route matched) and a 500 (something raised). It extends the site layout rather
+   than standing alone so a visitor who follows a bad link never leaves the desk - nav,
+   banner and footer stay in place around the error card. #}
+
+{% block title %}{{ status_code }} - miniftse ops desk{% endblock %}
+
+{% block content %}
+  <section class="error-card">
+    <p class="error-code">{{ status_code }}</p>
+    <p class="error-detail">{{ detail }}</p>
+    <p><a href="/day">Back to the desk</a></p>
+  </section>
+{% endblock %}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}miniftse ops desk{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+
+  <!-- Pinned CDN versions - bump deliberately, not on whatever "latest" resolves to
+       the day the page happens to load. HTMX 2.0.3 and Chart.js 4.4.4 (the same pin
+       the capacity-viz spec uses, so Screen 5 does not carry a second copy). -->
+  <script src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="banner" role="note">
+    Every figure on this site is computed on a simulated universe in which value and
+    quality predict returns because they were built to. Nothing here is evidence about
+    real markets.
+  </div>
+
+  <header class="site-header">
+    <a class="brand" href="/day">miniftse ops desk</a>
+    <nav>
+      {% set nav_items = [
+        ("/day", "Explain a day"),
+        ("/chaos", "Chaos console"),
+        ("/ask", "Ask the rulebook"),
+        ("/reproducibility", "Reproducibility"),
+        ("/index", "The index"),
+      ] %}
+      {% for href, label in nav_items %}
+        <a href="{{ href }}"
+           {% if request.url.path == href %}class="active" aria-current="page"{% endif %}
+          >{{ label }}</a>
+      {% endfor %}
+    </nav>
+  </header>
+
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    {% if desk is defined %}
+      <span>snapshot {{ desk.manifest.git_sha[:10] }}{% if desk.manifest.git_dirty %}-dirty{% endif %}</span>
+      <span>built {{ desk.manifest.created_at }}</span>
+      <span>index {{ desk.manifest.index_id }}</span>
+    {% endif %}
+    <a href="/healthz">healthz</a>
+  </footer>
+
+  <script src="{{ url_for('static', path='desk.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

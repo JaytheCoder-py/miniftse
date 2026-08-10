@@ -24,12 +24,15 @@ is a warning; the same move on a 4% constituent is a block.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from miniftse.config import developed_only, global_all_cap, global_large_mid
 from miniftse.types import Severity
 
 
@@ -177,6 +180,23 @@ class ValidationContext:
     prior_fx: pd.DataFrame | None = None
     config: Any = None
 
+    _FRAME_FIELDS = ("prices", "prior_prices", "shares", "corp_actions",
+                     "divisor_audit", "reference", "alternate_source", "fx", "prior_fx")
+    _SCALAR_FIELDS = ("index_level", "prior_index_level", "divisor", "prior_divisor",
+                      "total_market_value", "official_level")
+    _CONFIG_CONSTRUCTORS = {
+        "global_all_cap": global_all_cap,
+        "global_large_mid": global_large_mid,
+        "developed_only": developed_only,
+    }
+    """The complete set of named config constructors in `miniftse.config`. Every
+    `ValidationContext` built anywhere in the codebase (`cli.py`, `production/build.py`,
+    `production/daily.py`, `quality/faults.py`) passes one of these three, or `None` -
+    never an inline `IndexConfig(...)`. That makes `config` round-trippable as a short
+    name rather than needing to serialise the whole nested dataclass tree. If an inline
+    config is ever introduced, `save()` will raise rather than silently drop it; the fix
+    at that point is to store `config.to_dict()` instead of a name."""
+
     def ok(self, rule: str, category: str, severity: Severity, message: str,
            **kwargs: Any) -> Finding:
         return Finding(rule=rule, category=category, severity=severity, passed=True,
@@ -186,6 +206,90 @@ class ValidationContext:
              **kwargs: Any) -> Finding:
         return Finding(rule=rule, category=category, severity=severity, passed=False,
                        message=message, **kwargs)
+
+    def _config_name(self) -> str | None:
+        if self.config is None:
+            return None
+        for name, ctor in self._CONFIG_CONSTRUCTORS.items():
+            if ctor() == self.config:
+                return name
+        raise ValueError(
+            "ValidationContext.config is not one of the named constructors in "
+            "miniftse.config (global_all_cap, global_large_mid, developed_only), so it "
+            "cannot be round-tripped by name. If configs are ever built inline instead "
+            "of through those constructors, store config.to_dict() in save()/load() "
+            "instead of a name."
+        )
+
+    def save(self, directory: Path) -> Path:
+        """Persist this context so a validation run can be reproduced without rebuilding
+        the index that produced it.
+
+        The alternative - re-running `build_index` to reconstruct a context - is what
+        `cli.chaos_drill_cmd` does today, and it costs tens of seconds. That is fine for
+        a terminal command and impossible inside a request.
+
+        Each present DataFrame is written as its own parquet file named for the field;
+        `weights` (a Series) is written the same way as a single-column frame. Absent
+        fields are omitted from `meta.json` and get no parquet file, so `load` can tell
+        "missing" apart from "empty" - several checks in `quality/checks.py` short-
+        circuit to a pass when their input is `None` and would report a spurious failure
+        against an empty DataFrame instead.
+        """
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        present: list[str] = []
+        for name in self._FRAME_FIELDS:
+            frame = getattr(self, name)
+            if frame is not None:
+                frame.to_parquet(directory / f"{name}.parquet", index=False)
+                present.append(name)
+        if self.weights is not None:
+            self.weights.rename("weight").to_frame().to_parquet(
+                directory / "weights.parquet"
+            )
+            present.append("weights")
+        meta = {
+            "as_of": self.as_of.isoformat(),
+            "present": present,
+            "scalars": {f: getattr(self, f) for f in self._SCALAR_FIELDS},
+            "constituents": list(self.constituents),
+            "config": self._config_name(),
+        }
+        (directory / "meta.json").write_text(json.dumps(meta, indent=2))
+        return directory
+
+    @classmethod
+    def load(cls, directory: Path) -> ValidationContext:
+        """The mirror of `save`: read `meta.json`, load only the parquet files named in
+        `present` (everything else round-trips as `None`, not an empty frame), and
+        resolve `config` back to an `IndexConfig` by looking its name up in
+        `_CONFIG_CONSTRUCTORS`.
+        """
+        directory = Path(directory)
+        meta = json.loads((directory / "meta.json").read_text())
+        present = set(meta["present"])
+
+        frames = {
+            name: pd.read_parquet(directory / f"{name}.parquet")
+            for name in cls._FRAME_FIELDS if name in present
+        }
+        weights = None
+        if "weights" in present:
+            weights = pd.read_parquet(directory / "weights.parquet")["weight"].rename(
+                None
+            )
+        config_name = meta["config"]
+        config = cls._CONFIG_CONSTRUCTORS[config_name]() if config_name else None
+
+        return cls(
+            as_of=dt.date.fromisoformat(meta["as_of"]),
+            weights=weights,
+            constituents=dict.fromkeys(meta["constituents"], None),
+            config=config,
+            **meta["scalars"],
+            **frames,
+        )
 
 
 @dataclass

@@ -257,3 +257,45 @@ def test_missing_snapshot_refuses_to_start(tmp_path):
         TestClient(create_app(data_dir=tmp_path)),
     ):
         pass
+
+
+@pytest.mark.slow
+def test_404_renders_inside_the_site_layout(client):
+    """The design spec's rule: a visitor never sees a raw traceback, 404 included. A
+    missing route must come back as the styled site shell - banner and nav - not
+    Starlette's bare default error page and not a stack trace.
+    """
+    response = client.get("/this-route-does-not-exist")
+    assert response.status_code == 404
+    body = response.text
+    assert "simulated universe" in body  # the persistent synthetic-data banner
+    assert "Explain a day" in body  # a nav item, i.e. the full base.html layout
+    assert "Traceback" not in body
+
+
+@pytest.mark.slow
+def test_500_renders_inside_the_site_layout(desk_data_dir):
+    """Same rule for an unhandled exception. A route that always raises is added to a
+    throwaway app built over the same snapshot, rather than teaching the real app to
+    fail on demand - and `raise_server_exceptions=False` so the client returns the
+    response our handler built instead of re-raising `RuntimeError` at the test.
+    """
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk.app import create_app
+
+    app = create_app(data_dir=desk_data_dir)
+
+    @app.get("/__boom")
+    async def boom() -> None:
+        raise RuntimeError("boom")
+
+    with TestClient(app, raise_server_exceptions=False) as c:
+        response = c.get("/__boom")
+
+    assert response.status_code == 500
+    body = response.text
+    assert "simulated universe" in body
+    assert "Explain a day" in body
+    assert "Traceback" not in body
+    assert "boom" not in body

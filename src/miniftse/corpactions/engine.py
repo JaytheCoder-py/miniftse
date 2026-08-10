@@ -43,6 +43,21 @@ class CorporateActionError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class _Handled:
+    """What a handler gives back to the dispatcher."""
+
+    state: IndexState
+    cash: float = 0.0
+    net_cash: float = 0.0
+    created: tuple[Constituent, ...] = ()
+    notes: tuple[str, ...] = ()
+    mv_before_override: float | None = None
+    """The market value the divisor rebase must preserve, when it is not the value at
+    the start of the event. Used by removals, which recognise a final price move before
+    the constituent leaves."""
+
+
+@dataclass(frozen=True, slots=True)
 class EventResult:
     """The outcome of applying one event."""
 
@@ -110,10 +125,19 @@ class CorporateActionEngine:
         if handler is None:
             raise CorporateActionError(f"no handler for {type(event).__name__}")
 
-        new_state, cash, net_cash, created, notes = handler(event, state)  # type: ignore[operator]
+        handled: _Handled = handler(event, state)  # type: ignore[operator]
+        new_state = handled.state
 
         if event.is_divisor_event:
-            new_state = new_state.rebase_divisor(mv_before)
+            # Removals recognise a final price move *before* the constituent leaves, so
+            # the market value the rebase must preserve is the one that includes that
+            # move - not the one from the start of the day. Handlers that need this say
+            # so with `mv_before_override`; rebasing against the wrong baseline silently
+            # erases the takeover premium or the delisting loss from the index return.
+            baseline = handled.mv_before_override
+            new_state = new_state.rebase_divisor(
+                baseline if baseline is not None else mv_before
+            )
             reason = f"{event.event_type}: structural change, divisor rebased"
         else:
             reason = f"{event.event_type}: market move, divisor unchanged"
@@ -130,32 +154,39 @@ class CorporateActionEngine:
             level_before=level_before,
             level_after=new_state.level if new_state.divisor else 0.0,
             reason=reason,
+            market_value_at_rebase=(
+                handled.mv_before_override
+                if handled.mv_before_override is not None
+                else mv_before
+            ),
         )
         self.audit.append(change)
         return EventResult(
-            state=new_state, change=change, cash_distributed=cash,
-            net_cash_distributed=net_cash, new_constituents=created, notes=notes,
+            state=new_state, change=change, cash_distributed=handled.cash,
+            net_cash_distributed=handled.net_cash, new_constituents=handled.created,
+            notes=handled.notes,
         )
 
     def apply_all(
         self, events: list[CorporateAction], state: IndexState
     ) -> tuple[IndexState, float, float, list[EventResult]]:
-        """Apply a day's events in order, accumulating distributed cash."""
+        """Apply a day's events in order, accumulating distributed cash.
+
+        Handlers return states that are already complete - a spin-off child is inserted
+        by the spin-off handler, not bolted on here - so that the audit record for each
+        event describes the state the event actually produced.
+        """
         gross = net = 0.0
         results: list[EventResult] = []
         for event in events:
             result = self.apply_event(event, state)
             state = result.state
-            for created in result.new_constituents:
-                state = state.replace_constituent(created)
             gross += result.cash_distributed
             net += result.net_cash_distributed
             results.append(result)
         return state, gross, net, results
 
     # ------------------------------------------------------------------ handlers
-
-    _Handled = tuple[IndexState, float, float, tuple[Constituent, ...], tuple[str, ...]]
 
     def _apply_distribution(
         self, event: CashDividend | ReturnOfCapital, state: IndexState
@@ -183,7 +214,7 @@ class CorporateActionEngine:
             if rate
             else f"no withholding tax for {c.country}"
         )
-        return new_state, gross_cash, net_cash, (), (note,)
+        return _Handled(new_state, cash=gross_cash, net_cash=net_cash, notes=(note,))
 
     def _apply_split(self, event: Split, state: IndexState) -> _Handled:
         """Price down by the ratio, shares up by the ratio.
@@ -205,8 +236,9 @@ class CorporateActionEngine:
                 f"split on {event.security_id} changed market value by {drift:.2e} - "
                 "price and share effects are inconsistent"
             )
-        return state.replace_constituent(new_c), 0.0, 0.0, (), (
-            f"ratio {event.ratio}, market value invariant",
+        return _Handled(
+            state.replace_constituent(new_c),
+            notes=(f"ratio {event.ratio}, market value invariant",),
         )
 
     def _apply_rights(self, event: RightsIssue, state: IndexState) -> _Handled:
@@ -226,7 +258,7 @@ class CorporateActionEngine:
             f"{event.new_shares}-for-{event.per_held} at {event.subscription_price:.4f}; "
             f"rights value {event.rights_value:.4f}/share"
         )
-        return state.replace_constituent(new_c), 0.0, 0.0, (), (note,)
+        return _Handled(state.replace_constituent(new_c), notes=(note,))
 
     def _apply_spinoff(self, event: Spinoff, state: IndexState) -> _Handled:
         """Parent price falls by the distributed value; spinco may or may not enter."""
@@ -237,14 +269,21 @@ class CorporateActionEngine:
         eligible = self.spinco_eligibility.get(event.spinco_security_id,
                                                event.spinco_enters_index)
         if eligible:
-            # Spinco enters at the implied value. Total market value is unchanged, so
-            # the divisor stays put and the level is continuous with no adjustment.
+            # Spinco enters at the implied value, inserted here rather than by the
+            # caller so the audit record sees the completed state.
+            #
+            # It inherits the parent's capping factor. That looks like a detail and is
+            # not: the parent's market value fell by `value * shares * float * cap`, so
+            # the spinco must arrive with the same cap factor for total market value to
+            # be preserved. Give it 1.0 instead and a capped parent leaves a hole in the
+            # index exactly the size of its capping discount. Capping is recomputed at
+            # the next review anyway.
             spinco = Constituent(
                 security_id=event.spinco_security_id,
                 price=event.spinco_price,
                 shares=c.shares * event.shares_per_parent_share,
                 free_float_factor=c.free_float_factor,
-                capping_factor=1.0,
+                capping_factor=c.capping_factor,
                 fx_rate=c.fx_rate,
                 currency=c.currency,
                 country=c.country,
@@ -255,7 +294,9 @@ class CorporateActionEngine:
                 f"spinco {event.spinco_security_id} enters at {event.spinco_price:.4f}; "
                 "total market value preserved, divisor unchanged"
             )
-            return new_state, 0.0, 0.0, (spinco,), (note,)
+            return _Handled(
+                new_state.replace_constituent(spinco), created=(spinco,), notes=(note,)
+            )
 
         # Spinco is ineligible: the distributed value leaves the index. Treated as a
         # distribution for total return, because the holder did receive it.
@@ -267,7 +308,7 @@ class CorporateActionEngine:
             f"{event.value_per_parent_share:.4f}/share leaves the index and the "
             "divisor is rebased"
         )
-        return new_state, cash, cash * (1 - rate), (), (note,)
+        return _Handled(new_state, cash=cash, net_cash=cash * (1 - rate), notes=(note,))
 
     def _apply_cash_merger(self, event: CashMerger, state: IndexState) -> _Handled:
         """Constituent leaves at the deal price.
@@ -279,16 +320,17 @@ class CorporateActionEngine:
         c = state.constituents[event.security_id]
         at_deal = c.with_price(event.cash_per_share)
         with_final_move = state.replace_constituent(at_deal)
-        # The level after recognising the deal price is the level we must preserve.
+        # The level after recognising the deal price is what continuity must preserve,
+        # so it is handed to the dispatcher as the rebase baseline rather than rebased
+        # here - doing both would apply the adjustment twice.
         mv_with_move = with_final_move.total_market_value
         removed = with_final_move.remove_constituent(event.security_id)
-        rebased = removed.rebase_divisor(mv_with_move)
 
         note = (
             f"removed at cash consideration {event.cash_per_share:.4f}; final move "
             "recognised before deletion"
         )
-        return rebased, 0.0, 0.0, (), (note,)
+        return _Handled(removed, notes=(note,), mv_before_override=mv_with_move)
 
     def _apply_stock_merger(self, event: StockMerger, state: IndexState) -> _Handled:
         """Target leaves; acquirer's share count rises by the exchange ratio.
@@ -299,7 +341,7 @@ class CorporateActionEngine:
         """
         target = state.constituents.get(event.security_id)
         if target is None:
-            return state, 0.0, 0.0, (), ("target is not a constituent",)
+            return _Handled(state, notes=("target is not a constituent",))
 
         at_deal = target.with_price(event.implied_value_per_share)
         working = state.replace_constituent(at_deal)
@@ -324,7 +366,7 @@ class CorporateActionEngine:
                 "acquirer here - a published methodology choice."
             )
 
-        return working.rebase_divisor(mv_with_move), 0.0, 0.0, (), (note,)
+        return _Handled(working, notes=(note,), mv_before_override=mv_with_move)
 
     def _apply_delisting(self, event: Delisting, state: IndexState) -> _Handled:
         """Removal at the final price, recognising the loss first."""
@@ -337,20 +379,20 @@ class CorporateActionEngine:
             f"delisted ({event.reason}) at {event.final_price:.4f}; loss recognised "
             "before removal so the index does not silently drop it"
         )
-        return removed.rebase_divisor(mv_with_loss), 0.0, 0.0, (), (note,)
+        return _Handled(removed, notes=(note,), mv_before_override=mv_with_loss)
 
     def _apply_shares_change(self, event: SharesChange, state: IndexState) -> _Handled:
         c = state.constituents[event.security_id]
         new_c = replace(c, shares=event.new_shares)
         note = f"shares {event.old_shares:,.0f} -> {event.new_shares:,.0f} " \
                f"({event.pct_change:+.2%})"
-        return state.replace_constituent(new_c), 0.0, 0.0, (), (note,)
+        return _Handled(state.replace_constituent(new_c), notes=(note,))
 
     def _apply_float_change(self, event: FloatChange, state: IndexState) -> _Handled:
         c = state.constituents[event.security_id]
         new_c = replace(c, free_float_factor=event.new_float)
         note = f"free float {event.old_float:.4f} -> {event.new_float:.4f}"
-        return state.replace_constituent(new_c), 0.0, 0.0, (), (note,)
+        return _Handled(state.replace_constituent(new_c), notes=(note,))
 
     # ------------------------------------------------------------------ helpers
 
@@ -379,6 +421,7 @@ class CorporateActionEngine:
                 "divisor_change_pct": c.divisor_change_pct,
                 "level_before": c.level_before, "level_after": c.level_after,
                 "continuity_error_bps": c.level_continuity_error_bps,
+                "realised_return_bps": c.realised_return_bps,
                 "reason": c.reason,
             }
             for c in self.audit

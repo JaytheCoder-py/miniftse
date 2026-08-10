@@ -175,9 +175,25 @@ class DivisorChange:
     level_after: float
     reason: str
 
+    market_value_at_rebase: float | None = None
+    """The market value the divisor was asked to preserve.
+
+    Usually the value at the start of the event, but not always. A cash merger first
+    marks the target to the deal price - a genuine return, often 10-40% on that name -
+    and only then removes it. Continuity applies to the *post-mark* value; measuring
+    against the start of the day would report the takeover premium as a defect.
+    """
+
     @property
     def divisor_change_pct(self) -> float:
         return (self.divisor_after / self.divisor_before - 1.0) if self.divisor_before else 0.0
+
+    @property
+    def level_at_rebase(self) -> float:
+        """The level the rebase was supposed to hold constant."""
+        if self.market_value_at_rebase is None or not self.divisor_before:
+            return self.level_before
+        return self.market_value_at_rebase / self.divisor_before
 
     @property
     def level_continuity_error_bps(self) -> float:
@@ -186,6 +202,15 @@ class DivisorChange:
         Should be zero to floating-point precision for every divisor event. The quality
         layer treats anything above a basis point as a blocking defect.
         """
+        baseline = self.level_at_rebase
+        if not baseline:
+            return 0.0
+        return (self.level_after / baseline - 1.0) * 10_000
+
+    @property
+    def realised_return_bps(self) -> float:
+        """Index return genuinely recognised by this event, as distinct from the
+        continuity error. Non-zero for dividends, delistings and merger premia."""
         if not self.level_before:
             return 0.0
-        return (self.level_after / self.level_before - 1.0) * 10_000
+        return (self.level_at_rebase / self.level_before - 1.0) * 10_000

@@ -75,11 +75,11 @@ STYLE_FACTORS: tuple[str, ...] = ("value", "quality", "size", "lowvol", "growth"
 #: encode the simulated world: value and quality pay, growth does not, small pays a
 #: little. These are inputs, not findings.
 STYLE_PARAMS: dict[str, tuple[float, float]] = {
-    "value": (0.030, 0.070),
-    "quality": (0.025, 0.050),
-    "size": (0.015, 0.090),
-    "lowvol": (0.020, 0.055),
-    "growth": (-0.010, 0.080),
+    "value": (0.030, 0.050),
+    "quality": (0.025, 0.038),
+    "size": (0.015, 0.055),
+    "lowvol": (0.020, 0.040),
+    "growth": (-0.010, 0.055),
 }
 
 FUNDAMENTAL_ITEMS: tuple[str, ...] = (
@@ -105,11 +105,16 @@ class SyntheticConfig:
     end: dt.date = dt.date(2026, 6, 30)
 
     base_currency: Currency = Currency.USD
-    market_vol: float = 0.16
+    market_vol: float = 0.135
     market_drift: float = 0.07
-    idio_vol_mean: float = 0.28
-    idio_vol_disp: float = 0.10
-    industry_vol: float = 0.08
+    idio_vol_mean: float = 0.24
+    idio_vol_disp: float = 0.09
+    industry_vol: float = 0.07
+    """Calibrated so the reference index lands near 15-17% annualised volatility with a
+    worst drawdown in the -30% to -35% region - the range a broad developed-market
+    benchmark actually occupies. `market_vol` sits below the target because the
+    volatility regime process, the industry factors and the residual style exposure of
+    a ~60-name index all add on top."""
 
     # Corporate action intensities, expressed as expected events per security-year.
     # These are deliberately richer than reality. The universe exists to exercise the
@@ -237,6 +242,18 @@ class SyntheticUniverse:
         exposures = {name: raw[:, i] for i, name in enumerate(STYLE_FACTORS)}
         exposures["size"] = size_expo
 
+        # Demean every style exposure by *cap weight*, not equal weight.
+        #
+        # This is what makes the style factors genuine long-short spreads rather than
+        # things the market portfolio is loaded on. Without it the cap-weighted index
+        # inherits a large negative size exposure - big companies are, definitionally,
+        # not small - and the size factor's volatility lands directly on the benchmark,
+        # roughly doubling its volatility. A cap-weighted index should have market
+        # exposure and nothing else; the styles should net to zero across it.
+        cap_weights = market_cap / market_cap.sum()
+        for name in STYLE_FACTORS:
+            exposures[name] = exposures[name] - float(exposures[name] @ cap_weights)
+
         beta = np.clip(rng.normal(1.0, 0.30, size=n), 0.25, 2.2)
         # Low-vol names really are lower vol: tie idiosyncratic risk to the exposure.
         idio = np.clip(
@@ -327,7 +344,7 @@ class SyntheticUniverse:
         vol_state = 1.0
         for i in range(t):
             if rng.random() < 0.004:
-                vol_state = float(rng.choice([0.75, 1.0, 1.0, 1.6, 2.4]))
+                vol_state = float(rng.choice([0.80, 1.0, 1.0, 1.35, 1.9]))
             vol_state = 0.995 * vol_state + 0.005 * 1.0
             regime[i] = vol_state
         mkt = (
@@ -454,7 +471,13 @@ class SyntheticUniverse:
                     susp_until = j + int(rng.integers(2, 15))
 
                 # --- market move -------------------------------------------------
-                p *= 1.0 + float(rets.iat[i, j])
+                # Compounded as a LOG return. Treating the factor model's output as a
+                # simple return and compounding it drags every price down by sigma^2/2
+                # per year - with idiosyncratic vol near 28% that is about -4% a year
+                # per name, and it turned the reference index negative over a decade.
+                # Log compounding makes the configured drifts geometric, which is what
+                # the parameter names claim they are.
+                p *= math.exp(float(rets.iat[i, j]))
                 p = max(p, 0.01)
 
                 # --- dividends ---------------------------------------------------
@@ -637,7 +660,7 @@ class SyntheticUniverse:
             srng = np.random.default_rng(self.config.seed + 5 + hash(spin["spin_id"]) % 10_000)
             pp = spin_price
             for j in range(j0, t):
-                pp *= 1.0 + float(rets.iat[i, j]) + float(srng.normal(0, 0.012))
+                pp *= math.exp(float(rets.iat[i, j]) + float(srng.normal(0, 0.012)))
                 pp = max(pp, 0.05)
                 spin_rows.append({
                     "security_id": spin["spin_id"], "date": cal_dates[j],

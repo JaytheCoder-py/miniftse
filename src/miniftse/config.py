@@ -160,6 +160,10 @@ class ReviewConfig:
 
     fast_entry_lag_days: int = 5
 
+    fast_entry_max_listing_age_days: int = 365
+    """Calendar days. Beyond this a security is not a new listing, so a failure to
+    qualify is the normal screens working rather than a gap fast entry should fill."""
+
     intra_review_float_threshold: float = 0.05
     """An absolute change in free float larger than this is implemented immediately
     rather than held to the next review."""

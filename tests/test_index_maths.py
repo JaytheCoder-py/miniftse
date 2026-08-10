@@ -285,3 +285,47 @@ class TestCapping:
         for name in raw:
             implied = raw[name] * result.factors[name] / total
             assert implied == pytest.approx(result.weights[name])
+
+
+# --------------------------------------------------------------------------------------
+# ADV roll-forward
+# --------------------------------------------------------------------------------------
+
+
+def test_to_constituent_carries_adv() -> None:
+    from miniftse.calc.fx import FxTable
+    from miniftse.calc.index import ConstituentSpec, IndexCalculator
+    from miniftse.config import global_all_cap
+
+    calc = IndexCalculator(
+        config=global_all_cap(), fx=FxTable(base="USD"),
+        engine=CorporateActionEngine(withholding_tax={}),
+    )
+    spec = ConstituentSpec(
+        security_id="S1", shares=1000.0, free_float_factor=1.0, adv=5_000_000.0,
+    )
+    c = calc._to_constituent(spec, price=10.0, date=dt.date(2020, 1, 1))
+    assert c.adv == 5_000_000.0
+
+
+def test_mark_preserves_adv() -> None:
+    import pandas as pd
+
+    from miniftse.calc.fx import FxTable
+    from miniftse.calc.index import IndexCalculator, _PriceBook
+    from miniftse.config import global_all_cap
+
+    calc = IndexCalculator(
+        config=global_all_cap(), fx=FxTable(base="USD"),
+        engine=CorporateActionEngine(withholding_tax={}),
+    )
+    state = IndexState(
+        date=dt.date(2020, 1, 1), divisor=1.0,
+        constituents={"S1": Constituent("S1", price=10.0, shares=1000.0, adv=5_000_000.0)},
+    )
+    book = _PriceBook(pd.DataFrame({
+        "security_id": ["S1"], "date": [dt.date(2020, 1, 2)], "close": [11.0],
+    }))
+    rolled = calc._mark(state, dt.date(2020, 1, 2), book)
+    assert rolled.constituents["S1"].adv == 5_000_000.0
+    assert rolled.constituents["S1"].price == 11.0

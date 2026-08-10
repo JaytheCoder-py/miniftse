@@ -36,6 +36,10 @@ class Constituent:
     currency: Currency = Currency.USD
     country: Country = Country.US
     icb_industry: str = ""
+    adv: float = 0.0
+    """Average daily traded value, in index base currency. Drives the capacity
+    constraint (`weighting.schemes.capacity_constrained_weights`); not otherwise used
+    by the calculation engine."""
     size_band: SizeBand = SizeBand.LARGE
     is_suspended: bool = False
 

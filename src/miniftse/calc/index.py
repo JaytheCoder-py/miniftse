@@ -59,6 +59,8 @@ class ConstituentSpec:
     currency: Currency = Currency.USD
     country: Country = Country.US
     icb_industry: str = ""
+    adv: float = 0.0
+    """Average daily traded value, in index base currency. See `Constituent.adv`."""
 
 
 class UniverseSource(Protocol):
@@ -260,6 +262,7 @@ class IndexCalculator:
             country=spec.country,
             icb_industry=spec.icb_industry,
             size_band=spec.size_band,
+            adv=spec.adv,
         )
 
     def _mark(self, state: IndexState, date: dt.date, price_book: _PriceBook) -> IndexState:
@@ -279,6 +282,7 @@ class IndexCalculator:
                 fx_rate=self.fx.rate(date, str(c.currency)), currency=c.currency,
                 country=c.country, icb_industry=c.icb_industry, size_band=c.size_band,
                 is_suspended=price_book.is_suspended(sec_id, date),
+                adv=c.adv,
             )
         return IndexState(date=date, divisor=state.divisor, constituents=updated,
                           base_currency=state.base_currency)

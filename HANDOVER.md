@@ -1,6 +1,6 @@
 # Handover
 
-**Last session ended:** 2026-08-11 · **Branch:** `master` · **Head:** `e358448`
+**Last session ended:** 2026-08-11 · **Branch:** `master`
 
 ---
 
@@ -82,41 +82,35 @@ is written up in the commit that fixed it.
 
 ## What is NOT done
 
-The goal for this build was "no lazy implementation." Three tasks remain open against
-that bar. They are tracked as tasks #13 (partial), #14, #15.
+Everything the plan describes is implemented and exercised. The three fronts the
+previous handover listed as open are closed — see `85f3d0f` and `598f525`.
 
-### 1. Production orchestration — partially done
-- ✅ Real daily DAG, incremental calculation, state file, run manifests, retry policy,
-  failure injection for three modes.
-- ❌ **Dagster job definitions.** The plan (M11 P11.3) asks for Dagster or Airflow.
-  `production/pipeline.py` is a hand-rolled DAG; a thin Dagster wrapper over
-  `DailyJob`'s steps is the remaining work.
-- ❌ **`reproduce(manifest_id)` never exercised.** `production/manifest.py` implements
-  it; nothing calls it and no test proves a three-month-old run regenerates exactly.
-- ❌ **Reconciliation study (P12.4).** Rebuild a proxy index against a real published
-  one and explain every basis point. Needs the iShares adapter (below).
+What remains is bounded by **access, not effort**:
 
-### 2. Vendor providers — incomplete Protocol coverage
-`data/vendors.py` has real implementations, but not all satisfy the full
-`MarketDataProvider` Protocol:
-- `YFinanceProvider` has prices and corporate actions; no `get_shares`, `get_fx`,
-  `get_classifications`, reference methods.
-- `EdgarProvider` has fundamentals only.
-- `LsegDataProvider` is a **stub with commented-out call shapes**. Cannot be licensed
-  here, but the code path should be real code guarded by an import check, not comments.
-- `PermIdProvider.match_organisations` works but nothing enriches the security master
-  with it.
-- `CompositeProvider` is written but never exercised end to end.
-- `ISharesProvider.implied_float_factors` and `reconstitution_diff` are written but
-  never run against real files.
+- **The LSEG adapter cannot be run here.** It is real code behind an import guard —
+  Datastream history, Worldscope fundamentals with point-in-time `SDate`, IBES
+  estimates, ICB classification, index constituents — and raises with the specific
+  missing prerequisite rather than returning empty frames. It needs a licence. The
+  reshaping functions (`_normalise_prices`, `_normalise_fundamentals`) are separated
+  precisely so they are testable against a recorded fixture without one.
+- **No cloud deployment.** The container builds, the Dagster job runs locally. Nothing
+  is deployed to AWS or Azure.
+- **Free-data gaps are structural.** Free float, corporate action detail, analyst
+  estimates and delisted securities have no free source. `docs/lseg_vocabulary_map.md`
+  names each and what supplies it.
+- **`M1_why_yfinance_lies.md` is deliberately unwritten** — it is Jason's assigned
+  exercise. Do not fill it in.
 
-### 3. Documents
-- ✅ Ground Rules, runbook, factsheet, risk one-pager, attribution one-pager,
-  consultation paper, five client responses, stakeholder memo, AI proposal.
-- ❌ Per-module memos (the plan wants ~15; there is one stub, `M1_why_yfinance_lies.md`,
-  which is **Jason's exercise — do not fill it in**).
-- ❌ Factor research paper, post-incident report, LSEG vocabulary map (P14.1),
-  AI-assisted development retro (P13.4).
+### Measurement caveats — reported, not tuned away
+- The risk model **over-forecasts** (bias statistic 0.62), largely because exposures are
+  held fixed at the estimation date while the index rebalances quarterly. Stated in the
+  risk one-pager.
+- The RAG assistant's eval has **5 documented failures out of 40**, kept as an honest
+  baseline.
+- The reconciliation study explains **52% of a 405bp difference** against its synthetic
+  comparison and says so, rather than padding a component to make the table sum.
+- Turnover figures are universe-size dependent. At 150 securities the 5/10/40 cap
+  dominates the weighting; at 500 it barely binds. Quote the 500-name numbers.
 
 ### Known measurement caveats, stated not hidden
 - The risk model **over-forecasts** (bias statistic 0.62). Largely because exposures are
@@ -132,15 +126,18 @@ that bar. They are tracked as tasks #13 (partial), #14, #15.
 
 ## Where to pick up
 
-Highest value first:
+The build is complete against the plan. Natural next steps, none of them blocking:
 
-1. **Vendor Protocol completeness** (task #14) — unblocks the reconciliation study and
-   is the piece that makes "swap the provider, change nothing upstream" a demonstrated
-   claim rather than an architectural assertion.
-2. **`reproduce()` + a test** (task #13) — small, and it is the audit story an index
-   provider actually gets asked about.
-3. **Dagster wrapper** (task #13) — thin, mostly mechanical.
-4. **Remaining documents** (task #15).
+1. **Point it at real data.** `build_free_composite()` (Yahoo + EDGAR + FRED) has full
+   Protocol coverage. Running the engine against it is the strongest remaining
+   validation, and the reconciliation module is built for exactly that.
+2. **Archive iShares holdings daily, starting now.** The historical files are not
+   retrievable, so the archive not started last year is the study that cannot be run
+   today. `ISharesProvider.archive_all()` is a one-line scheduled job.
+3. **Golden-master the factor variant**, not just the parent — the capping incident
+   would have been caught immediately by one.
+4. **Deploy the Dagster job** somewhere real if the cloud module matters for interview
+   purposes.
 
 ---
 

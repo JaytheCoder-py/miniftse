@@ -38,6 +38,7 @@ from miniftse.universe.screens import (
 )
 from miniftse.weighting.capping import apply_ucits_5_10_40
 from miniftse.weighting.schemes import SecurityInputs, float_market_cap_weights
+from miniftse.weighting.weighters import FloatCapWeighter, Weighter, WeightingContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,11 +139,24 @@ class ReconstitutionEngine:
     """Optional factor-score source for a factor variant. `None` gives the
     float-cap-weighted parent."""
 
+    weighter: Weighter = field(default_factory=FloatCapWeighter)
+    """How the candidate set becomes weights. Swapping this is the whole difference
+    between the parent, a factor tilt, a selection index and an optimised variant -
+    every screen, buffer, calendar and corporate-action rule is shared."""
+
+    fund_size: float = 0.0
+    """Assumed tracking-fund size, for capacity constraints. Zero disables them."""
+
+    returns_window: int = 400
+    """Trading days of return history handed to the optimised weighter's risk model."""
+
     _outcomes: dict[dt.date, ReviewOutcome] = field(default_factory=dict, repr=False)
     _previous_bands: dict[str, SizeBand] = field(default_factory=dict, repr=False)
     _previous_members: set[str] = field(default_factory=set, repr=False)
     _calendar: list[ReviewDates] = field(default_factory=list, repr=False)
     _meta: dict[str, dict[str, object]] = field(default_factory=dict, repr=False)
+    _wide_returns: pd.DataFrame | None = field(default=None, repr=False)
+    _weighter_diagnostics: dict[str, object] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         self._meta = {
@@ -221,11 +235,37 @@ class ReconstitutionEngine:
                 shares=m.float_market_cap,   # cap already includes float and FX
                 free_float_factor=1.0,
                 score=self._score(sid, dates.cutoff),
+                # Absolute traded value, not the ratio the liquidity screen uses. The
+                # capacity constraint asks "how many days would a fund of size X take
+                # to build this position", which needs a level, not a proportion.
+                adv=m.median_daily_traded_value,
+                volatility=m.realised_volatility,
+                fundamental_size=m.float_market_cap,
             )
             for sid, m in in_scope.items()
         }
-        raw = self._weights(inputs)
+        context = WeightingContext(
+            as_of=dates.cutoff,
+            previous_weights=dict(self._last_weights),
+            parent_weights=float_market_cap_weights(inputs),
+            returns=self._returns_to(dates.cutoff, list(in_scope)),
+            industry={sid: str(self._meta.get(sid, {}).get("icb_industry", "?"))
+                      for sid in in_scope},
+            country={sid: str(self._meta.get(sid, {}).get("country", "?"))
+                     for sid in in_scope},
+            fund_size=self.fund_size,
+        )
+        # Float-cap weights on the same candidate set: the denominator the index
+        # engine implicitly applies, and therefore the baseline C_i must be measured
+        # against. Computed before the weighter narrows the set.
+        float_cap = float_market_cap_weights(inputs)
+        raw = self.weighter.weights(inputs, context)
+        # A weighter may drop securities entirely - a selection index holds the top
+        # decile, not the candidate set - so the constituent set is what came back, not
+        # what went in.
+        in_scope = {sid: m for sid, m in in_scope.items() if sid in raw}
         capped = apply_ucits_5_10_40(raw, self.config.capping)
+        self._weighter_diagnostics = self.weighter.diagnostics()
 
         # --- assemble ----------------------------------------------------------
         share_lookup = (
@@ -239,10 +279,23 @@ class ReconstitutionEngine:
                 continue
             sh = share_lookup.loc[sid]
             meta = self._meta.get(sid, {})
-            # The capping factor is the ratio of capped to raw weight. Stored as a
-            # factor rather than a weight because the divisor formula needs C_i, and
-            # because it must stay fixed between reviews while prices move.
-            factor = capped.weights[sid] / raw[sid] if raw.get(sid) else 1.0
+            # The weighting factor C_i, relative to FLOAT-CAP weight - not to the
+            # weighter's own output.
+            #
+            # The index computes weights as P*S*F*C / sum(P*S*F*C), and P*S*F is already
+            # the float-cap weight. So C must carry the *entire* deviation from cap
+            # weighting: C_i = target_i / floatcap_i. Setting C = capped/raw instead
+            # gives C ~ 1 whenever capping is not binding, and the published index
+            # silently reverts to float-cap weights however the weighter was configured.
+            #
+            # That is what happened here: a strength-1.0 value tilt with 0.40 active
+            # share at the review published an index with 0.003 active share against
+            # its parent. The weighter, the scores and the capping were all correct;
+            # the factor that carried them into the index was not.
+            factor = (
+                capped.weights[sid] / float_cap[sid]
+                if float_cap.get(sid) else 1.0
+            )
             constituents[sid] = ConstituentSpec(
                 security_id=sid,
                 shares=float(sh["shares_outstanding"]),
@@ -277,13 +330,23 @@ class ReconstitutionEngine:
 
     _last_weights: dict[str, float] = field(default_factory=dict, repr=False)
 
-    def _weights(self, inputs: dict[str, SecurityInputs]) -> dict[str, float]:
-        if self.score_provider is None:
-            return float_market_cap_weights(inputs)
-        from miniftse.weighting.schemes import score_tilt_weights
+    def _returns_to(self, cutoff: dt.date, ids: list[str]) -> pd.DataFrame | None:
+        """Trailing daily returns ending at the cut-off, for the optimised weighter.
 
-        return score_tilt_weights(inputs, strength=getattr(self.score_provider,
-                                                           "tilt_strength", 1.0))
+        Ends at the **cut-off**, not the effective date. Using returns up to the
+        effective date would give the risk model two to five weeks of foresight at every
+        review, and the resulting index would show a tracking error it could never have
+        achieved live.
+        """
+        if self._wide_returns is None:
+            wide = self.prices.pivot_table(
+                index="date", columns="security_id", values="close", aggfunc="last"
+            ).sort_index()
+            self._wide_returns = wide.pct_change()
+        frame = self._wide_returns
+        window = frame.loc[frame.index <= cutoff].tail(self.returns_window)
+        available = [c for c in ids if c in window.columns]
+        return window[available] if available else None
 
     def _score(self, security_id: str, as_of: dt.date) -> float:
         if self.score_provider is None:

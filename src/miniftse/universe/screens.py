@@ -84,10 +84,19 @@ class SecurityMetrics:
     window. A ratio rather than a level, so the threshold means the same thing for a
     mega-cap and a small-cap."""
 
-    price_observations: int
-    security_type: SecurityType
-    market_status: MarketStatus
-    listing_age_days: int
+    median_daily_traded_value: float = 0.0
+    """Absolute median daily traded value in base currency. The *level*, as distinct
+    from the ratio the liquidity screen uses: a capacity constraint asks how many days a
+    fund of a given size would take to build a position, which a proportion cannot
+    answer."""
+
+    realised_volatility: float = 0.0
+    """Annualised volatility over the test window, for risk-weighted schemes."""
+
+    price_observations: int = 0
+    security_type: SecurityType = SecurityType.ORDINARY
+    market_status: MarketStatus = MarketStatus.DEVELOPED
+    listing_age_days: int = 0
     is_suspended: bool = False
     has_local_line_in_index: bool = False
     """True for a depositary receipt whose underlying local line is already a
@@ -360,6 +369,16 @@ def compute_metrics(
         any_suspended=("is_suspended", "last"),
     )
 
+    # Realised volatility over the same window. Computed here rather than in the
+    # weighter so every consumer sees the same number over the same window - two
+    # modules each computing "volatility" over slightly different windows is a
+    # reconciliation problem waiting to happen.
+    px_sorted = px.sort_values(["security_id", "date"])
+    returns = px_sorted.groupby("security_id")["close"].pct_change()
+    vol = (
+        returns.groupby(px_sorted["security_id"]).std() * np.sqrt(252)
+    ).fillna(0.0)
+
     share_lookup = (
         shares[shares["knowledge_date"] <= as_of]
         .sort_values(["security_id", "effective_date", "knowledge_date"])
@@ -395,6 +414,8 @@ def compute_metrics(
             foreign_ownership_limit=fol,
             float_market_cap=float_cap,
             median_daily_turnover_ratio=turnover_ratio,
+            median_daily_traded_value=float(row["median_traded_value"]),
+            realised_volatility=float(vol.get(sid, 0.0)),
             price_observations=int(row["observations"]),
             security_type=SecurityType(str(meta["security_type"])),
             market_status=MarketStatus(str(meta["market_status"])),

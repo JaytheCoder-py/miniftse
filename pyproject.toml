@@ -25,6 +25,9 @@ dependencies = [
     "yfinance>=1.5.2",
 ]
 
+[project.scripts]
+miniftse = "miniftse.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

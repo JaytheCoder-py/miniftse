@@ -741,12 +741,16 @@ class SyntheticUniverse:
         })
         # Intraday range around the close. Not used by the index (which is a close-based
         # calculation) but the quality layer's range checks need it.
+        # High and low must bracket both open and close by construction. Scaling
+        # max(open, close) by a lognormal whose draw can fall below 1.0 lets the high
+        # print under the close, which is not a market that exists - and the quality
+        # layer's OHLC check correctly flags it as corrupt data.
         noise = rng.lognormal(0, 0.006, size=len(prices))
         prices["open"] = prices["close"] / noise
-        prices["high"] = np.maximum(prices["open"], prices["close"]) * rng.lognormal(
-            0.004, 0.003, size=len(prices))
-        prices["low"] = np.minimum(prices["open"], prices["close"]) / rng.lognormal(
-            0.004, 0.003, size=len(prices))
+        upper = np.maximum(prices["open"], prices["close"])
+        lower = np.minimum(prices["open"], prices["close"])
+        prices["high"] = upper * (1.0 + np.abs(rng.normal(0, 0.004, size=len(prices))))
+        prices["low"] = lower / (1.0 + np.abs(rng.normal(0, 0.004, size=len(prices))))
 
         if spin_rows:
             spin_df = pd.DataFrame(spin_rows)

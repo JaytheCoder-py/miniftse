@@ -289,6 +289,7 @@ class CorporateActionEngine:
                 country=c.country,
                 icb_industry=c.icb_industry,
                 size_band=c.size_band,
+                adv=c.adv,
             )
             note = (
                 f"spinco {event.spinco_security_id} enters at {event.spinco_price:.4f}; "

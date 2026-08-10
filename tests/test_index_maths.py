@@ -186,6 +186,29 @@ class TestDivisor:
         assert result.state.divisor < 300.0  # value left the index
         assert result.cash_distributed == pytest.approx(20_000.0)
 
+    def test_spinoff_child_inherits_parent_adv(self) -> None:
+        from miniftse.corpactions.engine import CorporateActionEngine
+        from miniftse.corpactions.events import Spinoff
+        from miniftse.calc.state import Constituent, IndexState
+        import datetime as dt
+
+        engine = CorporateActionEngine(withholding_tax={})
+        parent = Constituent("PARENT", price=100.0, shares=1000.0, adv=8_000_000.0)
+        state = IndexState(date=dt.date(2020, 1, 1), divisor=1.0,
+                            constituents={"PARENT": parent})
+        event = Spinoff(
+            event_id="SPIN-1", security_id="PARENT",
+            ex_date=dt.date(2020, 1, 1), announcement_date=dt.date(2019, 12, 1),
+            pay_date=dt.date(2020, 1, 1),
+            spinco_security_id="CHILD",
+            shares_per_parent_share=1.0,
+            value_per_parent_share=10.0,
+            parent_cum_price=100.0,
+            spinco_enters_index=True,
+        )
+        handled = engine._apply_spinoff(event, state)
+        assert handled.state.constituents["CHILD"].adv == 8_000_000.0
+
     def test_cash_merger_recognises_the_premium(self) -> None:
         """S0 taken out at 130 from 100.
 

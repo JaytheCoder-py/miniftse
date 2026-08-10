@@ -12,3 +12,6 @@ wheels/
 data/raw/
 memos/figures/*.png
 !.gitkeep
+
+# Agent scratch space (ledgers, briefs, review packages)
+.superpowers/

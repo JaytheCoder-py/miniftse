@@ -116,6 +116,36 @@ class TestIndexIntegrity:
             pytest.skip("no reviews in this window")
         assert reviews["level_continuity_bps"].abs().max() < 0.01
 
+    def test_review_populates_constituent_adv(self):
+        from miniftse.calc.fx import FxTable
+        from miniftse.config import global_all_cap
+        from miniftse.review.reconstitution import ReconstitutionEngine
+
+        universe = SyntheticUniverse(SyntheticConfig(n_securities=60, seed=20260809))
+        prices = universe._generated["prices"]
+        shares = universe._generated["shares"]
+        securities = universe.get_securities()
+        config = global_all_cap()
+
+        quotes = list(universe._fx["quote"].unique())
+        fx = FxTable.from_frame(
+            universe.get_fx("USD", quotes, universe.config.start, universe.config.end),
+            universe.get_deposit_rates(quotes, universe.config.start, universe.config.end),
+            base=str(config.base_currency),
+        )
+        spot = {c: fx.rate(config.base_date, c) for c in fx.currencies()}
+
+        reconstitution = ReconstitutionEngine(
+            config=config, prices=prices, shares=shares, securities=securities,
+            fx_rates=spot,
+        )
+        # No effective_dates() call first -> constituents_for falls back to screening at
+        # the date itself (reconstitution.py:186-189), which is exactly what's needed
+        # here: run one review, check what it produced.
+        specs = reconstitution.constituents_for(config.base_date)
+        assert specs, "review produced no constituents - check the fixture"
+        assert any(spec.adv > 0.0 for spec in specs.values())
+
 
 class TestGoldenMaster:
     def test_pin_and_match(self, built, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]

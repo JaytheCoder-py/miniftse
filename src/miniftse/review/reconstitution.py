@@ -279,6 +279,7 @@ class ReconstitutionEngine:
                 continue
             sh = share_lookup.loc[sid]
             meta = self._meta.get(sid, {})
+            metric = in_scope[sid]
             # The weighting factor C_i, relative to FLOAT-CAP weight - not to the
             # weighter's own output.
             #
@@ -308,6 +309,7 @@ class ReconstitutionEngine:
                 currency=meta.get("currency", Currency.USD),  # type: ignore[arg-type]
                 country=meta.get("country", Country.US),  # type: ignore[arg-type]
                 icb_industry=str(meta.get("icb_industry", "")),
+                adv=metric.median_daily_traded_value,
             )
 
         additions = tuple(sorted(set(constituents) - self._previous_members))

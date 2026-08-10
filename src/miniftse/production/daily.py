@@ -76,6 +76,7 @@ class IndexStateFile:
                     "capping_factor": c.capping_factor, "fx_rate": c.fx_rate,
                     "currency": str(c.currency), "country": str(c.country),
                     "icb_industry": c.icb_industry, "size_band": str(c.size_band),
+                    "adv": c.adv,
                 }
                 for k, c in state.constituents.items()
             },
@@ -91,6 +92,7 @@ class IndexStateFile:
                     capping_factor=v["capping_factor"], fx_rate=v["fx_rate"],
                     currency=Currency(v["currency"]), country=Country(v["country"]),
                     icb_industry=v["icb_industry"], size_band=SizeBand(v["size_band"]),
+                    adv=v.get("adv", 0.0),
                 )
                 for k, v in self.constituents.items()
             },

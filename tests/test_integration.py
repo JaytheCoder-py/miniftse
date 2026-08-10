@@ -12,9 +12,11 @@ from pathlib import Path
 
 import pytest
 
+from miniftse.calc.state import Constituent, IndexState
 from miniftse.data.store import SQL_PATTERNS, PitStore
 from miniftse.data.synthetic import SyntheticConfig, SyntheticUniverse
 from miniftse.production.build import BuildSpec, build_index
+from miniftse.production.daily import IndexStateFile
 from miniftse.production.golden import GoldenMaster, compare, introduce_regression
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
@@ -339,6 +341,40 @@ class TestManifest:
         diff = base.diff(changed)
         assert "config" in diff
         assert "base_level" in diff["config"]
+
+
+class TestIndexStateFile:
+    def test_state_file_round_trips_adv(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        state = IndexState(
+            date=dt.date(2020, 1, 1), divisor=1.0,
+            constituents={"S1": Constituent("S1", price=10.0, shares=100.0,
+                                             adv=1_234_567.0)},
+        )
+        saved = IndexStateFile.from_state("MFTSE-TEST", state, pr=100.0, gtr=100.0,
+                                           ntr=100.0)
+        saved.save(tmp_path)
+        loaded = IndexStateFile.load(tmp_path, "MFTSE-TEST")
+        restored = loaded.to_state()
+        assert restored.constituents["S1"].adv == 1_234_567.0
+
+    def test_state_file_without_adv_key_loads_with_zero_default(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        # Simulates a state file written before this field existed.
+        import json
+        path = tmp_path / "MFTSE-OLD_state.json"
+        path.write_text(json.dumps({
+            "index_id": "MFTSE-OLD", "as_of": "2020-01-01", "divisor": 1.0,
+            "level_pr": 100.0, "level_gtr": 100.0, "level_ntr": 100.0,
+            "constituents": {
+                "S1": {
+                    "price": 10.0, "shares": 100.0, "free_float_factor": 1.0,
+                    "capping_factor": 1.0, "fx_rate": 1.0, "currency": "USD",
+                    "country": "US", "icb_industry": "", "size_band": "LARGE",
+                }
+            },
+        }), encoding="utf-8")
+        loaded = IndexStateFile.load(tmp_path, "MFTSE-OLD")
+        restored = loaded.to_state()
+        assert restored.constituents["S1"].adv == 0.0
 
 
 class TestAiLayer:

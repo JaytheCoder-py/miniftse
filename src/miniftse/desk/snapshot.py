@@ -31,6 +31,7 @@ import pandas as pd
 
 from miniftse.agents.evals import EvalCase, load_eval_set, run_evals
 from miniftse.agents.rag import MethodologyAssistant
+from miniftse.calc.index import IndexHistory
 from miniftse.config import global_all_cap
 from miniftse.data.synthetic import SyntheticConfig
 from miniftse.production.build import BuildResult, BuildSpec, build_index
@@ -56,8 +57,6 @@ EVAL_SET_PATH = ARTEFACTS_DIR / "eval_set.json"
 DRILL_SEED = 20260809
 """The seed the precomputed chaos drill runs at. The live drill on `/chaos` defaults to
 the same value so a visitor can confirm the two agree."""
-
-TRADING_DAYS_PER_YEAR = 252
 
 EXPECTED_FILES: tuple[str, ...] = (
     "overview.json",
@@ -168,6 +167,12 @@ def build_snapshot(out_dir: Path, spec: BuildSpec | None = None) -> SnapshotMani
     constituents = _constituents(weights, state.constituents)
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    # A rerun writes in place, so drop the previous run's completeness signal before
+    # touching anything else. Without this, a rerun that dies halfway leaves the old
+    # manifest.json sitting over a directory holding days.parquet from this build and
+    # overview.json from the last one - a mixed snapshot that passes every existence
+    # check and gets served.
+    (out_dir / "manifest.json").unlink(missing_ok=True)
 
     _days_frame(levels, audit, result.history.reviews).to_parquet(
         out_dir / "days.parquet", index=False)
@@ -182,7 +187,7 @@ def build_snapshot(out_dir: Path, spec: BuildSpec | None = None) -> SnapshotMani
     _write_json(out_dir / "golden_diff.json", _golden_payload(levels))
     _write_json(out_dir / "evals.json", _evals_payload(corpus, eval_cases))
 
-    _write_json(out_dir / "overview.json", _overview(levels, index_id))
+    _write_json(out_dir / "overview.json", _overview(result.history, index_id))
     _write_json(out_dir / "constituents.json",
                 {"as_of": state.as_of, "constituents": constituents})
     _write_json(out_dir / "capacity.json", _capacity(constituents))
@@ -392,28 +397,27 @@ def _evals_payload(corpus: tuple[Path, ...], cases: list[EvalCase]) -> dict[str,
 # does not exist yet. When it lands, these four helpers must be deleted and its functions
 # called instead - two implementations of one schema will drift, and the front end
 # renders whichever it is given. Do not fork these shapes.
+#
+# **Deliberate deviation, and the one thing a future `viz/export.py` must not "fix".**
+# The JSON *shape* follows the capacity-viz spec exactly, but the four `stats` *values*
+# are the library's published definitions, not the spec listing's inline arithmetic. The
+# spec's version annualises over 252 trading days where `IndexHistory.annualised_return`
+# uses calendar years, and counts days-the-divisor-moved where `IndexHistory.summary()`
+# and the day screen's event table both say `len(divisor_audit)`. Keeping the inline
+# version would put two different answers to the same question on one site - the overview
+# tile and the factsheet disagreeing about the index's return, the overview tile and
+# Screen 1 disagreeing about how many corporate actions there were. One source of truth
+# per published figure; the library owns the definition.
 # --------------------------------------------------------------------------------------
 
 
-def _overview(levels: pd.DataFrame, index_id: str) -> dict[str, Any]:
-    """`levels`: date, price_return, gross_total_return, net_total_return, divisor -
-    the shape of `{index_id}_levels.parquet`."""
-    df = levels.sort_values("date").reset_index(drop=True)
-    gtr = df["gross_total_return"]
-    daily_ret = gtr.pct_change(fill_method=None).dropna()
-    n_days = len(df) - 1
+def _overview(history: IndexHistory, index_id: str) -> dict[str, Any]:
+    """The level history and its headline statistics.
 
-    annualised_return = (
-        (gtr.iloc[-1] / gtr.iloc[0]) ** (TRADING_DAYS_PER_YEAR / n_days) - 1
-        if n_days > 0 and gtr.iloc[0] > 0 else 0.0
-    )
-    annualised_vol = (
-        float(daily_ret.std(ddof=1)) * (TRADING_DAYS_PER_YEAR ** 0.5)
-        if len(daily_ret) > 1 else 0.0
-    )
-    drawdown = gtr / gtr.cummax() - 1.0
-    max_drawdown = float(drawdown.min()) if not drawdown.empty else 0.0
-    divisor_events = int((df["divisor"].diff().abs() > 1e-9).sum())
+    The series pass straight through from `{index_id}_levels.parquet`'s shape. Every
+    statistic is a library call - see the deviation note above.
+    """
+    df = history.levels.sort_values("date").reset_index(drop=True)
 
     return {
         "index_id": index_id,
@@ -422,10 +426,12 @@ def _overview(levels: pd.DataFrame, index_id: str) -> dict[str, Any]:
         "gtr": df["gross_total_return"].tolist(),
         "ntr": df["net_total_return"].tolist(),
         "stats": {
-            "annualised_return": float(annualised_return),
-            "annualised_vol": float(annualised_vol),
-            "max_drawdown": max_drawdown,
-            "divisor_events": divisor_events,
+            # `gross_total_return` is the series the overview tiles describe, and it is
+            # the default every one of these methods already uses.
+            "annualised_return": history.annualised_return(),
+            "annualised_vol": history.annualised_vol(),
+            "max_drawdown": history.max_drawdown(),
+            "divisor_events": len(history.divisor_audit),
         },
     }
 

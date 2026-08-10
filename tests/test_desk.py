@@ -146,3 +146,37 @@ def test_build_snapshot_fails_loudly_on_missing_artefact(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError, match="risk_onepager"):
         snap.build_snapshot(tmp_path)
     assert not (tmp_path / "manifest.json").exists()
+
+
+@pytest.mark.slow
+def test_failed_rerun_leaves_no_stale_manifest(tmp_path, monkeypatch):
+    """A rerun writes in place, so the completeness signal must not survive a failure.
+
+    Without this, a rerun that dies after `days.parquet` is overwritten leaves the
+    previous run's `manifest.json` over a directory that still contains every name in
+    EXPECTED_FILES - and the startup loader happily serves days.parquet from build B
+    beside overview.json from build A. A mixed snapshot passes every existence check,
+    which is exactly why the existence check cannot be the only guard.
+    """
+    from miniftse.data.synthetic import SyntheticConfig
+    from miniftse.desk import snapshot as snap
+    from miniftse.production.build import BuildSpec
+
+    spec = BuildSpec(
+        universe_config=SyntheticConfig(n_securities=100, seed=20260809),
+        start=dt.date(2019, 1, 2), end=dt.date(2019, 12, 31),
+    )
+    snap.build_snapshot(tmp_path, spec)
+    assert (tmp_path / "manifest.json").exists()
+
+    # Fail at a late artefact, after the parquet files have already been rewritten.
+    monkeypatch.setattr(snap, "_evals_payload", lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("the eval harness fell over")))
+    with pytest.raises(RuntimeError, match="eval harness"):
+        snap.build_snapshot(tmp_path, spec)
+
+    assert not (tmp_path / "manifest.json").exists()
+    assert (tmp_path / "days.parquet").exists(), (
+        "the test is only meaningful if the rerun got far enough to overwrite an "
+        "artefact before failing"
+    )

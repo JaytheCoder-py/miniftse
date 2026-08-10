@@ -187,10 +187,11 @@ class TestDivisor:
         assert result.cash_distributed == pytest.approx(20_000.0)
 
     def test_spinoff_child_inherits_parent_adv(self) -> None:
+        import datetime as dt
+
+        from miniftse.calc.state import Constituent, IndexState
         from miniftse.corpactions.engine import CorporateActionEngine
         from miniftse.corpactions.events import Spinoff
-        from miniftse.calc.state import Constituent, IndexState
-        import datetime as dt
 
         engine = CorporateActionEngine(withholding_tax={})
         parent = Constituent("PARENT", price=100.0, shares=1000.0, adv=8_000_000.0)

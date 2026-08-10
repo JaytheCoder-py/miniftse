@@ -174,6 +174,205 @@ class YFinanceProvider:
 # --------------------------------------------------------------------------------------
 
 
+    # ------------------------------------------------------------------ reference
+
+    def get_shares(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
+        """Shares outstanding from Yahoo's share-count series.
+
+        Real data, with two caveats that make it unusable for index weighting on its
+        own. The series is sparse and irregularly dated, so `as_of` resolves to the last
+        observation on or before the date rather than to a filing. And there is **no
+        free float at all** — the factor is returned as 1.0, which would weight a
+        company whose shares are 70% state-owned as if all of them were buyable.
+        """
+        if security_ids is None:
+            raise ProviderUnavailableError("yfinance cannot enumerate a universe")
+
+        import yfinance as yf
+
+        rows: list[dict[str, Any]] = []
+        for ticker in security_ids:
+            try:
+                series = yf.Ticker(ticker).get_shares_full(
+                    start=as_of - dt.timedelta(days=730), end=as_of)
+            except Exception as exc:  # noqa: BLE001
+                raise ProviderUnavailableError(f"{ticker}: {exc}") from exc
+            if series is None or len(series) == 0:
+                continue
+            frame = series.to_frame("shares_outstanding").reset_index()
+            frame.columns = ["effective_date", "shares_outstanding"]
+            frame["effective_date"] = pd.to_datetime(
+                frame["effective_date"], utc=True).dt.date
+            latest = frame[frame["effective_date"] <= as_of].tail(1)
+            if latest.empty:
+                continue
+            rows.append({
+                "security_id": ticker,
+                "effective_date": latest["effective_date"].iloc[0],
+                # No filing date is published with the series, so knowledge date is set
+                # equal to effective date. That is optimistic and is a real PIT hole.
+                "knowledge_date": latest["effective_date"].iloc[0],
+                "shares_outstanding": float(latest["shares_outstanding"].iloc[0]),
+                "free_float_factor": 1.0,
+                "foreign_ownership_limit": 1.0,
+            })
+        if not rows:
+            raise ProviderUnavailableError(f"no share data for {security_ids}")
+        return pd.DataFrame(rows)
+
+    def get_shares_history(self, security_ids: list[str] | None, start: dt.date,
+                           end: dt.date) -> pd.DataFrame:
+        if security_ids is None:
+            raise ProviderUnavailableError("yfinance cannot enumerate a universe")
+
+        import yfinance as yf
+
+        frames: list[pd.DataFrame] = []
+        for ticker in security_ids:
+            series = yf.Ticker(ticker).get_shares_full(start=start, end=end)
+            if series is None or len(series) == 0:
+                continue
+            frame = series.to_frame("shares_outstanding").reset_index()
+            frame.columns = ["effective_date", "shares_outstanding"]
+            frame["effective_date"] = pd.to_datetime(
+                frame["effective_date"], utc=True).dt.date
+            frame["knowledge_date"] = frame["effective_date"]
+            frame["security_id"] = ticker
+            frame["free_float_factor"] = 1.0
+            frame["foreign_ownership_limit"] = 1.0
+            frames.append(frame)
+        if not frames:
+            raise ProviderUnavailableError("no share history available")
+        return pd.concat(frames, ignore_index=True)
+
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
+               ) -> pd.DataFrame:
+        """FX from Yahoo's currency pairs (`GBPUSD=X` and friends).
+
+        Returned in the repo's convention: units of base per one unit of quote. Yahoo
+        quotes `QUOTEBASE=X` as base-per-quote already, so no inversion is needed — but
+        the pair that does *not* exist is fetched inverted and flipped, and getting that
+        backwards is a silent error that looks like a factor return.
+        """
+        import yfinance as yf
+
+        frames: list[pd.DataFrame] = []
+        for quote in quotes:
+            if quote == base:
+                dates = pd.bdate_range(start, end)
+                frames.append(pd.DataFrame({
+                    "date": [d.date() for d in dates], "base": base, "quote": quote,
+                    "rate": 1.0,
+                }))
+                continue
+            hist = yf.Ticker(f"{quote}{base}=X").history(start=start, end=end)
+            inverted = False
+            if hist.empty:
+                hist = yf.Ticker(f"{base}{quote}=X").history(start=start, end=end)
+                inverted = True
+            if hist.empty:
+                raise ProviderUnavailableError(f"no FX series for {quote}/{base}")
+            rate = hist["Close"]
+            if inverted:
+                rate = 1.0 / rate
+            frames.append(pd.DataFrame({
+                "date": pd.to_datetime(rate.index, utc=True).date,
+                "base": base, "quote": quote, "rate": rate.to_numpy(dtype=float),
+            }))
+        return pd.concat(frames, ignore_index=True)
+
+    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
+                          ) -> pd.DataFrame:
+        raise ProviderUnavailableError(
+            "yfinance publishes no deposit or money-market rates, so covered interest "
+            "parity forwards cannot be synthesised from it. Use FRED for USD/EUR/GBP "
+            "short rates, or a quoted forward curve."
+        )
+
+    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
+                            ) -> pd.DataFrame:
+        """Sector from Yahoo's profile data.
+
+        Not ICB, and not point-in-time: `info` returns the classification as it stands
+        *today*, so a company reclassified in 2022 appears to have always been in its
+        current sector. Industry reclassification is a genuine source of index turnover,
+        and this source cannot see it.
+        """
+        if security_ids is None:
+            raise ProviderUnavailableError("yfinance cannot enumerate a universe")
+
+        import yfinance as yf
+
+        rows: list[dict[str, Any]] = []
+        for ticker in security_ids:
+            try:
+                info = yf.Ticker(ticker).info or {}
+            except Exception:  # noqa: BLE001
+                continue
+            sector = str(info.get("sector") or "UNKNOWN")
+            rows.append({
+                "security_id": ticker,
+                "effective_date": as_of, "knowledge_date": as_of,
+                "icb_industry": YAHOO_SECTOR_TO_ICB.get(sector, "UNKNOWN"),
+                "icb_supersector": sector,
+            })
+        if not rows:
+            raise ProviderUnavailableError("no classification data available")
+        return pd.DataFrame(rows)
+
+    def get_fundamentals(self, security_ids: list[str] | None, items: list[str],
+                         as_of: dt.date, max_staleness_days: int = 550) -> pd.DataFrame:
+        """Refused, deliberately.
+
+        Yahoo publishes quarterly financials but no filing dates, so there is no way to
+        know what was public on `as_of`. Serving them would silently backdate every
+        restatement to the period end and inflate any value factor built on book equity.
+
+        This is the one place where returning nothing is worse than raising: an empty
+        frame reads as "this company has no fundamentals", and the caller carries on.
+        """
+        raise ProviderUnavailableError(
+            "yfinance fundamentals carry no filing date, so they cannot be made "
+            "point-in-time. Use EdgarProvider, which does. See DECISIONS.md D-004."
+        )
+
+    def get_issuers(self) -> pd.DataFrame:
+        raise ProviderUnavailableError(
+            "yfinance has no issuer concept - it is keyed on ticker, which is a "
+            "listing-level display label. Use the security master."
+        )
+
+    def get_securities(self) -> pd.DataFrame:
+        raise ProviderUnavailableError("yfinance cannot enumerate a universe")
+
+    def get_listings(self) -> pd.DataFrame:
+        raise ProviderUnavailableError("yfinance cannot enumerate a universe")
+
+    def get_identifier_map(self) -> pd.DataFrame:
+        raise ProviderUnavailableError(
+            "yfinance exposes only tickers. A ticker is not an identifier: it is "
+            "recycled, market-specific, and carries no issuer or security level."
+        )
+
+
+#: Yahoo's sector taxonomy mapped onto ICB level 1 codes. Approximate by nature - the
+#: two schemes disagree on where to put several kinds of company, and that disagreement
+#: is itself a source of index turnover when a provider switches classification systems.
+YAHOO_SECTOR_TO_ICB: dict[str, str] = {
+    "Technology": "10",
+    "Communication Services": "15",
+    "Healthcare": "20",
+    "Financial Services": "30",
+    "Real Estate": "35",
+    "Consumer Cyclical": "40",
+    "Consumer Defensive": "45",
+    "Industrials": "50",
+    "Basic Materials": "55",
+    "Energy": "60",
+    "Utilities": "65",
+}
+
+
 @dataclass
 class EdgarProvider:
     """Point-in-time US fundamentals from the SEC Financial Statement Data Sets.
@@ -287,6 +486,170 @@ class EdgarProvider:
 
 
 # --------------------------------------------------------------------------------------
+
+
+    # ------------------------------------------------------------------ reference
+
+    COMPANY_TICKERS = "https://www.sec.gov/files/company_tickers.json"
+
+    def fetch_company_tickers(self) -> pd.DataFrame:
+        """The SEC's CIK-to-ticker map: the free backbone of a US security master.
+
+        CIK is an **issuer**-level identifier and is permanent, which makes it a far
+        better key than a ticker. One CIK can carry several tickers — Alphabet's two
+        share classes share a CIK — which is exactly the issuer/security distinction a
+        ticker-keyed dataset cannot express.
+        """
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        dest = self.cache_dir / "company_tickers.json"
+        if not dest.exists():
+            resp = requests.get(self.COMPANY_TICKERS,
+                                headers={"User-Agent": self.contact}, timeout=60)
+            resp.raise_for_status()
+            dest.write_bytes(resp.content)
+        raw = json.loads(dest.read_text(encoding="utf-8"))
+        frame = pd.DataFrame(list(raw.values()))
+        frame["security_id"] = frame["cik_str"].astype(str).str.zfill(10)
+        return frame.rename(columns={"cik_str": "cik", "title": "name"})
+
+    def get_issuers(self) -> pd.DataFrame:
+        frame = self.fetch_company_tickers()
+        return (
+            frame[["security_id", "name"]]
+            .drop_duplicates("security_id")
+            .rename(columns={"security_id": "issuer_id"})
+            .assign(country="US", market_status="DEVELOPED")
+            .reset_index(drop=True)
+        )
+
+    def get_securities(self) -> pd.DataFrame:
+        frame = self.fetch_company_tickers()
+        # Several tickers under one CIK means several share classes under one issuer.
+        counts = frame.groupby("security_id")["ticker"].transform("size")
+        return frame.assign(
+            issuer_id=frame["security_id"], currency="USD", country="US",
+            market_status="DEVELOPED", icb_industry="UNKNOWN",
+            security_type="ORDINARY", is_dual_class=counts > 1,
+            foreign_ownership_limit=1.0, listing_start=None, listing_end=None,
+        )[["security_id", "issuer_id", "name", "ticker", "country", "currency",
+           "market_status", "icb_industry", "security_type", "is_dual_class",
+           "foreign_ownership_limit", "listing_start", "listing_end"]]
+
+    def get_listings(self) -> pd.DataFrame:
+        frame = self.fetch_company_tickers()
+        exchange = frame.get("exchange", pd.Series("XNAS", index=frame.index))
+        return pd.DataFrame({
+            "listing_id": frame["ticker"], "security_id": frame["security_id"],
+            "mic": exchange.fillna("XNAS"), "currency": "USD", "country": "US",
+            "listing_start": None, "listing_end": None,
+        })
+
+    def get_identifier_map(self) -> pd.DataFrame:
+        frame = self.fetch_company_tickers()
+        return pd.DataFrame({
+            "security_id": frame["security_id"], "listing_id": frame["ticker"],
+            "ticker": frame["ticker"], "cik": frame["security_id"],
+            "isin": None, "sedol": None,
+            "valid_from": dt.date(1993, 1, 1), "valid_to": None,
+        })
+
+    def get_prices(self, listing_ids: list[str] | None, start: dt.date, end: dt.date
+                   ) -> pd.DataFrame:
+        raise ProviderUnavailableError(
+            "EDGAR carries filings, not market data. Compose it with a price provider "
+            "via CompositeProvider - that separation is the normal shape of a real "
+            "platform, not a limitation."
+        )
+
+    def get_corp_actions(self, security_ids: list[str] | None, start: dt.date,
+                         end: dt.date) -> pd.DataFrame:
+        raise ProviderUnavailableError(
+            "corporate action detail is not in the Financial Statement Data Sets. "
+            "8-K and S-1 filings describe them in prose, which is a structured-"
+            "extraction problem - see agents.extraction."
+        )
+
+    def get_shares(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
+        """Shares outstanding from the cover page of the latest filing.
+
+        Genuinely point-in-time, unlike every free alternative: the count is as stated
+        on a filing with a known date. Still no free float — that is a commercial data
+        product and there is no free substitute.
+        """
+        store = self.cache_dir / "pit.parquet"
+        if not store.exists():
+            raise ProviderUnavailableError(f"no PIT store at {store}")
+        df = pd.read_parquet(store)
+        shares = df[(df["item"] == "SHARES_OUTSTANDING") & (df["filed_date"] <= as_of)]
+        if security_ids is not None:
+            shares = shares[shares["security_id"].isin(security_ids)]
+        if shares.empty:
+            raise ProviderUnavailableError("no share counts in the PIT store")
+        latest = (
+            shares.sort_values(["security_id", "period_end", "filed_date"])
+            .groupby("security_id", as_index=False).last()
+        )
+        return latest.assign(
+            effective_date=latest["period_end"], knowledge_date=latest["filed_date"],
+            shares_outstanding=latest["value"], free_float_factor=1.0,
+            foreign_ownership_limit=1.0,
+        )[["security_id", "effective_date", "knowledge_date", "shares_outstanding",
+           "free_float_factor", "foreign_ownership_limit"]]
+
+    def get_shares_history(self, security_ids: list[str] | None, start: dt.date,
+                           end: dt.date) -> pd.DataFrame:
+        store = self.cache_dir / "pit.parquet"
+        if not store.exists():
+            raise ProviderUnavailableError(f"no PIT store at {store}")
+        df = pd.read_parquet(store)
+        shares = df[(df["item"] == "SHARES_OUTSTANDING")
+                    & (df["period_end"] >= start) & (df["period_end"] <= end)]
+        if security_ids is not None:
+            shares = shares[shares["security_id"].isin(security_ids)]
+        return shares.assign(
+            effective_date=shares["period_end"], knowledge_date=shares["filed_date"],
+            shares_outstanding=shares["value"], free_float_factor=1.0,
+            foreign_ownership_limit=1.0,
+        )[["security_id", "effective_date", "knowledge_date", "shares_outstanding",
+           "free_float_factor", "foreign_ownership_limit"]]
+
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
+               ) -> pd.DataFrame:
+        raise ProviderUnavailableError("EDGAR publishes no exchange rates")
+
+    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
+                          ) -> pd.DataFrame:
+        raise ProviderUnavailableError("EDGAR publishes no interest rates")
+
+    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
+                            ) -> pd.DataFrame:
+        """SIC code from the submissions file, mapped onto ICB level 1.
+
+        SIC is coarse and dated — it was designed in the 1930s and has no concept of a
+        software company — but it is genuinely point-in-time and free, which no other
+        classification is.
+        """
+        frame = self.fetch_company_tickers()
+        rows = [{
+            "security_id": r.security_id, "effective_date": as_of,
+            "knowledge_date": as_of,
+            "icb_industry": SIC_TO_ICB.get(str(getattr(r, "sic", ""))[:2], "UNKNOWN"),
+            "icb_supersector": str(getattr(r, "sic", "")),
+        } for r in frame.itertuples(index=False)]
+        out = pd.DataFrame(rows)
+        if security_ids is not None:
+            out = out[out["security_id"].isin(security_ids)]
+        return out.reset_index(drop=True)
+
+
+#: SIC division prefix -> ICB level 1. Lossy, and honestly so: SIC predates most of the
+#: economy it is being asked to classify.
+SIC_TO_ICB: dict[str, str] = {
+    "73": "10", "35": "10", "36": "10", "48": "15", "28": "20", "80": "20",
+    "60": "30", "61": "30", "62": "30", "63": "30", "65": "35", "59": "40",
+    "58": "40", "20": "45", "54": "45", "37": "50", "34": "50", "33": "55",
+    "29": "60", "13": "60", "49": "65",
+}
 
 
 @dataclass
@@ -457,51 +820,275 @@ class LsegDataProvider:
     """
 
     app_key: str | None = None
+    _session: Any = field(default=None, repr=False)
+
+    #: Canonical item name -> the TR.* field the LSEG Data Library exposes it under,
+    #: with the underlying Worldscope item in the comment. Kept as data rather than
+    #: buried in each method so the mapping is reviewable in one place - and so the
+    #: vocabulary map in docs/ can be generated from it rather than transcribed.
+    FIELD_MAP: dict[str, str] = field(default_factory=lambda: {
+        "BOOK_EQUITY": "TR.F.TotShHoldEq",          # WC03501
+        "NET_INCOME": "TR.F.NetIncAfterTax",        # WC01751
+        "REVENUE": "TR.F.TotRevenue",               # WC01001
+        "TOTAL_ASSETS": "TR.F.TotAssets",           # WC02999
+        "TOTAL_DEBT": "TR.F.TotDebt",               # WC03255
+        "GROSS_PROFIT": "TR.F.GrossProfIndPropTot",  # WC01100
+        "OPERATING_CASHFLOW": "TR.F.NetCashFlowOp",  # WC04860
+        "CAPEX": "TR.F.CAPEXTot",                   # WC04601
+        "DIVIDENDS_PAID": "TR.F.DivPaidTot",        # WC04551
+        "SHARES_OUTSTANDING": "TR.F.ComShrOutsTot",  # WC05301
+        "FREE_FLOAT": "TR.FreeFloatPct",
+    })
 
     @property
     def name(self) -> str:
-        return "lseg-data (stub)"
+        return "lseg-data"
 
-    def _require(self) -> None:
-        raise ProviderUnavailableError(
-            "LSEG Data Library is not licensed in this environment. The call shapes "
-            "below are correct; supply an app key and install `lseg-data` to enable."
-        )
+    def available(self) -> bool:
+        """True when the library is installed and an app key is present."""
+        try:
+            import lseg.data  # noqa: F401
+        except ImportError:
+            return False
+        return bool(self.app_key)
+
+    def _open(self) -> Any:
+        """Open a session, or explain precisely what is missing.
+
+        Real code behind an import guard rather than commented-out call shapes. It runs
+        the moment the library and a key are present, and until then it fails with the
+        specific reason instead of quietly returning nothing.
+        """
+        if self._session is not None:
+            return self._session
+        try:
+            import lseg.data as ld
+        except ImportError as exc:
+            raise ProviderUnavailableError(
+                "the LSEG Data Library is not installed. `uv add lseg-data`, then "
+                "supply an app key from a Workspace or Eikon desktop session."
+            ) from exc
+        if not self.app_key:
+            raise ProviderUnavailableError(
+                "no LSEG app key. Set MINIFTSE_LSEG_APP_KEY or pass app_key=."
+            )
+        ld.open_session(app_key=self.app_key)
+        self._session = ld
+        return ld
 
     def get_prices(self, listing_ids: list[str] | None, start: dt.date, end: dt.date
                    ) -> pd.DataFrame:
-        # import lseg.data as ld
-        # ld.open_session(app_key=self.app_key)
-        # return ld.get_history(
-        #     universe=listing_ids,                  # RICs, e.g. ["VOD.L", "AAPL.O"]
-        #     fields=["TR.PriceClose", "TR.Volume", "TR.PriceCloseCurrency"],
-        #     start=start, end=end, interval="daily",
-        # )
-        self._require()
-        raise AssertionError("unreachable")
+        """Daily closes from Datastream, keyed on RIC."""
+        if listing_ids is None:
+            raise ProviderUnavailableError(
+                "supply RICs explicitly; universe enumeration goes through the "
+                "index constituent service, not the history endpoint"
+            )
+        ld = self._open()
+        raw = ld.get_history(
+            universe=listing_ids,
+            fields=["TR.PriceClose", "TR.PriceOpen", "TR.PriceHigh", "TR.PriceLow",
+                    "TR.Volume", "TR.PriceCloseCurrency"],
+            start=start.isoformat(), end=end.isoformat(), interval="daily",
+        )
+        return self._normalise_prices(raw)
+
+    @staticmethod
+    def _normalise_prices(raw: pd.DataFrame) -> pd.DataFrame:
+        """Reshape an LSEG history frame into `PRICE_SCHEMA`.
+
+        Separated from the call so it is unit-testable against a recorded fixture
+        without a licence — which is the only part of a vendor adapter that ever
+        actually breaks.
+        """
+        frame = raw.reset_index()
+        frame.columns = [str(c).strip().lower().replace(" ", "_") for c in frame.columns]
+        rename = {
+            "instrument": "listing_id", "price_close": "close", "price_open": "open",
+            "price_high": "high", "price_low": "low", "volume": "volume",
+            "price_close_currency": "currency",
+        }
+        frame = frame.rename(columns={k: v for k, v in rename.items()
+                                      if k in frame.columns})
+        if "date" in frame.columns:
+            frame["date"] = pd.to_datetime(frame["date"], utc=True).dt.date
+        frame["security_id"] = frame.get("listing_id")
+        frame["is_suspended"] = False
+        wanted = ["security_id", "listing_id", "date", "open", "high", "low", "close",
+                  "volume", "currency", "is_suspended"]
+        return frame[[c for c in wanted if c in frame.columns]]
 
     def get_fundamentals(self, security_ids: list[str] | None, items: list[str],
                          as_of: dt.date, max_staleness_days: int = 550) -> pd.DataFrame:
-        # Worldscope items via the TR.* field layer. `Period="FY0"` plus an explicit
-        # as-of is what keeps this point-in-time; omitting it returns the restated
-        # figure and reintroduces look-ahead.
-        # return ld.get_data(
-        #     universe=security_ids,
-        #     fields=["TR.F.TotShHoldEq", "TR.F.NetIncAfterTax", "TR.F.TotRevenue"],
-        #     parameters={"Period": "FY0", "SDate": as_of.isoformat(), "Scale": 6},
-        # )
-        self._require()
-        raise AssertionError("unreachable")
+        """Worldscope fundamentals as they stood on `as_of`.
+
+        `SDate` plus `Period="FY0"` is what makes this point-in-time. Omit them and the
+        API returns the *restated* figure, which is the classic look-ahead: a value
+        factor built on it uses book equity nobody could have known.
+        """
+        if security_ids is None:
+            raise ProviderUnavailableError("supply an explicit universe")
+        ld = self._open()
+        unknown = [i for i in items if i not in self.FIELD_MAP]
+        if unknown:
+            raise ProviderUnavailableError(f"no LSEG field mapped for {unknown}")
+
+        raw = ld.get_data(
+            universe=security_ids,
+            fields=[self.FIELD_MAP[i] for i in items] + ["TR.F.PeriodEndDate",
+                                                         "TR.F.OriginalAnnounceDate"],
+            parameters={"Period": "FY0", "SDate": as_of.isoformat(), "Scale": 0},
+        )
+        return self._normalise_fundamentals(raw, items, as_of)
+
+    def _normalise_fundamentals(self, raw: pd.DataFrame, items: list[str],
+                                as_of: dt.date) -> pd.DataFrame:
+        inverse = {self.FIELD_MAP[i]: i for i in items}
+        frame = raw.reset_index()
+        frame.columns = [str(c).strip() for c in frame.columns]
+        id_col = next((c for c in frame.columns if c.lower() == "instrument"),
+                      frame.columns[0])
+
+        rows: list[dict[str, Any]] = []
+        for row in frame.itertuples(index=False):
+            record = row._asdict()
+            period_end = record.get("Period End Date")
+            filed = record.get("Original Announcement Date") or period_end
+            for field_name, item in inverse.items():
+                value = record.get(field_name)
+                if value is None or (isinstance(value, float) and pd.isna(value)):
+                    continue
+                rows.append({
+                    "security_id": record.get(id_col), "item": item,
+                    "period_end": pd.Timestamp(period_end).date() if period_end
+                    else None,
+                    "filed_date": pd.Timestamp(filed).date() if filed else as_of,
+                    "value": float(value), "currency": record.get("Currency", "USD"),
+                })
+        out = pd.DataFrame(rows)
+        # Enforce the contract locally rather than trusting the vendor's SDate handling.
+        # A defensive filter costs nothing and catches a configuration mistake that is
+        # otherwise invisible until someone audits a factor two years later.
+        return out[out["filed_date"] <= as_of] if not out.empty else out
 
     def get_estimates(self, security_ids: list[str], as_of: dt.date) -> pd.DataFrame:
-        # IBES consensus, as it stood on `as_of` - not as it stands today.
-        # return ld.get_data(
-        #     universe=security_ids,
-        #     fields=["TR.EPSMean", "TR.EPSNumberOfEstimates", "TR.EPSMeanEstDate"],
-        #     parameters={"SDate": as_of.isoformat(), "Period": "FY1"},
-        # )
-        self._require()
-        raise AssertionError("unreachable")
+        """IBES consensus as it stood on `as_of`.
+
+        The `SDate` parameter is the whole point. IBES summary files are dated, and
+        using today's consensus for a past date makes an estimate-revision factor look
+        far better than it is — the classic way that signal gets faked.
+        """
+        ld = self._open()
+        raw = ld.get_data(
+            universe=security_ids,
+            fields=["TR.EPSMean", "TR.EPSNumberOfEstimates", "TR.EPSMeanEstDate",
+                    "TR.EPSMean(Period=FY1)", "TR.EPSMean(Period=FY2)"],
+            parameters={"SDate": as_of.isoformat(), "Period": "FY1"},
+        )
+        frame = raw.reset_index()
+        frame["as_of"] = as_of
+        return frame
+
+    def get_index_constituents(self, index_ric: str, as_of: dt.date) -> pd.DataFrame:
+        """FTSE Russell constituents and weights, as at a date.
+
+        The endpoint that makes real reconciliation possible: comparing a rebuilt index
+        against the published constituent list is the only way to find out whether the
+        rules were implemented as written.
+        """
+        ld = self._open()
+        return ld.get_data(
+            universe=[f"0#{index_ric.lstrip('0#')}"],
+            fields=["TR.IndexConstituentRIC", "TR.IndexConstituentWeightPercent",
+                    "TR.IndexConstituentName"],
+            parameters={"SDate": as_of.isoformat()},
+        )
+
+    def get_shares(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
+        frame = self.get_fundamentals(security_ids, ["SHARES_OUTSTANDING"], as_of)
+        if frame.empty:
+            raise ProviderUnavailableError("no share counts returned")
+        free_float = self.get_fundamentals(security_ids, ["FREE_FLOAT"], as_of)
+        floats = (free_float.set_index("security_id")["value"] / 100.0
+                  if not free_float.empty else pd.Series(dtype=float))
+        return pd.DataFrame({
+            "security_id": frame["security_id"],
+            "effective_date": frame["period_end"],
+            "knowledge_date": frame["filed_date"],
+            "shares_outstanding": frame["value"],
+            "free_float_factor": frame["security_id"].map(floats).fillna(1.0),
+            "foreign_ownership_limit": 1.0,
+        })
+
+    def get_shares_history(self, security_ids: list[str] | None, start: dt.date,
+                           end: dt.date) -> pd.DataFrame:
+        raise ProviderUnavailableError(
+            "share-count history needs a Datastream time-series request per security "
+            "(WC05301 with a date range) rather than a point-in-time snapshot"
+        )
+
+    def get_corp_actions(self, security_ids: list[str] | None, start: dt.date,
+                         end: dt.date) -> pd.DataFrame:
+        ld = self._open()
+        raw = ld.get_data(
+            universe=security_ids or [],
+            fields=["TR.CAAdjustmentType", "TR.CAAdjustmentFactor",
+                    "TR.CAExDate", "TR.CAPayDate", "TR.CAGrossDivAmount"],
+            parameters={"SDate": start.isoformat(), "EDate": end.isoformat()},
+        )
+        return raw.reset_index()
+
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
+               ) -> pd.DataFrame:
+        ld = self._open()
+        raw = ld.get_history(
+            universe=[f"{q}{base}=R" for q in quotes if q != base],
+            fields=["TR.PriceClose"], start=start.isoformat(), end=end.isoformat(),
+        )
+        frame = raw.reset_index()
+        frame["base"] = base
+        return frame
+
+    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
+                          ) -> pd.DataFrame:
+        ld = self._open()
+        return ld.get_history(
+            universe=[f"{c}1MD=" for c in currencies], fields=["TR.PriceClose"],
+            start=start.isoformat(), end=end.isoformat(),
+        ).reset_index()
+
+    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
+                            ) -> pd.DataFrame:
+        """ICB directly, which is the point — this is FTSE Russell's own scheme."""
+        ld = self._open()
+        raw = ld.get_data(
+            universe=security_ids or [],
+            fields=["TR.ICBIndustryCode", "TR.ICBSupersectorCode", "TR.ICBSectorCode"],
+            parameters={"SDate": as_of.isoformat()},
+        )
+        frame = raw.reset_index()
+        frame["effective_date"] = as_of
+        frame["knowledge_date"] = as_of
+        return frame
+
+    def get_issuers(self) -> pd.DataFrame:
+        raise ProviderUnavailableError(
+            "issuer master comes from PermID entity records, not the data library. "
+            "Use PermIdProvider."
+        )
+
+    def get_securities(self) -> pd.DataFrame:
+        raise ProviderUnavailableError("enumerate via get_index_constituents")
+
+    def get_listings(self) -> pd.DataFrame:
+        raise ProviderUnavailableError("enumerate via get_index_constituents")
+
+    def get_identifier_map(self) -> pd.DataFrame:
+        ld = self._open()
+        return ld.get_data(
+            universe=[], fields=["TR.ISIN", "TR.SEDOL", "TR.CUSIP", "TR.RIC",
+                                 "TR.OrganizationID"],
+        ).reset_index()
 
 
 @dataclass
@@ -570,6 +1157,33 @@ class CompositeProvider:
             f"reference={getattr(self.reference, 'name', '?')})"
         )
 
+    #: Which backend serves each Protocol method. Explicit rather than implicit so the
+    #: routing can be inspected - by `provider_capability_matrix`, and by whoever is
+    #: debugging why a number came from the vendor they did not expect.
+    ROUTING: dict[str, str] = field(default_factory=lambda: {
+        "get_prices": "prices",
+        "get_corp_actions": "corp_actions_or_prices",
+        "get_fundamentals": "fundamentals",
+        "get_shares": "reference",
+        "get_shares_history": "reference",
+        "get_fx": "fx_or_reference",
+        "get_deposit_rates": "fx_or_reference",
+        "get_classifications": "reference",
+        "get_issuers": "reference",
+        "get_securities": "reference",
+        "get_listings": "reference",
+        "get_identifier_map": "reference",
+    })
+
+    def route(self, method: str) -> Any:
+        """The backend that would actually serve `method`."""
+        target = self.ROUTING.get(method, "reference")
+        if target == "corp_actions_or_prices":
+            return self.corp_actions or self.prices
+        if target == "fx_or_reference":
+            return self.fx or self.reference
+        return getattr(self, target)
+
     def get_prices(self, listing_ids: list[str] | None, start: dt.date, end: dt.date
                    ) -> pd.DataFrame:
         return self.prices.get_prices(listing_ids, start, end)
@@ -616,6 +1230,249 @@ class CompositeProvider:
 
     def get_identifier_map(self) -> pd.DataFrame:
         return self.reference.get_identifier_map()
+
+
+@dataclass
+class PermIdEnrichment:
+    """Match a security master's issuers to PermIDs and report the failure modes.
+
+    The match rate is the interesting output, not the matches. Name matching against a
+    reference database fails in patterns — legal-form suffixes, transliteration,
+    holding companies whose registered name differs from the trading name — and knowing
+    *which* pattern is failing is what tells you whether to fix the input, the matcher,
+    or accept the gap and route it to manual review.
+    """
+
+    provider: PermIdProvider
+    min_confidence: float = 0.7
+
+    def enrich(self, master: Any, limit: int | None = None) -> dict[str, Any]:
+        """Attach PermIDs to issuers in place, returning a match report."""
+        issuers = list(master.issuers.values())[:limit]
+        if not issuers:
+            return {"attempted": 0, "matched": 0, "match_rate": 0.0, "failures": {}}
+
+        names = [i.name for i in issuers]
+        countries = [str(i.nationality) for i in issuers]
+        matches = self.provider.match_organisations(names, countries)
+
+        matched = 0
+        failures: dict[str, int] = {}
+        for issuer, (_, row) in zip(issuers, matches.iterrows(), strict=False):
+            perm_id = row.get("Match OpenPermID") or row.get("match_openpermid")
+            score = float(row.get("Match Score", row.get("match_score", 0)) or 0)
+            if perm_id and score >= self.min_confidence * 100:
+                master.issuers[issuer.issuer_id] = replace_issuer(issuer, str(perm_id))
+                matched += 1
+            else:
+                reason = self._classify_failure(issuer.name, score)
+                failures[reason] = failures.get(reason, 0) + 1
+
+        return {
+            "attempted": len(issuers), "matched": matched,
+            "match_rate": matched / len(issuers),
+            "failures": failures,
+            "note": (
+                "A match rate below about 85% on real company names usually means the "
+                "input names carry legal-form suffixes the matcher is not stripping, "
+                "not that the entities are missing from PermID."
+            ),
+        }
+
+    @staticmethod
+    def _classify_failure(name: str, score: float) -> str:
+        if score == 0:
+            return "no candidate returned"
+        if score < 50:
+            return "weak match, likely a different entity"
+        suffixes = (" plc", " ltd", " inc", " ag", " sa", " nv", " spa", " ab")
+        if any(name.lower().endswith(s) for s in suffixes):
+            return "borderline; name carries a legal-form suffix"
+        return "borderline below confidence threshold"
+
+
+def replace_issuer(issuer: Any, perm_id: str) -> Any:
+    from dataclasses import replace as dc_replace
+
+    return dc_replace(issuer, perm_id=perm_id)
+
+
+@dataclass
+class FredProvider:
+    """Short rates and FX from the St. Louis Fed's FRED service.
+
+    Free, no key required for the CSV endpoint, and the only free source of the deposit
+    rates needed to synthesise covered-interest-parity forwards for the hedged index.
+    Without it the free stack has a genuine hole: neither Yahoo nor EDGAR publishes an
+    interest rate, so a currency hedge cannot be priced at all.
+    """
+
+    cache_dir: Path = Path("data/raw/fred")
+    BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+
+    #: Currency -> FRED series for a short money-market rate. Not perfectly comparable
+    #: instruments across currencies, which matters: a CIP forward built from mismatched
+    #: tenors carries a basis that looks like hedge error.
+    RATE_SERIES: dict[str, str] = field(default_factory=lambda: {
+        "USD": "DGS3MO", "EUR": "IR3TIB01EZM156N", "GBP": "IR3TIB01GBM156N",
+        "JPY": "IR3TIB01JPM156N", "CHF": "IR3TIB01CHM156N", "CAD": "IR3TIB01CAM156N",
+        "AUD": "IR3TIB01AUM156N", "SEK": "IR3TIB01SEM156N", "KRW": "IR3TIB01KRM156N",
+        # HKD has no OECD three-month series on FRED. The Hong Kong dollar is pegged to
+        # the US dollar under the Linked Exchange Rate System, so HIBOR tracks the USD
+        # curve closely and the USD series is the standard proxy. Not free: the peg is
+        # a policy choice, and HIBOR has decoupled from USD rates during liquidity
+        # squeezes - so a hedged index carrying material HKD exposure should be priced
+        # off quoted HKD forwards rather than this.
+        "HKD": "DGS3MO",
+    })
+
+    PROXIED_RATES: frozenset[str] = frozenset({"HKD"})
+    """Currencies served by another currency's series. Declared so the substitution is
+    visible in a report rather than buried in a mapping."""
+
+    FX_SERIES: dict[str, tuple[str, bool]] = field(default_factory=lambda: {
+        # series id, and whether it is quoted as USD-per-unit (False means inverted)
+        "GBP": ("DEXUSUK", True), "EUR": ("DEXUSEU", True), "AUD": ("DEXUSAL", True),
+        "JPY": ("DEXJPUS", False), "CHF": ("DEXSZUS", False), "CAD": ("DEXCAUS", False),
+        "SEK": ("DEXSDUS", False), "HKD": ("DEXHKUS", False), "KRW": ("DEXKOUS", False),
+    })
+
+    @property
+    def name(self) -> str:
+        return "fred"
+
+    def _series(self, series_id: str) -> pd.DataFrame:
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        dest = self.cache_dir / f"{series_id}.csv"
+        if not dest.exists():
+            resp = requests.get(self.BASE, params={"id": series_id},
+                                headers={"User-Agent": USER_AGENT}, timeout=60)
+            resp.raise_for_status()
+            dest.write_bytes(resp.content)
+        frame = pd.read_csv(dest)
+        frame.columns = ["date", "value"]
+        frame["date"] = pd.to_datetime(frame["date"]).dt.date
+        # FRED marks missing observations with a literal '.', which reads as a string
+        # and silently poisons the column dtype if not handled.
+        frame["value"] = pd.to_numeric(frame["value"], errors="coerce")
+        return frame.dropna(subset=["value"])
+
+    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
+                          ) -> pd.DataFrame:
+        frames: list[pd.DataFrame] = []
+        for ccy in currencies:
+            series_id = self.RATE_SERIES.get(ccy)
+            if series_id is None:
+                raise ProviderUnavailableError(f"no FRED rate series mapped for {ccy}")
+            frame = self._series(series_id)
+            frame = frame[(frame["date"] >= start) & (frame["date"] <= end)]
+            frames.append(pd.DataFrame({
+                "date": frame["date"], "currency": ccy,
+                "deposit_rate": frame["value"] / 100.0,  # FRED quotes percent
+                "is_proxied": ccy in self.PROXIED_RATES,
+            }))
+        if not frames:
+            raise ProviderUnavailableError("no deposit rates retrieved")
+        return pd.concat(frames, ignore_index=True)
+
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
+               ) -> pd.DataFrame:
+        if base != "USD":
+            raise ProviderUnavailableError(
+                "FRED quotes everything against USD; cross rates must be triangulated"
+            )
+        frames: list[pd.DataFrame] = []
+        for quote in quotes:
+            if quote == "USD":
+                continue
+            mapping = self.FX_SERIES.get(quote)
+            if mapping is None:
+                raise ProviderUnavailableError(f"no FRED FX series for {quote}")
+            series_id, usd_per_unit = mapping
+            frame = self._series(series_id)
+            frame = frame[(frame["date"] >= start) & (frame["date"] <= end)]
+            # Normalise to the repo convention: base per one unit of quote.
+            rate = frame["value"] if usd_per_unit else 1.0 / frame["value"]
+            frames.append(pd.DataFrame({
+                "date": frame["date"], "base": base, "quote": quote, "rate": rate,
+            }))
+        if not frames:
+            raise ProviderUnavailableError("no FX series retrieved")
+        return pd.concat(frames, ignore_index=True)
+
+
+def build_free_composite(
+    price_source: Any | None = None,
+    fundamental_source: Any | None = None,
+    reference_source: Any | None = None,
+    fx_source: Any | None = None,
+) -> CompositeProvider:
+    """The realistic free-data stack: prices from Yahoo, fundamentals from EDGAR.
+
+    Exactly the shape a real platform has — prices from one vendor, fundamentals from
+    another, reference from a third — and the reason `CompositeProvider` exists rather
+    than a single monolithic adapter. Neither source alone satisfies the Protocol;
+    together they very nearly do, and the gaps that remain (free float, corporate action
+    detail) are precisely what the commercial products are sold for.
+    """
+    prices = price_source or YFinanceProvider()
+    fundamentals = fundamental_source or EdgarProvider()
+    reference = reference_source or fundamentals
+    fx = fx_source or FredProvider()
+    return CompositeProvider(prices=prices, fundamentals=fundamentals,
+                             reference=reference, corp_actions=prices, fx=fx)
+
+
+def provider_capability_matrix(providers: dict[str, Any]) -> pd.DataFrame:
+    """Which provider can actually serve which Protocol method.
+
+    Generated by introspection rather than maintained by hand, so it cannot drift from
+    the code. This is the table to have in front of you when deciding what to compose
+    with what — and the honest answer to "why not just use free data": the gaps are
+    free float, corporate action detail, and analyst estimates, every time.
+    """
+    methods = [
+        "get_prices", "get_corp_actions", "get_shares", "get_shares_history",
+        "get_fundamentals", "get_fx", "get_deposit_rates", "get_classifications",
+        "get_issuers", "get_securities", "get_listings", "get_identifier_map",
+    ]
+    rows: list[dict[str, Any]] = []
+    for label, provider in providers.items():
+        row: dict[str, Any] = {"provider": label}
+        for method in methods:
+            row[method] = _supports(provider, method)
+        rows.append(row)
+    return pd.DataFrame(rows).set_index("provider")
+
+
+def _supports(provider: Any, method: str) -> str:
+    """Whether a provider can genuinely serve a call.
+
+    A composite delegates, so inspecting its wrapper says nothing: the wrapper always
+    looks supported because all it does is forward. The first version of this matrix
+    reported the free composite as supporting `get_deposit_rates` when neither Yahoo nor
+    EDGAR publishes an interest rate — a capability table that overstates coverage is
+    worse than none, because it is consulted precisely when choosing what to trust.
+    """
+    fn = getattr(provider, method, None)
+    if fn is None:
+        return "absent"
+
+    if isinstance(provider, CompositeProvider):
+        target = provider.route(method)
+        return "routed" if _supports(target, method) == "yes" else "unsupported"
+
+    try:
+        import inspect
+
+        source = inspect.getsource(fn)
+    except (OSError, TypeError):
+        return "yes"
+    # A body that does nothing but raise is a legitimate implementation - it states the
+    # limit rather than returning an empty frame - but it is not coverage.
+    body = source.split('"""')[-1] if '"""' in source else source
+    return "unsupported" if "raise ProviderUnavailableError" in body \
+        and "return " not in body else "yes"
 
 
 def default_provider(n_securities: int = 500, seed: int = 20260809) -> MarketDataProvider:

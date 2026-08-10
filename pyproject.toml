@@ -28,6 +28,11 @@ dependencies = [
 [project.scripts]
 miniftse = "miniftse.cli:main"
 
+[project.optional-dependencies]
+orchestration = [
+    "dagster>=1.13.17",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -46,6 +51,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+markers = [
+    "slow: integration tests that build a full history or run an orchestrator",
+]
 
 [tool.mypy]
 # Strict by default. The relaxations below are per-module and each has a reason;
@@ -60,7 +68,10 @@ warn_unused_ignores = false
 module = [
     "yfinance.*", "duckdb.*", "statsmodels.*", "cvxpy.*", "scipy.*",
     "sklearn.*", "matplotlib.*", "polars.*", "pyarrow.*", "anthropic.*",
-    "requests.*", "hypothesis.*",
+    "requests.*", "hypothesis.*", "dagster.*",
+    # `lseg.data` is a licensed library that cannot be installed here. The adapter is
+    # real code behind an import guard, so the import must be allowed to be missing.
+    "lseg.*",
 ]
 ignore_missing_imports = true
 

@@ -98,41 +98,12 @@ def chaos_drill_cmd(
     seed: int = typer.Option(20260809),
 ) -> None:
     """Inject realistic data faults and report which the validation suite catches."""
-    from miniftse.quality.faults import build_baseline_context, drill_summary, run_chaos_drill
+    from miniftse.quality.faults import baseline_from_build, drill_summary, run_chaos_drill
 
     result = build_index(
         _spec("all-cap", securities, "2016-01-04", "2020-12-31", seed), verbose=False
     )
-    history, universe = result.history, result.universe
-    last = history.levels.iloc[-1]
-    prior = history.levels.iloc[-2]
-    as_of = last["date"]
-
-    prices = universe._generated["prices"]
-    today = prices[prices["date"] == as_of]
-    prior_dates = sorted(d for d in prices["date"].unique() if d < as_of)
-    yesterday = prices[prices["date"] == prior_dates[-1]]
-
-    snapshot = history.weights[history.weights["date"] == history.weights["date"].max()]
-    weights = snapshot.set_index("security_id")["weight"]
-
-    context = build_baseline_context(
-        prices=today, prior_prices=yesterday, weights=weights,
-        shares=universe.get_shares(None, as_of),
-        fx=universe.get_fx("USD", list(universe._fx["quote"].unique()), as_of, as_of),
-        prior_fx=universe.get_fx("USD", list(universe._fx["quote"].unique()),
-                                 prior_dates[-1], prior_dates[-1]),
-        as_of=as_of, divisor=float(last["divisor"]),
-        index_level=float(last["price_return"]),
-        total_market_value=float(last["total_market_value"]),
-        divisor_audit=result.calculator.engine.audit_frame(),
-        corp_actions=universe.get_corp_actions(None, as_of, as_of),
-        config=result.manifest.config and global_all_cap(),
-        prior_index_level=float(prior["price_return"]),
-        prior_divisor=float(prior["divisor"]),
-    )
-
-    frame, gaps = run_chaos_drill(context)
+    frame, gaps = run_chaos_drill(baseline_from_build(result))
 
     table = Table(title="Chaos drill", show_lines=False)
     for column in ("id", "fault", "detected", "by", "severity", "blocked"):

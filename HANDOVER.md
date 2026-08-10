@@ -25,13 +25,18 @@ M6, M8, M10, M13, M15.
 
 ```bash
 cd miniftse && uv sync
-make check          # ruff + mypy --strict + 70 tests, all green
-make build-index    # 10y history + factsheet from a clean clone, no network, no keys
+make check                       # ruff + mypy --strict + tests, all green
+make build-index                 # 10y history + factsheet, no network, no keys
+uv run miniftse documents        # regenerate every document from the code
+uv run miniftse reconcile        # constituent-level reconciliation study
+uv sync --extra orchestration    # then: uv run dagster dev -m miniftse.production.dagster_defs
 ```
 
-- **66 source files, ~18,700 lines.** `mypy --strict` clean, `ruff` clean, 70 tests pass.
+- **71 source files, ~21,000 lines.** `mypy --strict` clean, `ruff` clean, **89 tests**
+  (70 in a clean clone; the 19 Dagster/orchestration tests skip without the extra).
 - The golden master pins a 10-year index history to a hash; CI fails on any drift.
 - Everything runs against a deterministic synthetic universe. No API keys, no network.
+- Verified from a fresh `git clone` + `uv sync` in this session.
 
 ---
 
@@ -111,16 +116,6 @@ What remains is bounded by **access, not effort**:
   comparison and says so, rather than padding a component to make the table sum.
 - Turnover figures are universe-size dependent. At 150 securities the 5/10/40 cap
   dominates the weighting; at 500 it barely binds. Quote the 500-name numbers.
-
-### Known measurement caveats, stated not hidden
-- The risk model **over-forecasts** (bias statistic 0.62). Largely because exposures are
-  held fixed at the estimation date while the index rebalances quarterly. Reported
-  honestly in the risk one-pager rather than tuned away.
-- The RAG assistant's eval has **5 documented failing cases** out of 40, kept as an
-  honest baseline rather than deleted.
-- Turnover figures are universe-size dependent. At 150 securities the 5/10/40 cap
-  dominates the weighting; at 500 it barely binds. Quote numbers from the 500-name
-  universe.
 
 ---
 

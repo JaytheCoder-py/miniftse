@@ -395,7 +395,7 @@ class SecurityMaster:
         out: dict[tuple[str, str], int] = {}
         for key, maps in self._by_value.items():
             ordered = sorted(maps, key=lambda m: m.valid_from)
-            for a, b in zip(ordered, ordered[1:]):
+            for a, b in zip(ordered, ordered[1:], strict=False):
                 if a.valid_to is None or a.valid_to > b.valid_from:
                     out[key] = out.get(key, 1) + 1
         return out

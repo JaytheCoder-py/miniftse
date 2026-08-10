@@ -20,7 +20,7 @@ class WeightingScheme(Protocol):
 
     name: str
 
-    def compute(self, inputs: Mapping[str, "SecurityInputs"]) -> dict[str, float]: ...
+    def compute(self, inputs: Mapping[str, SecurityInputs]) -> dict[str, float]: ...
 
 
 @dataclass(frozen=True, slots=True)

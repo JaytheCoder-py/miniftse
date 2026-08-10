@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -35,7 +35,7 @@ class Fault:
     """Where this comes from in the real world. Included because a drill against
     unrealistic faults trains the wrong reflexes."""
 
-    apply: Callable[[ValidationContext, np.random.Generator], "InjectionRecord"]
+    apply: Callable[[ValidationContext, np.random.Generator], InjectionRecord]
     expected_detector: str
     """Which rule *should* catch it. Comparing this to what actually fires is the
     coverage gap."""

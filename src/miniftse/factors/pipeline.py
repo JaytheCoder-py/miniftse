@@ -18,7 +18,6 @@ made so the document and the code can be checked against each other.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -214,7 +213,8 @@ class PipelineSpec:
             f"Raw values are winsorised at the "
             f"{self.winsorise_lower:.0%}/{self.winsorise_upper:.0%} percentiles"
             + (" using a median-absolute-deviation rule" if self.use_mad else "") + ".",
-            f"They are then standardised by {'rank-normalisation' if self.standardise == 'rank' else 'z-score'}"
+            "They are then standardised by "
+            + ("rank-normalisation" if self.standardise == "rank" else "z-score")
             + (", using a capitalisation-weighted mean so that the parent index scores "
                "zero" if self.cap_weighted_mean else "") + ".",
         ]

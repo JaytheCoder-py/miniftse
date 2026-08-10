@@ -1,55 +1,138 @@
 # miniftse
 
-A rules-based global equity index engine: security master, corporate actions,
-divisor-based calculation, factor variants, a risk model, and the production
-scaffolding an index provider actually needs (validation gates, golden-master
-regression tests, run manifests).
+A rules-based global equity index platform: security master, corporate actions,
+divisor-based calculation, factor variants, a Barra-style risk model, a constrained
+optimiser, a validation gate, and the production scaffolding an index provider actually
+needs — run manifests, golden-master regression tests, and an orchestrated daily DAG.
 
-Built module by module against a 12-week training plan for index research & design.
-
-## Status
-
-| Module | Area | State |
-|---|---|---|
-| M1 | Security master, corporate actions | in progress |
-| M2 | Index mathematics (divisor, PR/GTR/NTR, capping) | not started |
-| M3 | FTSE Russell methodology → own Ground Rules | not started |
-| M5 | Cross-sectional regression, Fama-MacBeth | not started |
-| M6 | Factor index construction | not started |
-| M8 | Constrained optimisation | not started |
-| M10 | Production engineering | not started |
-| M13 | AI-enabled research workflows | not started |
-| M15 | Governance, regulation, client communication | not started |
-
-## Setup
+Built as a reference implementation against a 12-week training plan for index research
+and design.
 
 ```bash
-uv sync
-uv run pytest
+make setup && make test && make build-index
 ```
+
+A clean clone produces a ten-year index history with no API keys, no network and no
+vendor licence. That is deliberate — see [D-004](DECISIONS.md).
+
+---
+
+## What it does
+
+**Reference index over 2016–2026** (500 securities, quarterly reviews):
+
+| | |
+|---|---|
+| Annualised return (GTR) | +10.4% |
+| Annualised volatility | 17.7% |
+| Maximum drawdown | −32.6% |
+| Divisor events | 7,335 |
+| Divisor continuity breaches | **0** |
+| Reviews | 42 |
+
+| Gate | Result |
+|---|---|
+| Tests | 70 passing — hand-computed, property-based, golden master |
+| `ruff` | clean |
+| `mypy` | clean (strict on the core; see [D-011](DECISIONS.md)) |
+| Validation | 27 rules; 11/11 injected faults detected |
+| Methodology assistant | 88% accuracy, 100% citation precision, 0% hallucinated numbers |
+
+---
 
 ## Layout
 
 ```
 src/miniftse/
-  secmaster/    identifiers, issuer/security/listing hierarchy, PIT mappings
-  corpactions/  event model, adjustment factors, divisor impact
-  universe/     eligibility screens
-  weighting/    float, capping, factor tilts
-  calc/         divisor, chaining, PR/GTR/NTR
-  review/       periodic reconstitution
-  risk/         covariance and factor risk model
-  optim/        constrained optimisation
-  attrib/       performance attribution
-  quality/      validation and reconciliation
-  agents/       LLM tooling
-  research/     cross-sectional regression toolkit
+  types.py        NewType domain primitives - a Weight is not a float
+  config.py       every published threshold in one place
+  data/           provider Protocols, deterministic universe, DuckDB PIT store, vendors
+  secmaster/      issuer -> security -> listing, bitemporal resolution, check digits
+  corpactions/    16 event types, TERP, apply(event, state) -> divisor adjustment
+  calc/           divisor state, daily loop, PR/GTR/NTR, FX and hedging
+  universe/       eligibility screens, size bands with buffers
+  review/         cut-off / announcement / effective calendar, fast entry
+  weighting/      six schemes, convergent capping, UCITS 5/10/40
+  factors/        seven publishable factors, cross-sectional pipeline
+  research/       Fama-MacBeth, Newey-West, IC decay, multiple testing
+  risk/           covariance estimators, Barra-lite factor model, bias tests
+  optim/          declarative constraints, infeasibility diagnostics, pricing
+  attrib/         Brinson-Fachler, factor attribution, backtest-to-live bridge
+  quality/        27 validation rules, publication gate, chaos drill
+  production/     run manifests, daily DAG, golden master, build orchestration
+  agents/         RAG assistant, triage agent, client drafter, eval harness
 
-ground_rules/   the published methodology document
-memos/          one-page write-ups, one per module
-communications/ consultation paper, client responses
-tests/
+ground_rules/     the published methodology, and generated factor definitions
+communications/   consultation paper, five client responses, stakeholder memo
+docs/             AI proposal, operational runbook, SQL cookbook, presentation
+tests/            unit, property, integration, and the pinned golden master
 ```
 
-- `notebooks/` is exploration only and is never the source of truth.
-- `DECISIONS.md` records every judgement call and the alternative rejected.
+`DECISIONS.md` records every judgement call and the alternative rejected.
+
+---
+
+## Commands
+
+```bash
+make build-index       # full history through the publication gate
+make chaos-drill       # inject data faults, report validation coverage
+make check-golden      # rebuild and compare against the pinned history
+make factsheet         # client-facing factsheet
+make daily             # run the production DAG
+make daily-blocked     # same, simulating an outlier that blocks publication
+make evals             # methodology assistant evaluation suite
+make ci                # lint, typecheck, test, golden master
+```
+
+---
+
+## Design decisions worth knowing
+
+**A deterministic synthetic universe is the default data source.** Real data is revised,
+so a golden master pinned to it is meaningless; and a clean clone must build a full index
+with no licence. The universe has a genuine factor structure, all sixteen corporate
+action types, delistings, late listings and restatements. Real adapters — yfinance,
+SEC EDGAR, iShares, PermID, and an `lseg.data` stub — live behind the same Protocols.
+
+**Nothing computed on the synthetic universe is evidence about real markets.** Value and
+quality predict returns in it because they were built to. It exercises machinery; it does
+not discover anything.
+
+**No language model ever produces a number.** Numbers come from code; the model arranges
+prose around values it is handed, and `NumberGuard` checks every numeral in a draft
+against the supplied facts. Nothing in `agents/` touches the index calculation path.
+
+---
+
+## Bugs the tests found
+
+Kept as a list because it is the most honest summary of what the test suite is for.
+
+| Found by | Defect |
+|---|---|
+| First end-to-end run | The divisor was rebased twice on removals — handler and dispatcher both did it |
+| First end-to-end run | Spin-off children inherited capping factor 1.0 instead of the parent's, breaking continuity |
+| First end-to-end run | The price generator compounded arithmetic returns, so σ²/2 drag turned the index negative over a decade |
+| First end-to-end run | Eligibility used a 250-calendar-day window against a 200-session presence test — unsatisfiable, rejecting the entire universe |
+| Factor IC signs | Beta earned a linear return premium, so low-volatility came out inverted. The empirical security market line is flat; that flatness *is* the anomaly |
+| Factor IC signs | Log compounding gave high-vol names ~7%/yr of free Jensen convexity, swamping every configured premium |
+| Hypothesis | Capping raised when the uncapped names carried ~zero mass |
+| Unit test | The UCITS limb-2 binary search ran in the wrong direction — a breach made it try a *higher* cap, then report success |
+| Golden master | The spinco RNG was seeded from `hash()`, which Python randomises per process. Two identical builds differed by 5.3bp |
+| Chaos drill | `fx_sanity` passed an inverted rate of 9.27, because 9.27 is a plausible number |
+| Chaos drill | `max_weight` treated the cap as a daily limit, so it failed on clean data at every review interval |
+| Validation gate | A security re-selected at a review after its price series ended stayed in the index forever at a carried price |
+
+---
+
+## Not built
+
+Stated so the gaps are not mistaken for oversights:
+
+- **No live vendor integration.** The LSEG adapter is a documented stub; it raises rather
+  than faking data.
+- **No cloud deployment.** The container builds and CI runs, but nothing is deployed.
+- **No real orchestrator.** The DAG models retries, dependencies and the gate; Dagster or
+  Airflow would supply the scheduler.
+- **The five failing eval cases** in `docs/AI_PROPOSAL.md` are documented, not fixed.

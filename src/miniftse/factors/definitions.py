@@ -33,7 +33,7 @@ class SubSignal:
 
     name: str
     description: str
-    compute: Callable[["FactorInputs"], pd.Series]
+    compute: Callable[[FactorInputs], pd.Series]
     weight: float = 1.0
     higher_is_better: bool = True
 

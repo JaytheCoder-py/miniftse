@@ -305,7 +305,7 @@ class BacktestLiveBridge:
 
     rows: list[dict[str, object]] = field(default_factory=list)
 
-    def add(self, name: str, impact: float, explanation: str) -> "BacktestLiveBridge":
+    def add(self, name: str, impact: float, explanation: str) -> BacktestLiveBridge:
         self.rows.append({"item": name, "impact": impact, "explanation": explanation})
         return self
 

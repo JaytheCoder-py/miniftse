@@ -137,7 +137,7 @@ class Pipeline:
     steps: list[Step] = field(default_factory=list)
     on_failure: Callable[[StepResult, PipelineRun], None] | None = None
 
-    def add(self, step: Step) -> "Pipeline":
+    def add(self, step: Step) -> Pipeline:
         self.steps.append(step)
         return self
 

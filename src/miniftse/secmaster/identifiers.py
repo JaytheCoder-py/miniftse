@@ -67,7 +67,7 @@ def isin_check_digit(body: str) -> int:
 def sedol_check_digit(body: str) -> int:
     """Weighted modulus-10 over the 6-character SEDOL body."""
     body = body.upper()
-    total = sum(_ALNUM_VALUE[c] * w for c, w in zip(body, _SEDOL_WEIGHTS[:6]))
+    total = sum(_ALNUM_VALUE[c] * w for c, w in zip(body, _SEDOL_WEIGHTS[:6], strict=False))
     return (10 - total % 10) % 10
 
 

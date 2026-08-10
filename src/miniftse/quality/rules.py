@@ -135,11 +135,11 @@ class Rule:
     name: str
     category: str
     severity: Severity
-    check: Callable[["ValidationContext"], Finding]
+    check: Callable[[ValidationContext], Finding]
     enabled: bool = True
     description: str = ""
 
-    def run(self, context: "ValidationContext") -> Finding:
+    def run(self, context: ValidationContext) -> Finding:
         try:
             return self.check(context)
         except Exception as exc:  # noqa: BLE001
@@ -194,7 +194,7 @@ class ValidationEngine:
 
     rules: list[Rule] = field(default_factory=list)
 
-    def add(self, rule: Rule) -> "ValidationEngine":
+    def add(self, rule: Rule) -> ValidationEngine:
         self.rules.append(rule)
         return self
 
@@ -218,7 +218,7 @@ class ValidationEngine:
         ])
 
     @classmethod
-    def default(cls) -> "ValidationEngine":
+    def default(cls) -> ValidationEngine:
         from miniftse.quality.checks import DEFAULT_RULES
 
         return cls(rules=list(DEFAULT_RULES))

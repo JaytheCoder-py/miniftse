@@ -24,7 +24,7 @@ premia to be tested, here they are factor returns whose covariance is the model.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -147,7 +147,7 @@ class RiskModel:
                 "variance_contribution": float(contribution),
                 "pct_of_total": float(contribution / total_var) if total_var else 0.0,
             }
-            for factor, contribution in zip(f.index, factor_contributions)
+            for factor, contribution in zip(f.index, factor_contributions, strict=False)
         ]
         rows.append({
             "source": "specific", "type": "specific", "exposure": float("nan"),
@@ -262,7 +262,7 @@ class FactorModelEstimator:
             resid = yv - fitted
             ss_tot = float(((yv - yv.mean()) ** 2).sum())
 
-            rows.append({"date": date, **dict(zip(names, beta))})
+            rows.append({"date": date, **dict(zip(names, beta, strict=False))})
             r2s[date] = 1.0 - float((resid**2).sum()) / ss_tot if ss_tot > 0 else 0.0
             n_obs[date] = len(frame)
             residuals[date] = pd.Series(resid, index=frame.index)

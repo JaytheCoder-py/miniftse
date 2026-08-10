@@ -83,7 +83,7 @@ def cap_weights(
     capped = np.zeros(n, dtype=bool)
     iterations = 0
 
-    for iterations in range(1, max_iterations + 1):
+    for iterations in range(1, max_iterations + 1):  # noqa: B007 - reported after the loop
         breaching = (w > cap + tolerance) & ~capped
         if not breaching.any():
             break
@@ -278,7 +278,7 @@ def cap_by_group(
 
     frozen: set[str] = set()
     iterations = 0
-    for iterations in range(1, max_iterations + 1):
+    for iterations in range(1, max_iterations + 1):  # noqa: B007 - reported after the loop
         totals = {g: sum(w[n] for n in members) for g, members in group_members.items()}
         breaching = [g for g, t in totals.items() if t > group_cap + tolerance
                      and not set(group_members[g]) <= frozen]

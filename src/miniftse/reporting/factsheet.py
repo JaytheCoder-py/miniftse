@@ -84,7 +84,7 @@ def calendar_year_returns(levels: pd.DataFrame) -> pd.DataFrame:
     return yearly
 
 
-def write_factsheet(result: "BuildResult", out: Path) -> Path:
+def write_factsheet(result: BuildResult, out: Path) -> Path:
     """Render the factsheet to markdown."""
     history = result.history
     config = history.config
@@ -105,7 +105,7 @@ def write_factsheet(result: "BuildResult", out: Path) -> Path:
         f"{config.base_currency} · **Base date** {config.base_date} "
         f"(= {config.base_level:,.0f})",
         "",
-        f"*Data as at {final['date']}. Generated {dt.date.today()} from run "
+        f"*Data as at {final['date']!s}. Generated {dt.date.today()} from run "
         f"`{result.manifest.run_id}`, code `{result.manifest.git_sha[:12]}`.*",
         "",
         "---",
@@ -205,7 +205,7 @@ def write_factsheet(result: "BuildResult", out: Path) -> Path:
     return out
 
 
-def factsheet_data(result: "BuildResult") -> dict[str, Any]:
+def factsheet_data(result: BuildResult) -> dict[str, Any]:
     """The same numbers as structured data, for the client-response drafter.
 
     The AI layer draws from this, never from the rendered markdown. Numbers come from

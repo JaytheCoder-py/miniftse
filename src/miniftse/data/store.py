@@ -17,6 +17,7 @@ Module 4 deliverable, kept here rather than in a markdown file so they cannot ro
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 from pathlib import Path
 from typing import Any, Final
@@ -338,10 +339,10 @@ class PitStore:
             "CREATE INDEX IF NOT EXISTS ix_sh ON shares(security_id, knowledge_date)",
             "CREATE INDEX IF NOT EXISTS ix_ca ON corp_actions(security_id, ex_date)",
         ):
-            try:
+            # Index already present, or unsupported on a view. Neither is a problem:
+            # DuckDB is columnar and performs well without these.
+            with contextlib.suppress(duckdb.Error):
                 self.con.execute(stmt)
-            except duckdb.Error:  # index already present, or unsupported on a view
-                pass
 
     # ---------------------------------------------------------------- queries
 

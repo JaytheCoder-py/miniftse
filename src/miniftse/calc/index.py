@@ -131,6 +131,13 @@ class IndexCalculator:
     """Predicate deciding which days get a weight snapshot. Defaults to month ends and
     review dates."""
 
+    max_stale_sessions: int = 20
+    """Sessions without a price before a constituent is dropped at the next review.
+
+    Matches Ground Rules §5.7: a suspension beyond twenty trading days stops being a
+    suspension and becomes a valuation question. Below the threshold the last price is
+    carried, which is the correct treatment for a security that will resume trading."""
+
     _warnings: list[str] = field(default_factory=list, repr=False)
 
     def run(
@@ -289,6 +296,23 @@ class IndexCalculator:
         for sec_id, spec in specs.items():
             price = price_book.price(sec_id, date)
             if price is None:
+                # No print today. Distinguish a short suspension, where the standard
+                # treatment is to carry the last price, from a security that has simply
+                # stopped trading.
+                #
+                # Screens are run on cut-off data, so a security that delisted between
+                # the cut-off and the effective date still passes them. Without this
+                # check it enters - or stays in - the index at a carried price and
+                # never leaves, because the delisting event fired on a day it was not a
+                # constituent and was skipped. The `constituents_priced` validation rule
+                # caught exactly this on a live build.
+                stale_sessions = price_book.sessions_since_price(sec_id, date)
+                if stale_sessions > self.max_stale_sessions:
+                    self._warnings.append(
+                        f"{date}: {sec_id} dropped at review - no price for "
+                        f"{stale_sessions} sessions"
+                    )
+                    continue
                 existing = state.constituents.get(sec_id)
                 if existing is None:
                     self._warnings.append(
@@ -385,6 +409,19 @@ class _PriceBook:
             if hit is not None:
                 return hit
         return None
+
+    def sessions_since_price(self, security_id: str, date: dt.date) -> int:
+        """Trading sessions since this security last printed a price.
+
+        Zero if it traded today. Used at review to drop securities that have stopped
+        trading altogether, as distinct from ones merely suspended for a few days.
+        """
+        count = 0
+        for d in reversed([x for x in self._dates if x <= date]):
+            if self._by_date[d].get(security_id) is not None:
+                return count
+            count += 1
+        return count
 
 
 def _index_events(corp_actions: pd.DataFrame) -> dict[dt.date, list[CorporateAction]]:

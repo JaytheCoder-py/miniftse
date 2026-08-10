@@ -146,7 +146,7 @@ class Optimiser:
 
         binding: list[str] = []
         duals: dict[str, float] = {}
-        for name, constraint in zip(owners, built):
+        for name, constraint in zip(owners, built, strict=False):
             dual = getattr(constraint, "dual_value", None)
             if dual is None:
                 continue
@@ -378,7 +378,6 @@ def select_top_n(
     it can miss the true optimal N-name portfolio, and a methodology that pretends
     otherwise is misleading.
     """
-    candidates = list(data.securities)
     result = Optimiser(objective, constraints).solve(data)
 
     for _ in range(max_rounds):
@@ -404,7 +403,6 @@ def select_top_n(
             attributes=data.attributes.reindex(keep) if not data.attributes.empty
             else data.attributes,
         )
-        candidates = keep
         result = Optimiser(objective, constraints).solve(trimmed)
         if not result.succeeded:
             break

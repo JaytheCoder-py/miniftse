@@ -86,14 +86,18 @@ def assign_bands(
     ]
 
     out: dict[str, BandAssignment] = {}
-    for (sec_id, cap), cum in zip(ordered, cumulative):
+    for (sec_id, cap), cum in zip(ordered, cumulative, strict=False):
         hard = _band_for(float(cum), boundaries)
         prev = previous_bands.get(sec_id)
 
         band, held = hard, False
-        if config.apply_buffers and prev is not None and prev != hard:
-            if _within_buffer(float(cum), prev, hard, boundaries, config.buffer_width):
-                band, held = prev, True
+        if (
+            config.apply_buffers
+            and prev is not None
+            and prev != hard
+            and _within_buffer(float(cum), prev, hard, boundaries, config.buffer_width)
+        ):
+            band, held = prev, True
 
         out[sec_id] = BandAssignment(
             security_id=sec_id, band=band, cumulative_pct=float(cum),
@@ -232,7 +236,8 @@ def _band_turnover(
     if len(band_history) < 2:
         return 0.0
     total = 0.0
-    for (prev, curr), caps in zip(zip(band_history, band_history[1:]), cap_history[1:]):
+    for (prev, curr), caps in zip(zip(band_history, band_history[1:], strict=False),
+        cap_history[1:], strict=False):
         denom = sum(caps.values()) or 1.0
         moved = sum(
             caps.get(k, 0.0) for k in curr

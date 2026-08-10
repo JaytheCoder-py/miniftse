@@ -244,7 +244,7 @@ def convert_series(
 ) -> pd.Series:
     """Vectorised local-to-base conversion with an explicit missing-rate failure."""
     rates = np.array([
-        fx.rate(_as_date(d), str(c)) for d, c in zip(dates, currencies)
+        fx.rate(_as_date(d), str(c)) for d, c in zip(dates, currencies, strict=False)
     ])
     return values * rates
 

@@ -1,8 +1,11 @@
 {
-  "name": "reference",
-  "content_hash": "6950d93e9cd4b13b3c25b72f602d8c44",
-  "created_at": "2026-08-10T13:28:11.298280+00:00",
+  "run_id": "MFTSE-GLOBAL-2024-12-31-20260810T132740",
+  "created_at": "2026-08-10T13:27:40.451297+00:00",
+  "index_id": "MFTSE-GLOBAL",
+  "as_of": "2024-12-31",
   "git_sha": "4c9671cafd103921815348755eff5b1db1740762",
+  "git_dirty": true,
+  "config_hash": "70336e3c6a5cca15cf18d89b9c984ffb",
   "config": {
     "index_id": "MFTSE-GLOBAL",
     "name": "miniFTSE Global All Cap",
@@ -84,15 +87,48 @@
       "SMALL"
     ]
   },
-  "metrics": {
-    "n_rows": 2311,
-    "final_price_return": 1247.4342861470404,
-    "final_gross_total_return": 1501.2392896222298,
-    "final_net_total_return": 1434.990214608578,
-    "final_divisor": 584900531.2102304,
-    "start": "2016-01-04",
-    "end": "2024-12-30"
+  "input_hashes": {
+    "universe_config": "d9a55c4dfa24daf5ab596dd86b216e2d",
+    "prices": "4b65d2f18cb4b06ec7281794cce3713f",
+    "shares": "70d81eb03c01a263af41d72339d833f2",
+    "corp_actions": "57f47c92838505484b663361983b94d8",
+    "securities": "cdbfc8bc53a9219f30652050c56f8577"
   },
-  "tolerance_bps": 0.1,
-  "n_rows": 2311
+  "output_hashes": {
+    "levels": "6950d93e9cd4b13b3c25b72f602d8c44",
+    "weights": "cae6110dcbfefb5b19f3ea3b559439cb"
+  },
+  "environment": {
+    "python": "3.12.9",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "pandas": "3.0.5",
+    "numpy": "2.5.1"
+  },
+  "metrics": {
+    "index_id": "MFTSE-GLOBAL",
+    "start": "2016-01-04",
+    "end": "2024-12-30",
+    "days": 2311,
+    "final_pr": 1247.4342861470404,
+    "final_gtr": 1501.2392896222298,
+    "final_ntr": 1434.990214608578,
+    "ann_return_gtr": 0.04623905369008807,
+    "ann_vol": 0.1812306660001814,
+    "max_drawdown": -0.33460304359279835,
+    "mean_constituents": 155.75984422327997,
+    "divisor_events": 4010,
+    "reviews": 36,
+    "validation_counts": {
+      "total": 27,
+      "passed": 26,
+      "warnings": 0,
+      "blocking": 1,
+      "escalating": 0
+    }
+  },
+  "duration_seconds": 30.85728550000931,
+  "status": "blocked",
+  "notes": [
+    "WARNING: run from a dirty working tree - the git SHA does not fully identify the code that produced this output"
+  ]
 }

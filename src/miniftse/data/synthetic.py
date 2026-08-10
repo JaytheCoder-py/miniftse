@@ -295,7 +295,8 @@ class SyntheticUniverse:
                 "security_id": sec_ids,
                 "issuer_id": issuer_ids,
                 "listing_id": [f"{s}.{MARKETS[countries[c]][2]}" for s, c in zip(sec_ids,
-                                                                                 country_idx)],
+                                                                                 country_idx,
+                                                                                     strict=False)],
                 "country": [countries[c].value for c in country_idx],
                 "currency": [MARKETS[countries[c]][0].value for c in country_idx],
                 "market_status": [MARKETS[countries[c]][1].value for c in country_idx],
@@ -803,7 +804,7 @@ class SyntheticUniverse:
         # Share-count events and free-float events arrive independently, each carrying
         # only its own field. Interleave them on the event timeline and forward-fill
         # within each security, so every row is a complete picture of what was known.
-        fol = dict(zip(secs["security_id"], secs["foreign_ownership_limit"]))
+        fol = dict(zip(secs["security_id"], secs["foreign_ownership_limit"], strict=False))
 
         shares_part = shares_df.copy()
         shares_part["free_float_factor"] = np.nan
@@ -836,8 +837,8 @@ class SyntheticUniverse:
         # Stock mergers were emitted without an acquirer, because the acquirer must
         # itself still be listed on the ex-date and that is only knowable once every
         # security's terminal event has been drawn.
-        alive_from = dict(zip(secs["security_id"], secs["listing_start"]))
-        alive_to = dict(zip(secs["security_id"], secs["listing_end"]))
+        alive_from = dict(zip(secs["security_id"], secs["listing_start"], strict=False))
+        alive_to = dict(zip(secs["security_id"], secs["listing_end"], strict=False))
         for action in actions:
             if action["event_type"] != "MERGER_STOCK":
                 continue
@@ -966,7 +967,6 @@ class SyntheticUniverse:
         rng = np.random.default_rng(self.config.seed + 8)
         base = self.config.base_currency.value
         rows: list[dict[str, Any]] = []
-        t = self.n_days
         sqrt_dt = 1.0 / math.sqrt(252.0)
 
         levels = {Currency.GBP: 1.30, Currency.EUR: 1.10, Currency.JPY: 0.0080,
@@ -1130,7 +1130,7 @@ class SyntheticUniverse:
         secs = self._security_frame
         rows: list[dict[str, Any]] = []
         for i, (sid, country, lid) in enumerate(
-            zip(secs["security_id"], secs["country"], secs["listing_id"])
+            zip(secs["security_id"], secs["country"], secs["listing_id"], strict=False)
         ):
             rows.append({
                 "security_id": sid, "listing_id": lid,

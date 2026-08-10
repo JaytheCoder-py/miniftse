@@ -15,6 +15,7 @@ Hashing content rather than trusting filenames is the part people skip. A file c
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import hashlib
 import json
@@ -65,10 +66,8 @@ def hash_frame(df: pd.DataFrame) -> str:
     ordered = df.sort_index(axis=1)
     cols = [c for c in ordered.columns if ordered[c].dtype != object] or list(
         ordered.columns)
-    try:
+    with contextlib.suppress(TypeError, ValueError):
         ordered = ordered.sort_values(list(ordered.columns[: min(3, len(cols))]))
-    except (TypeError, ValueError):
-        pass
     payload = pd.util.hash_pandas_object(ordered, index=False).to_numpy().tobytes()
     return hashlib.sha256(payload).hexdigest()[:32]
 

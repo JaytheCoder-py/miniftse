@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
 
 import cvxpy as cp
 import numpy as np
@@ -92,7 +91,7 @@ class Constraint(ABC):
     def build(self, w: cp.Variable, data: ProblemData) -> list[cp.Constraint]: ...
 
     @abstractmethod
-    def relaxed(self, factor: float) -> "Constraint":
+    def relaxed(self, factor: float) -> Constraint:
         """A version loosened by `factor`, for infeasibility diagnosis and for pricing
         the constraint in tracking-error terms."""
 
@@ -110,7 +109,7 @@ class FullInvestment(Constraint):
         del data
         return [cp.sum(w) == self.target]
 
-    def relaxed(self, factor: float) -> "FullInvestment":
+    def relaxed(self, factor: float) -> FullInvestment:
         del factor
         return self
 
@@ -127,7 +126,7 @@ class LongOnly(Constraint):
         del data
         return [w >= 0]
 
-    def relaxed(self, factor: float) -> "LongOnly":
+    def relaxed(self, factor: float) -> LongOnly:
         del factor
         return self
 
@@ -146,7 +145,7 @@ class WeightBounds(Constraint):
         del data
         return [w <= self.max_weight, w >= self.min_weight]
 
-    def relaxed(self, factor: float) -> "WeightBounds":
+    def relaxed(self, factor: float) -> WeightBounds:
         return WeightBounds(self.max_weight * factor, self.min_weight, self.name)
 
     def describe(self) -> str:
@@ -172,7 +171,7 @@ class TrackingError(Constraint):
         daily_var = (self.max_te**2 / 252) if self.annualise else self.max_te**2
         return [data.risk_quadratic_form(active) <= daily_var]
 
-    def relaxed(self, factor: float) -> "TrackingError":
+    def relaxed(self, factor: float) -> TrackingError:
         return TrackingError(self.max_te * factor, self.name, self.is_hard,
                              self.annualise)
 
@@ -199,7 +198,7 @@ class Turnover(Constraint):
         w0 = data.align(data.initial_weights)
         return [0.5 * cp.norm1(w - w0) <= self.max_turnover]
 
-    def relaxed(self, factor: float) -> "Turnover":
+    def relaxed(self, factor: float) -> Turnover:
         return Turnover(self.max_turnover * factor, self.name, self.is_hard)
 
     def describe(self) -> str:
@@ -227,7 +226,7 @@ class GroupDeviation(Constraint):
             out += [active <= self.max_deviation, active >= -self.max_deviation]
         return out
 
-    def relaxed(self, factor: float) -> "GroupDeviation":
+    def relaxed(self, factor: float) -> GroupDeviation:
         return GroupDeviation(self.group_column, self.max_deviation * factor,
                               self.name, self.is_hard)
 
@@ -264,7 +263,7 @@ class FactorExposure(Constraint):
             out.append(expr <= self.maximum)
         return out
 
-    def relaxed(self, factor: float) -> "FactorExposure":
+    def relaxed(self, factor: float) -> FactorExposure:
         return FactorExposure(
             self.attribute,
             self.minimum / factor if self.minimum is not None else None,
@@ -304,7 +303,7 @@ class IntensityReduction(Constraint):
         benchmark_intensity = float(cv @ data.align(data.benchmark))
         return [cv @ w <= (1.0 - self.reduction) * benchmark_intensity]
 
-    def relaxed(self, factor: float) -> "IntensityReduction":
+    def relaxed(self, factor: float) -> IntensityReduction:
         return IntensityReduction(self.attribute, self.reduction / factor, self.name,
                                   self.is_hard)
 
@@ -337,7 +336,7 @@ class LiquidityCap(Constraint):
             return []
         return [w <= self.multiple * adv / total]
 
-    def relaxed(self, factor: float) -> "LiquidityCap":
+    def relaxed(self, factor: float) -> LiquidityCap:
         return LiquidityCap(self.multiple * factor, self.name, self.is_hard)
 
     def describe(self) -> str:

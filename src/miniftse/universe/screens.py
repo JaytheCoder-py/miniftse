@@ -410,4 +410,4 @@ def liquidity_percentile(metrics: list[SecurityMetrics]) -> dict[str, float]:
     if values.size == 0:
         return {}
     ranks = values.argsort().argsort() / max(values.size - 1, 1)
-    return {m.security_id: float(r) for m, r in zip(metrics, ranks)}
+    return {m.security_id: float(r) for m, r in zip(metrics, ranks, strict=False)}

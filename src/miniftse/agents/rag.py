@@ -38,10 +38,11 @@ from pathlib import Path
 from miniftse.agents.llm import LlmClient, Message, OfflineLlm
 
 _TOKEN = re.compile(r"[a-z0-9']+")
-_STOPWORDS = frozenset("""
-a an and are as at be but by for from has have if in into is it its of on or that the
-to was were will with what which when how does do
-""".split())
+_STOPWORDS = frozenset([
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "has",
+    "have", "if", "in", "into", "is", "it", "its", "of", "on", "or", "that", "the",
+    "to", "was", "were", "will", "with", "what", "which", "when", "how", "does", "do",
+])
 
 
 def tokenise(text: str) -> list[str]:
@@ -163,7 +164,7 @@ class Bm25Index:
     _df: Counter[str] = field(default_factory=Counter, repr=False)
     _avg_len: float = 0.0
 
-    def add(self, chunks: list[Chunk]) -> "Bm25Index":
+    def add(self, chunks: list[Chunk]) -> Bm25Index:
         for chunk in chunks:
             self.chunks.append(chunk)
             tokens = tokenise(chunk.text)
@@ -182,7 +183,7 @@ class Bm25Index:
         n = len(self.chunks)
         scored: list[tuple[Chunk, float]] = []
 
-        for chunk, tokens in zip(self.chunks, self._tokens):
+        for chunk, tokens in zip(self.chunks, self._tokens, strict=False):
             if chunk.superseded_by and not include_superseded:
                 continue
             counts = Counter(tokens)
@@ -261,12 +262,12 @@ class MethodologyAssistant:
     Tuned on the eval set: the alternative is answering from whatever came back, and
     something always comes back."""
 
-    def add_document(self, document: Document) -> "MethodologyAssistant":
+    def add_document(self, document: Document) -> MethodologyAssistant:
         self.index.add(chunk_document(document))
         return self
 
     def add_directory(self, directory: Path, pattern: str = "*.md"
-                      ) -> "MethodologyAssistant":
+                      ) -> MethodologyAssistant:
         for path in sorted(Path(directory).glob(pattern)):
             self.add_document(Document(name=path.name,
                                        text=path.read_text(encoding="utf-8")))

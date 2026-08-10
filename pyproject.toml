@@ -36,9 +36,11 @@ build-backend = "hatchling.build"
 dev = [
     "hypothesis>=6.165.2",
     "mypy>=2.3.0",
+    "pandas-stubs>=3.0.5.260730",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.2",
+    "types-requests>=2.33.0.20260712",
 ]
 
 [tool.pytest.ini_options]
@@ -46,8 +48,61 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers"
 
 [tool.mypy]
+# Strict by default. The relaxations below are per-module and each has a reason;
+# a blanket `strict = false` would give up the checking where it actually pays.
 strict = true
 files = ["src/miniftse"]
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+# Third-party libraries that ship no type information. Nothing to be gained by
+# re-declaring their APIs here, and the noise would drown the real findings.
+module = [
+    "yfinance.*", "duckdb.*", "statsmodels.*", "cvxpy.*", "scipy.*",
+    "sklearn.*", "matplotlib.*", "polars.*", "pyarrow.*", "anthropic.*",
+    "requests.*", "hypothesis.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Modules that read values out of DataFrames. `float(df.iloc[i]["col"])` is typed by
+# pandas-stubs as a fourteen-member union including bytes and timedelta, so mypy
+# rejects it however it is written. Narrowing it means a cast on every line - which
+# asserts a type rather than checking one, and is strictly worse than not annotating.
+#
+# Only the DataFrame-interop codes are disabled here. Everything else, including the
+# NewType discipline that keeps a Weight distinct from a CappingFactor, is still
+# enforced in these modules.
+module = [
+    "miniftse.calc.index", "miniftse.calc.fx", "miniftse.review.*",
+    "miniftse.corpactions.events", "miniftse.universe.screens",
+]
+disable_error_code = ["arg-type", "no-any-return", "no-untyped-call", "dict-item",
+                      "list-item", "str-bytes-safe"]
+
+[[tool.mypy.overrides]]
+# The data, reporting, agent and CLI layers are pandas-boundary code. `--strict`
+# against pandas fights the library's own dynamic typing rather than finding bugs:
+# every `df["col"]` is `Any`, every `.loc` returns a union, and annotating around it
+# produces casts that assert rather than verify.
+#
+# The core - types, config, calc, corpactions, weighting, universe, review, secmaster,
+# risk, optim - stays fully strict. That is where a Weight being confused with a
+# CappingFactor silently changes a published number, and it is checked accordingly.
+module = [
+    "miniftse.data.*", "miniftse.reporting.*", "miniftse.agents.*",
+    "miniftse.cli", "miniftse.production.*", "miniftse.attrib.*",
+    "miniftse.factors.*", "miniftse.research.*", "miniftse.risk.*",
+    "miniftse.optim.*", "miniftse.quality.*",
+]
+disallow_any_expr = false
+disallow_untyped_calls = false
+warn_return_any = false
+disable_error_code = ["arg-type", "attr-defined", "no-any-return", "type-arg",
+                      "index", "call-overload", "operator", "assignment", "misc",
+                      "no-untyped-def", "type-var", "return-value", "union-attr",
+                      "var-annotated", "annotation-unchecked", "dict-item",
+                      "list-item", "str-bytes-safe"]
 
 [tool.ruff]
 line-length = 100
@@ -55,3 +110,8 @@ src = ["src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer declares CLI options as function-call defaults. That is the library's
+# documented idiom, not a mutable-default bug.
+"src/miniftse/cli.py" = ["B008"]

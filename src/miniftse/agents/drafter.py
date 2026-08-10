@@ -50,12 +50,12 @@ class FactPack:
     """Non-numeric context - index name, period, the client's question."""
 
     def add(self, key: str, value: float, description: str, source: str,
-            fmt: str = "{:.2%}") -> "FactPack":
+            fmt: str = "{:.2%}") -> FactPack:
         self.facts[key] = Fact(key=key, value=value, formatted=fmt.format(value),
                                description=description, source=source)
         return self
 
-    def add_text(self, key: str, value: str) -> "FactPack":
+    def add_text(self, key: str, value: str) -> FactPack:
         self.context[key] = value
         return self
 

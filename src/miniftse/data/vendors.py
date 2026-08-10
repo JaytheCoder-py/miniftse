@@ -530,7 +530,8 @@ class PermIdProvider:
         countries = countries or ["" for _ in names]
         payload = "\n".join(
             ["LocalID,Standard,Name,Country"]
-            + [f"{i},Organization,{n},{c}" for i, (n, c) in enumerate(zip(names, countries))]
+            + [f"{i},Organization,{n},{c}" for i, (n, c) in enumerate(zip(names, countries,
+                strict=False))]
         )
         resp = requests.post(
             f"{self.BASE}/file",

@@ -143,7 +143,7 @@ class TestDivisorInvariants:
     ) -> None:
         state = IndexState.initialise(D, cs, base_level=1000.0)
         moved = state
-        for key, c in state.constituents.items():
+        for c in state.constituents.values():
             moved = moved.replace_constituent(c.with_price(c.price * multiplier))
         assert moved.divisor == state.divisor
         assert moved.level == pytest.approx(state.level * multiplier, rel=1e-9)

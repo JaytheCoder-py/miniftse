@@ -126,13 +126,22 @@ Kept as a list because it is the most honest summary of what the test suite is f
 
 ---
 
-## Not built
+## Scope and honest limits
 
-Stated so the gaps are not mistaken for oversights:
+Everything the plan describes is implemented and exercised. What remains is bounded by
+access, not by effort:
 
-- **No live vendor integration.** The LSEG adapter is a documented stub; it raises rather
-  than faking data.
-- **No cloud deployment.** The container builds and CI runs, but nothing is deployed.
-- **No real orchestrator.** The DAG models retries, dependencies and the gate; Dagster or
-  Airflow would supply the scheduler.
-- **The five failing eval cases** in `docs/AI_PROPOSAL.md` are documented, not fixed.
+- **The LSEG adapter cannot be run here.** It is real code behind an import guard —
+  Datastream history, Worldscope fundamentals with point-in-time `SDate`, IBES
+  estimates, ICB classification, index constituents — and it raises with the specific
+  missing prerequisite rather than returning empty frames. It needs a licence.
+- **No cloud deployment.** The container builds and the DAG runs; nothing is deployed
+  to AWS or Azure.
+- **Free-data gaps are structural, not oversights.** Free float, corporate action
+  detail, analyst estimates and delisted securities have no free source. The
+  `lseg_vocabulary_map.md` names each one and what would supply it.
+- **Measurement caveats are reported, not tuned away.** The risk model over-forecasts
+  (bias statistic 0.62), largely because exposures are held fixed while the index
+  rebalances quarterly. The RAG eval has 5 documented failures out of 40. Both are kept
+  as honest baselines.
+

@@ -356,3 +356,66 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+@app.command("documents")
+def documents_cmd(
+    out: str = typer.Option("docs", help="output directory for the long-form documents"),
+) -> None:
+    """Generate every document: memos, research paper, incident report, vocabulary map.
+
+    Generated rather than hand-maintained so a document cannot quote a figure the
+    repository no longer produces.
+    """
+    from miniftse.reporting.papers import document_index, write_all_documents
+
+    paths = write_all_documents(Path(out))
+    frame = document_index(paths)
+    console.print(f"[green]wrote {len(paths)} documents[/green]")
+    for row in frame.itertuples(index=False):
+        console.print(f"  {row.path}  ({row.size_kb} kB)")
+
+
+@app.command("reconcile")
+def reconcile_cmd(
+    securities: int = typer.Option(200),
+    seed: int = typer.Option(20260809),
+    out: str = typer.Option("artefacts/reconciliation_study.md"),
+) -> None:
+    """Reconcile the index against a comparison series, constituents first.
+
+    Two indices can post matching returns for a week while holding entirely different
+    securities, so the study reconciles holdings before returns and reports the
+    unexplained residual rather than absorbing it.
+    """
+    import pandas as pd
+
+    from miniftse.production.build import BuildSpec, build_index
+    from miniftse.quality.reconciliation import (
+        reconcile_against_published,
+        synthetic_published_index,
+        write_reconciliation_study,
+    )
+
+    spec = BuildSpec(index_config=global_all_cap(),
+                     universe_config=SyntheticConfig(n_securities=securities, seed=seed))
+    result = build_index(spec, verbose=True)
+
+    weights = result.history.weights
+    last = weights["date"].max()
+    ours = weights[weights["date"] == last].set_index("security_id")["weight"]
+    theirs = synthetic_published_index(ours)
+
+    levels = result.history.levels.set_index("date")["gross_total_return"]
+    their_levels = pd.Series(
+        levels.to_numpy() * (1 - 0.0020 * (pd.RangeIndex(len(levels)) / 252.0)),
+        index=levels.index,
+    )
+
+    study = reconcile_against_published(ours, theirs, levels, their_levels,
+                                        as_of=last, fee_bps=20.0)
+    console.print(study["constituent_verdict"])
+    if "return_verdict" in study:
+        console.print(study["return_verdict"])
+    path = write_reconciliation_study(study, "miniFTSE Global All Cap", Path(out))
+    console.print(f"[green]wrote[/green] {path}")

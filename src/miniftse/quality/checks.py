@@ -458,13 +458,25 @@ def check_all_constituents_priced(ctx: ValidationContext) -> Finding:
     unpriced = [s for s in ctx.weights.index.astype(str) if s not in priced]
     if unpriced:
         lost_weight = float(ctx.weights.reindex(unpriced).sum())
-        severity = Severity.ESCALATE if lost_weight > 0.005 else Severity.BLOCK
+        # Severity scales with the weight involved, because a constituent not printing
+        # today is ordinary: a local holiday, a short suspension, an illiquid small cap
+        # that simply did not trade. Blocking on any amount at all makes the check fire
+        # on most normal days, and a rule that fires on normal days gets switched off.
+        #
+        # What is not ordinary is a *material* share of the index carrying no price,
+        # which means either a feed has failed or a delisting was never processed.
+        if lost_weight > 0.02:
+            severity = Severity.ESCALATE
+        elif lost_weight > 0.005:
+            severity = Severity.BLOCK
+        else:
+            severity = Severity.WARN
         return Finding(
             rule="constituents_priced", category="cross_field", severity=severity,
             passed=False,
             message=(
                 f"{len(unpriced)} constituent(s) carrying {lost_weight:.2%} of index "
-                "weight have no price today"
+                "weight have no price today; valued at their last traded price"
             ),
             n_affected=len(unpriced), sample=tuple(unpriced[:5]), value=lost_weight,
         )

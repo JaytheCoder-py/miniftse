@@ -140,6 +140,14 @@ class IndexCalculator:
 
     _warnings: list[str] = field(default_factory=list, repr=False)
 
+    final_state: IndexState | None = field(default=None, repr=False)
+    """The closing state of the last run.
+
+    Retained so a daily job can persist exactly what the calculation produced. Rebuilding
+    the constituent set from the last review's specs instead is subtly wrong: the
+    calculator drops securities that have stopped trading, and re-deriving reinstates
+    them at a carried price."""
+
     def run(
         self,
         prices: pd.DataFrame,
@@ -210,6 +218,7 @@ class IndexCalculator:
                     for k, v in state.weights().items()
                 )
 
+        self.final_state = state
         return IndexHistory(
             levels=pd.DataFrame(pr_series),
             weights=pd.DataFrame(weight_rows),

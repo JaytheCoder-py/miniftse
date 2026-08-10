@@ -198,58 +198,88 @@ def check_golden_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("seed-state")
+def seed_state_cmd(
+    securities: int = typer.Option(300),
+    up_to: str = typer.Option("2026-06-01"),
+    seed: int = typer.Option(20260809),
+) -> None:
+    """Build the history once and persist the closing state the daily job resumes from."""
+    from miniftse.production.daily import DailyJob
+
+    job = DailyJob(config=global_all_cap(),
+                   universe_config=SyntheticConfig(n_securities=securities, seed=seed))
+    path = job.seed_state(dt.date.fromisoformat(up_to))
+    console.print(f"[green]seeded[/green] {path}")
+
+
 @app.command("daily")
 def daily_cmd(
-    date: str = typer.Option(None, help="run date, default the last available"),
-    securities: int = typer.Option(200),
-    simulate: str = typer.Option(None, help="failure mode: late_data | outlier"),
+    date: str = typer.Option(None, help="run date; default the next session after state"),
+    securities: int = typer.Option(300),
+    seed: int = typer.Option(20260809),
+    simulate: str = typer.Option(
+        None, help="failure mode: late_data | outlier | missing_corp_action"),
+    show_dag: bool = typer.Option(True),
 ) -> None:
-    """Run the production DAG for one date."""
-    from miniftse.production.pipeline import (
-        DataNotReadyError,
-        StepStatus,
-        build_daily_pipeline,
-    )
+    """Run the real daily production DAG for one date.
 
-    state: dict[str, int] = {"attempts": 0}
+    This performs the genuine calculation: it loads the day's data, validates it, rolls
+    the index forward one day from the persisted state, validates the output, passes the
+    publication gate and writes the new state and a run manifest.
+    """
+    from miniftse.production.daily import DailyJob, IndexStateFile
+    from miniftse.production.pipeline import StepStatus
 
-    def load(ctx: dict) -> str:
-        state["attempts"] += 1
-        if simulate == "late_data" and state["attempts"] <= 2:
-            raise DataNotReadyError(
-                f"market data has not arrived (attempt {state['attempts']})")
-        return "market data loaded"
+    job = DailyJob(config=global_all_cap(),
+                   universe_config=SyntheticConfig(n_securities=securities, seed=seed),
+                   simulate=simulate)
 
-    def passthrough(label: str):
-        def inner(ctx: dict) -> str:
-            return label
-        return inner
+    stored = IndexStateFile.load(job.state_dir, job.config.index_id)
+    if stored is None:
+        console.print("[yellow]no stored state; seeding it first "
+                      "(this is also the disaster-recovery path)[/yellow]")
+        job.seed_state(dt.date(2026, 6, 1), verbose=False)
+        stored = IndexStateFile.load(job.state_dir, job.config.index_id)
 
-    def gate(ctx: dict) -> str:
-        if simulate == "outlier":
-            from miniftse.production.pipeline import PipelineError
+    if date:
+        run_date = dt.date.fromisoformat(date)
+    else:
+        assert stored is not None
+        prior = dt.date.fromisoformat(stored.as_of)
+        sessions = sorted(d for d in job.universe.calendar.date if d > prior)
+        if not sessions:
+            console.print("[red]no session after the stored state date[/red]")
+            raise typer.Exit(code=1)
+        run_date = sessions[0]
 
-            raise PipelineError(
-                "publication gate BLOCKED: price_outliers - one constituent moved "
-                "beyond 8 robust sigma with 34bp of index impact"
-            )
-        return "gate passed"
+    if show_dag:
+        console.print(job.pipeline().describe())
+        console.print()
 
-    pipeline = build_daily_pipeline(
-        load_market_data=load,
-        validate_inputs=passthrough("inputs valid"),
-        calculate_index=passthrough("index calculated"),
-        validate_output=passthrough("output valid"),
-        publication_gate=gate,
-        publish=passthrough("published"),
-        notify=passthrough("notified"),
-    )
-    console.print(pipeline.describe())
-    console.print()
-    run = pipeline.run(dt.date.fromisoformat(date) if date else dt.date.today())
+    if stored is not None:
+        console.print(
+            f"resuming from {stored.as_of} (level {stored.level_pr:,.2f}), "
+            f"running {run_date}"
+        )
+        console.print()
+    run = job.run(run_date)
     console.print(run.summary())
-    del securities
-    if any(r.status == StepStatus.FAILED for r in run.results.values()):
+
+    if run.succeeded:
+        published = run.context["publish"]
+        console.print()
+        console.print(
+            f"[green]published[/green] PR {published['levels']['pr']:,.2f} "
+            f"GTR {published['levels']['gtr']:,.2f}"
+        )
+        console.print(run.context["notify"])
+    else:
+        console.print()
+        console.print("[red]not published.[/red] See docs/RUNBOOK.md")
+        for result in run.results.values():
+            if result.status == StepStatus.FAILED:
+                console.print(f"  {result.name}: {result.error}")
         raise typer.Exit(code=1)
 
 

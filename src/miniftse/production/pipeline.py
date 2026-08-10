@@ -189,9 +189,14 @@ class Pipeline:
         run.context["run_date"] = run_date
 
         for step in self._topological_order():
+            # BLOCKED counts as well as FAILED. A step whose upstream never ran has no
+            # input either, and letting it run produces a KeyError that masquerades as
+            # a second, unrelated failure - which is exactly what a duty analyst at 6am
+            # does not need.
             upstream_failed = [
                 d for d in step.depends_on
-                if run.results.get(d) and run.results[d].status == StepStatus.FAILED
+                if run.results.get(d)
+                and run.results[d].status in {StepStatus.FAILED, StepStatus.BLOCKED}
             ]
             if upstream_failed:
                 run.results[step.name] = StepResult(

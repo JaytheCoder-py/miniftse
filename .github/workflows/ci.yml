@@ -75,6 +75,14 @@ jobs:
         # code does what its author meant; this verifies that ten years of published
         # numbers have not moved. A refactor that shifts the index by half a basis
         # point is a recalculation event, not a tidy-up.
+        #
+        # This job runs on Linux. The banding fix (27502f6, "band assignment must not
+        # depend on floating-point summation order") was developed and re-pinned
+        # (ff73906) on Windows, where the platform-dependent `np.cumsum` bug that
+        # motivated it was actually found - Task 11's local golden check could not by
+        # itself prove the fix holds cross-platform. This is that proof: the first time
+        # the post-fix master is checked against a from-scratch rebuild on a different
+        # OS.
         run: uv run miniftse check-golden
 
   quality:
@@ -104,6 +112,25 @@ jobs:
         # abstention, the number guard - which is where RAG systems actually fail.
         run: uv run pytest tests/test_integration.py::TestAiLayer -q
 
+  desk-snapshot:
+    name: desk snapshot smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - name: build a small snapshot end to end
+        # 100 securities over one year, not the 300-security/nine-year reference build
+        # `desk/data/` is committed from - this job exists to catch a change that
+        # breaks snapshot generation (an EXPECTED_FILES artefact stops being written,
+        # a helper starts raising on this shape of data) in CI, before it breaks a
+        # deploy. It does not need to match the golden master to prove that.
+        run: |
+          uv run miniftse desk-snapshot --out /tmp/desk-smoke --securities 100 \
+            --start 2019-01-02 --end 2019-12-31
+
   build:
     name: package and container
     runs-on: ubuntu-latest
@@ -117,7 +144,12 @@ jobs:
           name: dist
           path: dist/
       - name: docker build
-        run: docker build -t miniftse:${{ github.sha }} .
+        # `--target runtime`: the Dockerfile's last stage is now `desk` (Task 14), so a
+        # plain `docker build .` would build the ops-desk image instead of the index
+        # builder this job has always smoke-tested. Pinning the target keeps this job
+        # testing what it always tested; the desk image has no docker-based CI check of
+        # its own; the `desk-snapshot` job above is the check for its build step.
+        run: docker build --target runtime -t miniftse:${{ github.sha }} .
       - name: smoke test the image
         run: |
           docker run --rm miniftse:${{ github.sha }} \

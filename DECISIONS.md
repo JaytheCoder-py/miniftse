@@ -301,7 +301,8 @@ summation order is not a rule. Four changes, all in `universe/banding.py`:
    partial-sum algorithm — the one behind `math.fsum`, kept open so the running total can
    be read after each element rather than only at the end. Every prefix is the correctly
    rounded value of the exact mathematical sum, so it depends on the values alone and never
-   on how the machine associated the additions. It is O(n), against O(n²) for
+   on how the machine associated the additions. It is O(n·k), where k is the number of
+   distinct exponent ranges in play (small in practice), against O(n²) for
    `math.fsum(values[:i+1])` per element, and the tests assert the two agree bit for bit.
 2. **A total order.** Ties in float market cap break on ascending `security_id`. Arbitrary,
    but written down, which is the property that matters.
@@ -309,7 +310,7 @@ summation order is not a rule. Four changes, all in `universe/banding.py`:
    a cutoff or a buffer edge. `CUMULATIVE_PCT_DECIMALS` in the code, Ground Rules 2.1.1, and
    this entry — three places, because a precision that lives only in code is not a rule
    anyone can hold us to.
-4. **The tie-break written into the ground rules.** 2.1: a security exactly on a cutoff
+4. **The tie-break written into the ground rules.** 2.1.1: a security exactly on a cutoff
    belongs to the band that cutoff closes. 8.3: exactly one buffer width past a boundary is
    not *more than* one buffer width, so the incumbent is held.
 

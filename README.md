@@ -17,6 +17,37 @@ vendor licence. That is deliberate — see [D-004](DECISIONS.md).
 
 ---
 
+## Ops desk
+
+A small FastAPI application over the library above — not a second implementation of
+it. Every figure the desk renders is either read straight from the precomputed
+snapshot or a direct library call; a dedicated test
+(`tests/test_desk.py::test_desk_contains_no_index_arithmetic`) greps every desk
+source file for the re-derivation patterns (`* 100`, bps/fraction conversions, `*
+252`, nth roots) that would create a second source of truth for a published number,
+and fails the build if one appears. Five screens: **explain a day** (the divisor and
+market moves behind one session's level), a **chaos-drill console** (re-run any of
+12 injected data faults live), the **methodology assistant** (ask the rulebook, an
+eval report, and a client-response drafter with a number guard that catches
+unverified figures), **reproducibility** (this build checked against the pinned
+golden master), and **the index** (overview, constituents, capacity, risk &
+attribution).
+
+```bash
+make desk-data    # precompute the snapshot every screen serves (~30s)
+make desk-serve   # run the desk locally at http://localhost:8000
+```
+
+Deploys as a Docker container — `docker build --target desk .`, serving on port 7860
+(the Hugging Face Spaces convention). `desk/data/` is committed to the repo like
+`artefacts/`, so the image needs no build-time index calculation, just a `COPY`. See
+[`desk/README.md`](desk/README.md) for the Hugging Face Spaces deployment steps.
+
+**Deployed URL:** _TODO — not yet deployed. Deployment requires the repo owner's own
+Hugging Face account; see `desk/README.md` for the steps to run it._
+
+---
+
 ## What it does
 
 **Reference index over 2016–2026** (500 securities, quarterly reviews):

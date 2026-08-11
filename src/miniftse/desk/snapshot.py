@@ -624,5 +624,8 @@ def _jsonable(obj: Any) -> Any:
     if isinstance(obj, float):
         return obj if math.isfinite(obj) else None
     if isinstance(obj, dt.date | dt.datetime | pd.Timestamp):
-        return str(obj)
+        # `pd.NaT` is a `datetime` subclass, so it lands here - and `str()` would
+        # render it as the literal text "NaT", the same truthy-string lie the
+        # docstring rejects `default=str` for. A missing timestamp is null.
+        return None if pd.isna(obj) else str(obj)
     return str(obj)

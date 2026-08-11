@@ -202,6 +202,19 @@ def test_constituents_tolerates_a_partial_state_mismatch():
     assert rows[1]["adv"] == 0.0
 
 
+def test_jsonable_renders_nat_as_null_not_the_string_nat():
+    """`pd.NaT` is a `datetime` subclass, so the date branch's `str()` turned it into
+    the literal string "NaT" - which renders as truthy, non-empty text in a template,
+    exactly the shape of lie the docstring's `default=str` warning is about. A missing
+    timestamp must round-trip as JSON null, the same way a non-finite float already
+    does."""
+    from miniftse.desk.snapshot import _jsonable
+
+    assert _jsonable(pd.NaT) is None
+    assert _jsonable({"when": pd.NaT}) == {"when": None}
+    assert _jsonable([pd.Timestamp("2020-06-30"), pd.NaT]) == ["2020-06-30 00:00:00", None]
+
+
 def test_build_snapshot_fails_loudly_on_missing_artefact(tmp_path, monkeypatch):
     """A partial snapshot must never be written."""
     from miniftse.desk import snapshot as snap

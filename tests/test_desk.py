@@ -407,3 +407,116 @@ def test_500_renders_inside_the_site_layout(desk_data_dir):
     assert "Explain a day" in body
     assert "Traceback" not in body
     assert "boom" not in body
+
+
+# --------------------------------------------------------------------------------------
+# Task 5: Screen 1 - `/day` route and template
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_available_dates_matches_days_frame(desk_state):
+    """The closed set the route validates against: sorted, and exactly the dates
+    `days.parquet` published a level for."""
+    from miniftse.desk.services import available_dates
+
+    dates = available_dates(desk_state)
+    assert dates == sorted(dates)
+    assert set(dates) == {row.date() for row in desk_state.days["date"]}
+
+
+@pytest.mark.slow
+def test_day_default_shows_notable_days(client):
+    """No `date` param: 200, and the notable-days pinned list is present."""
+    response = client.get("/day")
+    assert response.status_code == 200
+    assert "notable days" in response.text.lower()
+
+
+@pytest.mark.slow
+def test_day_default_selects_most_recent_date(client, desk_state):
+    """The unspecified-date default is the most recently published session."""
+    most_recent = desk_state.days.sort_values("date").iloc[-1]["date"].date()
+    response = client.get("/day")
+    assert response.status_code == 200
+    assert most_recent.isoformat() in response.text
+
+
+@pytest.mark.slow
+def test_day_known_review_date_shows_turnover(client, desk_state):
+    """A review date's page contains the review's one-way turnover figure."""
+    from miniftse.desk.services import explain_day
+
+    reviews = desk_state.reviews
+    assert not reviews.empty, "fixture must contain at least one review"
+    row = reviews.iloc[0]
+    date = row["date"].date()
+    explanation = explain_day(desk_state, date)
+    assert explanation.review is not None
+
+    response = client.get("/day", params={"date": date.isoformat()})
+
+    assert response.status_code == 200
+    turnover = float(explanation.review["one_way_turnover"])
+    assert f"{turnover:.2%}" in response.text
+
+
+@pytest.mark.slow
+def test_day_event_date_shows_emphasised_columns_and_apply_order(client, desk_state):
+    """A day with a corporate-action divisor event renders the emphasised
+    continuity-error/realised-return columns and each event's apply order."""
+    from miniftse.desk.services import explain_day
+
+    audit = desk_state.divisor_audit
+    corp_events = audit.loc[audit["event_type"] != "REVIEW"]
+    assert not corp_events.empty, "fixture must contain at least one corporate action"
+    date = corp_events.iloc[0]["date"].date()
+    explanation = explain_day(desk_state, date)
+    assert explanation.events
+
+    response = client.get("/day", params={"date": date.isoformat()})
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'class="metric-emphasis"' in body
+    assert "continuity error" in body.lower()
+    assert "realised return" in body.lower()
+    for event in explanation.events:
+        assert str(event["apply_order"]) in body
+
+
+@pytest.mark.slow
+def test_day_no_event_day_renders_market_framing(client, desk_state):
+    """A plain trading day states explicitly that nothing structural happened."""
+    days = desk_state.days
+    plain_days = days.loc[(days["n_divisor_events"] == 0) & (~days["is_review"])]
+    assert not plain_days.empty, "fixture must contain at least one plain trading day"
+    date = plain_days.iloc[-1]["date"].date()
+
+    response = client.get("/day", params={"date": date.isoformat()})
+
+    assert response.status_code == 200
+    assert "the whole move was the market" in response.text.lower()
+
+
+@pytest.mark.slow
+def test_day_links_memo_m2(client):
+    """The 'why did the level move' memo is named somewhere on the page."""
+    response = client.get("/day")
+    assert "M2_why_our_index_level_moved_30bp_when_nothing_traded.md" in response.text
+
+
+@pytest.mark.slow
+def test_day_out_of_index_date_is_400_not_500(client):
+    """A syntactically valid date the index never published a level for is a 400."""
+    response = client.get("/day", params={"date": "1990-01-01"})
+    assert response.status_code == 400
+    assert "Traceback" not in response.text
+
+
+@pytest.mark.slow
+def test_day_unparseable_date_is_400_not_500(client):
+    """Garbage input is a 400, never a 500 - validated before `explain_day` is called."""
+    response = client.get("/day", params={"date": "not-a-date"})
+    assert response.status_code == 400
+    assert "Traceback" not in response.text

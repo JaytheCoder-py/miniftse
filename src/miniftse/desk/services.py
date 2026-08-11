@@ -116,6 +116,17 @@ def explain_day(state: DeskState, date: dt.date) -> DayExplanation:
     )
 
 
+def available_dates(state: DeskState) -> list[dt.date]:
+    """Every date this index published a level for, ascending.
+
+    This is the closed set `/day` (Task 5) validates a requested date against before
+    calling `explain_day` at all - kept here, beside the frame it reads, rather than
+    the route re-deriving it from `state.days` itself, per the module docstring's rule
+    that no retrieval logic lives in the route layer.
+    """
+    return [_as_date(value) for value in state.days["date"].sort_values()]
+
+
 def notable_days(state: DeskState) -> list[dict[str, Any]]:
     """Four pinned dropdown entries: the largest divisor event, the largest review
     turnover, the largest continuity error, and the largest single-day move.

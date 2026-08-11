@@ -16,17 +16,19 @@ itself, and uvicorn is run in factory mode: `uvicorn miniftse.desk.app:create_ap
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from miniftse.desk.services import available_dates, explain_day, notable_days
 from miniftse.desk.state import DeskState, load_desk_state
 
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -64,6 +66,55 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
     @app.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:
         return RedirectResponse(url="/day")
+
+    @app.get("/day")
+    async def day(request: Request, date: str | None = None) -> Response:
+        """Screen 1: explain one session's level and divisor moves.
+
+        `date` is validated against the snapshot's closed set of published dates
+        *before* `services.explain_day` is ever called - a date this index never
+        published a level for, or a string that is not a date at all, becomes a 400
+        here, not a `KeyError` the service would otherwise raise (see `explain_day`'s
+        docstring) and not a 500. No index arithmetic happens in this handler: it
+        picks a date, calls `services.explain_day`/`services.notable_days`, and hands
+        the result to the template.
+        """
+        desk: DeskState = request.app.state.desk
+        dates = available_dates(desk)
+        notable = notable_days(desk)
+
+        if date is None:
+            # No date requested: the most recently published session, so the screen
+            # opens on "today" rather than an arbitrary or empty state.
+            selected = dates[-1]
+        else:
+            try:
+                selected = dt.date.fromisoformat(date)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{date}' is not a valid date (expected YYYY-MM-DD).",
+                ) from exc
+            if selected not in dates:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"{selected.isoformat()} is not a date this index published "
+                        "a level for."
+                    ),
+                )
+
+        explanation = explain_day(desk, selected)
+        return templates.TemplateResponse(
+            request,
+            "day.html",
+            {
+                "selected_date": selected,
+                "dates": dates,
+                "notable": notable,
+                "explanation": explanation,
+            },
+        )
 
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, Any]:

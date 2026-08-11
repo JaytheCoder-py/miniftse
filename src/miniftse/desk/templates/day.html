@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{# Screen 1: explain one session's level and divisor moves. Everything here is either
+   already computed by `services.explain_day`/`services.notable_days` or a plain
+   formatting filter over one of their values - no index arithmetic and no date
+   validation happens in this template; both live in app.py's `/day` route and in
+   `services.py`, per the plan's "route is: validate input -> call services -> render"
+   rule. #}
+
+{% block title %}Explain {{ selected_date.isoformat() }} - miniftse ops desk{% endblock %}
+
+{% block content %}
+<style>
+  /* Screen-specific styling lives with the screen that introduces it (see
+     static/style.css's header comment) rather than growing the shared shell. */
+  .day-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+  .day-form label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 0.25rem;
+  }
+  .day-form select {
+    min-width: 22rem;
+    max-width: 100%;
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem;
+  }
+  .notable-days ul {
+    margin: 0.5rem 0 0;
+    padding-left: 1.25rem;
+  }
+  .notable-days li {
+    margin-bottom: 0.35rem;
+  }
+  .day-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  section.card {
+    margin-bottom: 1.5rem;
+  }
+  /* The emphasised columns: continuity error and realised return are the whole point
+     of this screen - they separate the return the divisor recognised from a defect
+     the divisor should never have introduced. Visually distinct, not just labelled. */
+  .metric-emphasis {
+    color: var(--accent);
+    font-weight: 700;
+    background: rgba(79, 140, 255, 0.08);
+  }
+  .no-events {
+    color: var(--text-dim);
+    font-style: italic;
+  }
+  .review-card {
+    border-left: 3px solid var(--accent);
+  }
+  .narrative-card p {
+    margin: 0;
+  }
+  .memo-note {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+</style>
+
+<h1>Explain a day</h1>
+
+<form class="day-form card" method="get" action="/day">
+  <div>
+    <label for="date-select">Session</label>
+    <select id="date-select" name="date">
+      <optgroup label="Notable days">
+        {% for entry in notable %}
+          <option value="{{ entry.date.isoformat() }}"
+            {% if entry.date == selected_date %}selected{% endif %}>
+            {{ entry.date.isoformat() }} - {{ entry.category|replace("_", " ") }}: {{ entry.reason }}
+          </option>
+        {% endfor %}
+      </optgroup>
+      {% set notable_dates = notable|map(attribute="date")|list %}
+      <optgroup label="All days">
+        {% for d in dates if d not in notable_dates %}
+          <option value="{{ d.isoformat() }}" {% if d == selected_date %}selected{% endif %}>
+            {{ d.isoformat() }}
+          </option>
+        {% endfor %}
+      </optgroup>
+    </select>
+  </div>
+  <button type="submit" class="btn">View day</button>
+</form>
+
+<section class="card notable-days" aria-label="Notable days">
+  <h2>Notable days</h2>
+  <ul>
+    {% for entry in notable %}
+      <li>
+        <a href="/day?date={{ entry.date.isoformat() }}">{{ entry.date.isoformat() }}</a>
+        &mdash; {{ entry.category|replace("_", " ") }}: {{ entry.reason }}
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<h2>{{ selected_date.isoformat() }}</h2>
+
+<div class="day-grid">
+  <div class="card">
+    <h3>Levels (open / close)</h3>
+    <table>
+      <thead>
+        <tr><th>Series</th><th>Open</th><th>Close</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Price return</td>
+          <td>{{ "%.2f"|format(explanation.levels.price_return.open) }}</td>
+          <td>{{ "%.2f"|format(explanation.levels.price_return.close) }}</td>
+        </tr>
+        <tr>
+          <td>Gross total return</td>
+          <td>{{ "%.2f"|format(explanation.levels.gross_total_return.open) }}</td>
+          <td>{{ "%.2f"|format(explanation.levels.gross_total_return.close) }}</td>
+        </tr>
+        <tr>
+          <td>Net total return</td>
+          <td>{{ "%.2f"|format(explanation.levels.net_total_return.open) }}</td>
+          <td>{{ "%.2f"|format(explanation.levels.net_total_return.close) }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Divisor and the day's move</h3>
+    <table>
+      <tbody>
+        <tr><th>Divisor before</th><td>{{ "%.4f"|format(explanation.divisor_before) }}</td></tr>
+        <tr><th>Divisor after</th><td>{{ "%.4f"|format(explanation.divisor_after) }}</td></tr>
+        <tr><th>Market move</th><td>{{ "%+.1f"|format(explanation.market_move_bps) }} bps</td></tr>
+        <tr><th>Structural move</th><td>{{ "%+.1f"|format(explanation.structural_move_bps) }} bps</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Divisor events</h2>
+  {% if explanation.events %}
+    <table>
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Event</th>
+          <th>Security</th>
+          <th>Divisor before</th>
+          <th>Divisor after</th>
+          <th>Divisor change</th>
+          <th class="metric-emphasis">Continuity error (bps)</th>
+          <th class="metric-emphasis">Realised return (bps)</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in explanation.events %}
+          <tr>
+            <td>{{ event.apply_order }}</td>
+            <td>{{ event.event_type }}</td>
+            <td>{{ event.security_id }}</td>
+            <td>{{ "%.4f"|format(event.divisor_before) }}</td>
+            <td>{{ "%.4f"|format(event.divisor_after) }}</td>
+            <td>{{ "%+.2f%%"|format(event.divisor_change_pct * 100) }}</td>
+            <td class="metric-emphasis">{{ "%+.2f"|format(event.continuity_error_bps) }}</td>
+            <td class="metric-emphasis">{{ "%+.1f"|format(event.realised_return_bps) }}</td>
+            <td>{{ event.reason }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="no-events">
+      Nothing structural happened on this date; the whole move was the market.
+    </p>
+  {% endif %}
+</section>
+
+{% if explanation.review %}
+  <section class="card review-card">
+    <h2>Periodic review</h2>
+    <table>
+      <tbody>
+        <tr><th>Constituents before</th><td>{{ explanation.review.n_before }}</td></tr>
+        <tr><th>Constituents after</th><td>{{ explanation.review.n_after }}</td></tr>
+        <tr><th>Additions</th><td>{{ explanation.review.n_additions }}</td></tr>
+        <tr><th>Deletions</th><td>{{ explanation.review.n_deletions }}</td></tr>
+        <tr>
+          <th>One-way turnover</th>
+          <td>{{ "%.2f%%"|format(explanation.review.one_way_turnover * 100) }}</td>
+        </tr>
+        <tr>
+          <th>Additions weight</th>
+          <td>{{ "%.2f%%"|format(explanation.review.additions_weight * 100) }}</td>
+        </tr>
+        <tr>
+          <th>Deletions weight</th>
+          <td>{{ "%.2f%%"|format(explanation.review.deletions_weight * 100) }}</td>
+        </tr>
+        <tr>
+          <th>Level continuity</th>
+          <td>{{ "%+.2f"|format(explanation.review.level_continuity_bps) }} bps</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+{% endif %}
+
+<section class="card narrative-card">
+  <h2>What happened</h2>
+  <p>{{ explanation.narrative }}</p>
+  <p class="memo-note">
+    Background reading:
+    <code>memos/M2_why_our_index_level_moved_30bp_when_nothing_traded.md</code>
+    &mdash; "Why our index level moved 30bp when nothing traded."
+  </p>
+</section>
+{% endblock %}

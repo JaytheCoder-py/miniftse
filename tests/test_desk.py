@@ -444,7 +444,17 @@ def test_day_default_selects_most_recent_date(client, desk_state):
 
 @pytest.mark.slow
 def test_day_known_review_date_shows_turnover(client, desk_state):
-    """A review date's page contains the review's one-way turnover figure."""
+    """A review date's page renders the review card (its own `data-testid` marker,
+    which only the `{% if explanation.review %}` block can produce) containing the
+    review's one-way turnover figure.
+
+    The marker matters: `explanation.narrative` embeds the same `.2%`-formatted
+    turnover figure unconditionally (see `services._narrative`), so asserting on the
+    turnover string alone would still pass even if the review card itself were
+    deleted from the template - it would just be reading the narrative sentence
+    instead. The marker isolates "the review block renders" from "the narrative
+    mentions turnover".
+    """
     from miniftse.desk.services import explain_day
 
     reviews = desk_state.reviews
@@ -457,8 +467,25 @@ def test_day_known_review_date_shows_turnover(client, desk_state):
     response = client.get("/day", params={"date": date.isoformat()})
 
     assert response.status_code == 200
+    assert 'data-testid="review-card"' in response.text
     turnover = float(explanation.review["one_way_turnover"])
     assert f"{turnover:.2%}" in response.text
+
+
+@pytest.mark.slow
+def test_day_non_review_date_has_no_review_card(client, desk_state):
+    """Inverse of the above: a date that was not a review effective date renders no
+    review card at all - otherwise the marker's presence on a review date wouldn't
+    actually signal anything."""
+    days = desk_state.days
+    non_review_days = days.loc[~days["is_review"]]
+    assert not non_review_days.empty, "fixture must contain at least one non-review day"
+    date = non_review_days.iloc[-1]["date"].date()
+
+    response = client.get("/day", params={"date": date.isoformat()})
+
+    assert response.status_code == 200
+    assert 'data-testid="review-card"' not in response.text
 
 
 @pytest.mark.slow

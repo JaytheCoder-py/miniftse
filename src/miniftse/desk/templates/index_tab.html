@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+{# Screen 5: the index at a glance. Four in-page sections, reached by anchor nav
+   (Overview/Constituents/Capacity/Risk & attribution) rather than a second HTMX round
+   trip per tab - the ops-desk plan's Task 12 leaves the choice between anchor nav and
+   tab-style JS switching to whichever is simpler, and a page with four `<section id=...>`
+   blocks and a `<nav>` of `<a href="#...">` links needs no JS at all to switch between
+   them.
+
+   Every number below traces to exactly one of the four JSON payloads `desk/snapshot.py`
+   writes (`overview`, `constituents`, `capacity`, `risk_attribution`) - see `app.py`'s
+   `/index` route docstring. The one exception is the Capacity section's fund-size
+   slider, which recomputes live in the browser via `static/capacity.js`; see that
+   file's header comment for why. #}
+
+{% block title %}The index - miniftse ops desk{% endblock %}
+
+{% block content %}
+<style>
+  /* Screen-specific styling lives with the screen that introduces it (see
+     static/style.css's header comment) rather than growing the shared shell. */
+  .index-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    margin-bottom: 1.5rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .index-tabs a {
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  .index-tabs a:hover {
+    color: var(--text);
+  }
+  section[id] {
+    scroll-margin-top: 4.5rem;
+    margin-bottom: 2.5rem;
+  }
+  section[id] > h2 {
+    margin-top: 0;
+  }
+  .stat-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin: 1rem 0 1.5rem;
+  }
+  .stat-tile {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    text-align: center;
+  }
+  .stat-value {
+    display: block;
+    font-size: 1.6rem;
+    font-weight: 700;
+  }
+  .stat-label {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  #overview-chart {
+    max-width: 100%;
+  }
+  th[data-sort-key] {
+    cursor: pointer;
+    user-select: none;
+  }
+  th[data-sort-key]:hover {
+    color: var(--text);
+  }
+  th[data-sort-key]::after {
+    content: "\2195";
+    margin-left: 0.35rem;
+    color: var(--text-dim);
+    font-size: 0.8em;
+  }
+  .capacity-note {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin: 0.5rem 0 0.75rem;
+  }
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.75rem 0 1rem;
+    flex-wrap: wrap;
+  }
+  .slider-row input[type="range"] {
+    flex: 1;
+    min-width: 12rem;
+    max-width: 26rem;
+  }
+  #fund-size-label {
+    font-weight: 700;
+    min-width: 4.5rem;
+  }
+  table.capacity-live-table {
+    max-width: 26rem;
+  }
+  table.capacity-live-table th {
+    color: var(--text);
+    font-weight: 400;
+  }
+  .onepager-meta {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-top: -0.5rem;
+  }
+  .onepager h3 {
+    margin-bottom: 1rem;
+  }
+  .onepager h4 {
+    margin-bottom: 0.35rem;
+  }
+  .onepager table {
+    margin-bottom: 1.25rem;
+  }
+  .onepager + .onepager {
+    margin-top: 2rem;
+  }
+</style>
+
+<h1>The index</h1>
+<p class="summary-note">
+  A single view of the index this desk publishes: performance, who is in it, what it
+  would cost a fund of a given size to hold, and the parsed risk/attribution one-pagers.
+</p>
+
+<nav class="index-tabs" data-testid="index-section-nav">
+  <a href="#overview">Overview</a>
+  <a href="#constituents">Constituents</a>
+  <a href="#capacity">Capacity</a>
+  <a href="#risk-attribution">Risk &amp; attribution</a>
+</nav>
+
+<section id="overview">
+  <h2>Overview</h2>
+  <div class="stat-tiles">
+    <div class="stat-tile" data-testid="stat-annualised-return">
+      <span class="stat-value">{{ "%.1f"|format(overview.stats.annualised_return * 100) }}%</span>
+      <span class="stat-label">Annualised return (GTR)</span>
+    </div>
+    <div class="stat-tile" data-testid="stat-annualised-vol">
+      <span class="stat-value">{{ "%.1f"|format(overview.stats.annualised_vol * 100) }}%</span>
+      <span class="stat-label">Annualised volatility (GTR)</span>
+    </div>
+    <div class="stat-tile" data-testid="stat-max-drawdown">
+      <span class="stat-value">{{ "%.1f"|format(overview.stats.max_drawdown * 100) }}%</span>
+      <span class="stat-label">Maximum drawdown (GTR)</span>
+    </div>
+    <div class="stat-tile" data-testid="stat-divisor-events">
+      <span class="stat-value">{{ overview.stats.divisor_events }}</span>
+      <span class="stat-label">Divisor events</span>
+    </div>
+  </div>
+  <p class="capacity-note">
+    Annualised return is compounded over calendar years
+    (<code>IndexHistory.annualised_return</code>: <code>(end / start) ** (1 / years) - 1</code>,
+    <code>years = days / 365.25</code>) - not the 252-trading-day convention some
+    factsheets use. Annualised volatility scales the daily return standard deviation by
+    &radic;252 trading days. Divisor events counts every corporate-action and
+    periodic-review divisor change in <code>divisor_audit.parquet</code>
+    (<code>len(history.divisor_audit)</code>), the same figure Screen 1's event table is
+    built from - these are the library's own published definitions, read straight off
+    <code>overview.json["stats"]</code>, not recomputed here.
+  </p>
+  <canvas id="overview-chart" height="90" data-testid="overview-chart"></canvas>
+  <script id="overview-chart-data" type="application/json">{{ overview_chart_json | safe }}</script>
+</section>
+
+<section id="constituents">
+  <h2>Constituents</h2>
+  <p class="summary-note">
+    As of {{ constituents.as_of }} ({{ constituents.constituents|length }} names). Click
+    a column header to sort; click it again to reverse the order.
+  </p>
+  <table id="constituents-table" data-testid="constituents-table">
+    <thead>
+      <tr>
+        <th data-sort-key="security_id" data-sort-type="string">Security</th>
+        <th data-sort-key="weight" data-sort-type="number">Weight</th>
+        <th data-sort-key="size_band" data-sort-type="string">Size band</th>
+        <th data-sort-key="country" data-sort-type="string">Country</th>
+        <th data-sort-key="sector" data-sort-type="string">Industry (ICB)</th>
+        <th data-sort-key="adv" data-sort-type="number">ADV (USD/day)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in constituents.constituents %}
+        <tr>
+          <td data-sort="{{ row.security_id }}">{{ row.security_id }}</td>
+          <td data-sort="{{ row.weight }}">{{ "%.2f"|format(row.weight * 100) }}%</td>
+          <td data-sort="{{ row.size_band }}">{{ row.size_band }}</td>
+          <td data-sort="{{ row.country }}">{{ row.country }}</td>
+          <td data-sort="{{ row.sector }}">{{ row.sector }}</td>
+          <td data-sort="{{ row.adv }}">{{ "{:,.0f}".format(row.adv) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section id="capacity">
+  <h2>Capacity</h2>
+  <p class="summary-note">Six weighting schemes, three trade-offs each.</p>
+  <table data-testid="scheme-table">
+    <thead>
+      <tr>
+        <th>Scheme</th>
+        <th>Turnover</th>
+        <th>Capacity</th>
+        <th>Factor exposure</th>
+        <th>Explainability</th>
+        <th>Use when</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for key, label in scheme_labels.items() %}
+        {% set props = capacity.schemes[key] %}
+        <tr>
+          <td>{{ label }}</td>
+          <td>{{ props.turnover }}</td>
+          <td>{{ props.capacity }}</td>
+          <td>{{ props.factor_exposure }}</td>
+          <td>{{ props.explainability }}</td>
+          <td>{{ props.use_when }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Fund-size capacity, on the index's current constituent weights</h3>
+  <p class="capacity-note">
+    Drag the slider to see what a fund of that size could actually hold: names whose
+    days-to-trade would exceed
+    {{ capacity.capacity_params.max_days_to_trade }} days at
+    {{ "%.0f"|format(capacity.capacity_params.participation * 100) }}% of ADV get
+    trimmed to that ceiling, and the freed weight redistributes pro-rata to the rest -
+    the capacity-trim algorithm from <code>weighting/schemes.py</code>, ported to
+    <code>static/capacity.js</code> so it can recompute on every drag with no server
+    round trip. Computed on this index's {{ constituents.constituents|length }} current
+    constituent weights and ADV figures - the same set the Constituents section above
+    lists - not on a separate weight set per scheme; the six-scheme table above is a
+    qualitative comparison, and this build's <code>capacity.json</code> carries only one
+    weighting's live figures.
+  </p>
+  <div class="slider-row">
+    <label for="fund-size-slider">Fund size</label>
+    <input type="range" id="fund-size-slider" min="0" max="3" step="0.05" value="2">
+    <span id="fund-size-label" data-testid="fund-size-label">-</span>
+  </div>
+  <table class="capacity-live-table" data-testid="capacity-live-table">
+    <tbody>
+      <tr>
+        <th>Names trimmed</th>
+        <td id="capacity-trimmed" data-testid="capacity-trimmed">-</td>
+      </tr>
+      <tr>
+        <th>Weighted avg. days to trade</th>
+        <td id="capacity-avg-days" data-testid="capacity-avg-days">-</td>
+      </tr>
+    </tbody>
+  </table>
+  <script id="capacity-constituents-data" type="application/json">{{ capacity_slider_json | safe }}</script>
+</section>
+
+<section id="risk-attribution">
+  <h2>Risk &amp; attribution</h2>
+  {% for doc, testid in ((risk_attribution.risk, "risk-onepager"), (risk_attribution.attribution, "attribution-onepager")) %}
+    <div class="onepager card" data-testid="{{ testid }}">
+      <h3>{{ doc.title }}</h3>
+      <p class="onepager-meta">{{ doc.meta }}</p>
+      {% for sec in doc.sections %}
+        <h4>{{ sec.heading }}</h4>
+        {% if sec.text %}<p>{{ sec.text }}</p>{% endif %}
+        {% if sec.table %}
+          <table>
+            <thead>
+              <tr>
+                {% for col in sec.table.columns %}<th>{{ col }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in sec.table.rows %}
+                <tr>
+                  {% for c in r %}<td>{{ c }}</td>{% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endfor %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', path='capacity.js') }}"></script>
+<script>
+  // Overview chart: reads the JSON `app.py`'s `/index` route embedded above (already
+  // `desk/snapshot.py`'s overview series - nothing computed here) and draws it with the
+  // Chart.js already loaded by base.html.
+  (function () {
+    var dataEl = document.getElementById("overview-chart-data");
+    var canvas = document.getElementById("overview-chart");
+    if (!dataEl || !canvas || typeof Chart === "undefined") return;
+    var data = JSON.parse(dataEl.textContent);
+    new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: data.dates,
+        datasets: [
+          { label: "Price return", data: data.pr, borderWidth: 1, pointRadius: 0 },
+          { label: "Gross total return", data: data.gtr, borderWidth: 1, pointRadius: 0 },
+          { label: "Net total return", data: data.ntr, borderWidth: 1, pointRadius: 0 },
+        ],
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: { x: { ticks: { maxTicksLimit: 10 } } },
+      },
+    });
+  })();
+
+  // Constituents table: client-side sort on column click, ascending then descending on
+  // repeated clicks of the same header. Sorts on each cell's `data-sort` attribute (the
+  // raw value, not the formatted text) so weight/ADV sort numerically rather than
+  // lexicographically.
+  (function () {
+    var table = document.getElementById("constituents-table");
+    if (!table) return;
+    var tbody = table.querySelector("tbody");
+    var activeIndex = null;
+    var descending = false;
+
+    Array.prototype.forEach.call(
+      table.querySelectorAll("thead th[data-sort-key]"),
+      function (th, index) {
+        th.addEventListener("click", function () {
+          descending = activeIndex === index ? !descending : false;
+          activeIndex = index;
+          var type = th.getAttribute("data-sort-type");
+          var rows = Array.prototype.slice.call(tbody.querySelectorAll("tr"));
+          rows.sort(function (a, b) {
+            var av = a.children[index].getAttribute("data-sort");
+            var bv = b.children[index].getAttribute("data-sort");
+            var cmp = type === "number"
+              ? parseFloat(av) - parseFloat(bv)
+              : String(av).localeCompare(String(bv));
+            return descending ? -cmp : cmp;
+          });
+          rows.forEach(function (row) { tbody.appendChild(row); });
+        });
+      }
+    );
+  })();
+</script>
+{% endblock %}

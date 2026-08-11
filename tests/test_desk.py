@@ -1434,3 +1434,195 @@ def test_reproducibility_repin_is_not_framed_as_a_knife_edge(client):
     # And it must record that the Small/Micro buffer can never release, so the page
     # does not imply a buffer that does something it structurally cannot.
     assert "never release anything" in prose
+
+
+# --------------------------------------------------------------------------------------
+# Task 12: Screen 5 - `/index`
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_index_get_200_with_return_stat_constituents_header_and_six_schemes(
+    client, desk_state
+):
+    """Brief Step 1: `GET /index` is 200 and contains the annualised-return stat, the
+    constituents table header, and the six scheme names.
+
+    Scheme names are derived from `app._SCHEME_LABELS`, not hardcoded twice: that dict
+    is the closed set of display labels the Capacity section actually renders, keyed by
+    exactly the six keys `capacity.json["schemes"]` carries (`weighting.schemes.
+    SCHEME_PROPERTIES`, stable since it is a module-level constant the library
+    publishes) - so this test and the template can never silently drift apart.
+    """
+    from miniftse.desk.app import _SCHEME_LABELS
+
+    response = client.get("/index")
+
+    assert response.status_code == 200
+    body = response.text
+
+    stats = desk_state.overview["stats"]
+    assert f'{stats["annualised_return"] * 100:.1f}%' in body
+
+    assert "Security" in body  # constituents table header
+    assert "Weight" in body
+
+    assert set(_SCHEME_LABELS) == set(desk_state.capacity["schemes"])
+    for label in _SCHEME_LABELS.values():
+        assert label in body
+
+
+@pytest.mark.slow
+def test_index_shows_all_four_section_anchors(client):
+    """Four in-page sections, reached by anchor nav - not a second HTMX round trip per
+    tab (the plan's "pick the simpler" instruction)."""
+    response = client.get("/index")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-testid="index-section-nav"' in body
+    for anchor in ("overview", "constituents", "capacity", "risk-attribution"):
+        assert f'href="#{anchor}"' in body
+        assert f'id="{anchor}"' in body
+
+
+@pytest.mark.slow
+def test_index_references_capacity_js_and_it_is_served(client):
+    """`capacity.js` is referenced from the page and is actually served underneath
+    `/static` - a dangling reference would 404 silently in a browser but pass a naive
+    text-only check."""
+    response = client.get("/index")
+
+    assert response.status_code == 200
+    assert '/static/capacity.js' in response.text
+
+    js_response = client.get("/static/capacity.js")
+    assert js_response.status_code == 200
+    assert "capacityConstrainedWeights" in js_response.text
+    assert "weightedAverageDaysToTrade" in js_response.text
+
+
+@pytest.mark.slow
+def test_index_embeds_overview_chart_series_as_json(client, desk_state):
+    """The PR/GTR/NTR history chart's data is embedded as JSON (a script tag with the
+    arrays), not baked into inline Chart.js call arguments the template would have to
+    hand-serialise itself."""
+    import json
+
+    response = client.get("/index")
+    assert response.status_code == 200
+    body = response.text
+
+    start = body.index('id="overview-chart-data"')
+    script_start = body.index(">", start) + 1
+    script_end = body.index("</script>", script_start)
+    payload = json.loads(body[script_start:script_end])
+
+    overview = desk_state.overview
+    assert payload["dates"] == overview["dates"]
+    assert payload["pr"] == overview["pr"]
+    assert payload["gtr"] == overview["gtr"]
+    assert payload["ntr"] == overview["ntr"]
+
+
+@pytest.mark.slow
+def test_index_embeds_capacity_constituents_and_params_for_the_slider(client, desk_state):
+    """The fund-size slider's client-side recompute (`static/capacity.js`) needs the
+    constituent weights/adv and the capacity params in the page - embedded as JSON,
+    matching exactly `state.capacity`'s own `constituents`/`capacity_params`, not a
+    reshaped or partial copy."""
+    import json
+
+    response = client.get("/index")
+    assert response.status_code == 200
+    body = response.text
+
+    start = body.index('id="capacity-constituents-data"')
+    script_start = body.index(">", start) + 1
+    script_end = body.index("</script>", script_start)
+    payload = json.loads(body[script_start:script_end])
+
+    capacity = desk_state.capacity
+    assert payload["capacity_params"] == capacity["capacity_params"]
+    assert len(payload["constituents"]) == len(capacity["constituents"])
+    assert {c["security_id"] for c in payload["constituents"]} == {
+        c["security_id"] for c in capacity["constituents"]
+    }
+
+
+@pytest.mark.slow
+def test_index_constituents_table_lists_every_security(client, desk_state):
+    """Every constituent in `state.constituents` appears in the table - not a
+    truncated top-N."""
+    response = client.get("/index")
+
+    assert response.status_code == 200
+    body = response.text
+    for row in desk_state.constituents["constituents"]:
+        assert row["security_id"] in body
+
+
+@pytest.mark.slow
+def test_index_stat_tiles_show_all_four_overview_stats(client, desk_state):
+    """The overview tiles carry the library's own calendar-year annualised return, the
+    annualised vol, the max drawdown and the divisor-event count - the exact figures
+    `overview.json["stats"]` already computed, formatted the same way the template
+    formats them, not a recomputation."""
+    response = client.get("/index")
+
+    assert response.status_code == 200
+    body = response.text
+    stats = desk_state.overview["stats"]
+
+    assert f'{stats["annualised_return"] * 100:.1f}%' in body
+    assert f'{stats["annualised_vol"] * 100:.1f}%' in body
+    assert f'{stats["max_drawdown"] * 100:.1f}%' in body
+    assert str(stats["divisor_events"]) in body
+
+
+@pytest.mark.slow
+def test_index_scheme_table_shows_every_scheme_property(client, desk_state):
+    """The six-scheme trade-off table renders every property string from
+    `capacity.json["schemes"]` verbatim - not a subset and not paraphrased."""
+    response = client.get("/index")
+
+    assert response.status_code == 200
+    body = response.text
+    from markupsafe import escape
+
+    for props in desk_state.capacity["schemes"].values():
+        for value in props.values():
+            assert str(escape(value)) in body
+
+
+@pytest.mark.slow
+def test_index_risk_and_attribution_onepagers_render_title_and_a_table_cell(
+    client, desk_state
+):
+    """Both parsed one-pagers (`state.risk_attribution["risk"]`/`["attribution"]`)
+    render their title and at least one real table cell from their sections - proof the
+    payload's `sections`/`table` shape is actually walked, not just its top-level keys."""
+    response = client.get("/index")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-testid="risk-onepager"' in body
+    assert 'data-testid="attribution-onepager"' in body
+
+    for doc in (desk_state.risk_attribution["risk"], desk_state.risk_attribution["attribution"]):
+        assert doc["title"] in body
+        tabled_sections = [s for s in doc["sections"] if s["table"]]
+        assert tabled_sections, "fixture one-pager must carry at least one table to test against"
+        first_row = tabled_sections[0]["table"]["rows"][0]
+        assert first_row[0] in body
+
+
+def test_scheme_labels_cover_exactly_the_library_scheme_properties():
+    """`app._SCHEME_LABELS` (display names for the Capacity section) must name exactly
+    the keys `weighting.schemes.SCHEME_PROPERTIES` publishes - not a stale subset or an
+    invented extra scheme - since `capacity.json["schemes"]` is that dict written
+    verbatim by `desk/snapshot.py`."""
+    from miniftse.desk.app import _SCHEME_LABELS
+    from miniftse.weighting.schemes import SCHEME_PROPERTIES
+
+    assert set(_SCHEME_LABELS) == set(SCHEME_PROPERTIES)

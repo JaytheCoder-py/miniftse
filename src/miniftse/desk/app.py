@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -203,6 +204,38 @@ template's "historical" labelling exists to prevent.
 `quantisation_decimals` is imported from `universe.banding`, not restated, so the
 precision the page publishes cannot drift from the precision the code applies.
 """
+
+_SCHEME_LABELS: dict[str, str] = {
+    "float_market_cap": "Float market cap",
+    "equal": "Equal weight",
+    "fundamental": "Fundamental",
+    "score_tilt": "Score tilt",
+    "selection": "Selection",
+    "optimised": "Optimised",
+}
+"""Display labels for `weighting.schemes.SCHEME_PROPERTIES`'s keys, rendered on
+`/index`'s Capacity section. Copied from the capacity-viz plan's Task 12
+(`render_capacity.js`'s `SCHEME_LABELS`) rather than reinvented, so the two would read
+identically if the static site is ever built. `SCHEME_PROPERTIES` itself is not
+imported here - `desk/snapshot.py`'s `_capacity` already wrote it verbatim into
+`capacity.json`, and this dict only supplies the six keys' human-readable names,
+which the JSON payload does not carry."""
+
+
+def _embed_json(payload: Any) -> str:
+    """`payload` as JSON text safe to embed inside a `<script type="application/json">`
+    tag on `/index` (the overview chart's series, and the capacity constituents/params
+    the fund-size slider in `static/capacity.js` reads).
+
+    `</` is escaped to `<\\/` so a value containing the literal substring `</script>`
+    cannot prematurely close the tag it sits inside - the standard mitigation for this
+    class of injection. This is needed on top of Jinja2's default autoescaping because
+    autoescaping only touches HTML markup characters (`<`, `>`, `&`, quotes) in values
+    interpolated directly into the template; text already inside a `{{ ... | safe }}`
+    JSON blob is not re-escaped, and vanilla Jinja2 (unlike Flask) ships no `tojson`
+    filter to do this for us.
+    """
+    return json.dumps(payload).replace("</", "<\\/")
 
 
 def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
@@ -561,6 +594,56 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
             request,
             "reproducibility.html",
             {"golden": desk.golden_diff, "incident": _DIVERGENCE_INCIDENT},
+        )
+
+    @app.get("/index")
+    async def index_tab(request: Request) -> Response:
+        """Screen 5: the index at a glance - overview, constituents, capacity, and risk
+        & attribution, as four in-page sections reached by anchor nav rather than a
+        second HTMX round trip per tab (the plan's "pick the simpler" instruction for
+        this task).
+
+        No index mathematics happens here and nothing is recomputed: all four sections
+        render straight from the JSON payloads `desk/snapshot.py` already wrote
+        (`state.overview`, `state.constituents`, `state.capacity`,
+        `state.risk_attribution`) - the same "read precomputed state, nothing
+        recalculated" pattern `/evals`, `/chaos`'s GET and `/reproducibility` already
+        follow. `_SCHEME_LABELS` supplies only display names for the six scheme keys
+        `capacity.json` already carries; every trade-off description rendered in that
+        table is `capacity["schemes"]` verbatim.
+
+        The one exception - the only place in the ops desk where index-adjacent
+        arithmetic runs outside the library - is the Capacity section's fund-size
+        slider: `static/capacity.js` recomputes the capacity-trim algorithm entirely in
+        the browser as the slider moves, because there is no way to serve that live
+        without a network round trip per pixel of drag. `overview_chart_json` and
+        `capacity_slider_json` below are the two payloads that JS on this page reads
+        directly (the level-history series for Chart.js, and the constituent
+        weights/adv/capacity_params for the slider) - both pre-serialised here, not in
+        the template, so the escaping in `_embed_json` has exactly one call site to
+        reason about.
+        """
+        desk: DeskState = request.app.state.desk
+        return templates.TemplateResponse(
+            request,
+            "index_tab.html",
+            {
+                "overview": desk.overview,
+                "constituents": desk.constituents,
+                "capacity": desk.capacity,
+                "risk_attribution": desk.risk_attribution,
+                "scheme_labels": _SCHEME_LABELS,
+                "overview_chart_json": _embed_json({
+                    "dates": desk.overview["dates"],
+                    "pr": desk.overview["pr"],
+                    "gtr": desk.overview["gtr"],
+                    "ntr": desk.overview["ntr"],
+                }),
+                "capacity_slider_json": _embed_json({
+                    "constituents": desk.capacity["constituents"],
+                    "capacity_params": desk.capacity["capacity_params"],
+                }),
+            },
         )
 
     @app.get("/healthz")

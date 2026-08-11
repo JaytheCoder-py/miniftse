@@ -547,3 +547,83 @@ def test_day_unparseable_date_is_400_not_500(client):
     response = client.get("/day", params={"date": "not-a-date"})
     assert response.status_code == 400
     assert "Traceback" not in response.text
+
+
+# --------------------------------------------------------------------------------------
+# Task 6: `run_drill` service function
+# --------------------------------------------------------------------------------------
+
+
+def _detected_by_tuple(value: object) -> tuple[str, ...]:
+    """Precomputed JSON stores `detected_by` however `run_chaos_drill` last shaped it
+    for a DataFrame column (a comma-joined string, in practice) - normalise both that
+    and a plain list/tuple to the same comparable shape, independent of `run_drill`'s
+    own internal reshaping."""
+    if isinstance(value, str):
+        return tuple(part.strip() for part in value.split(",") if part.strip())
+    return tuple(value)  # type: ignore[arg-type]
+
+
+@pytest.mark.slow
+def test_live_drill_matches_precomputed_at_the_same_seed(desk_state):
+    """If these ever disagree, one of them is lying about what the rules catch."""
+    from miniftse.desk.services import run_drill
+
+    seed = desk_state.chaos_precomputed["seed"]
+    for row in desk_state.chaos_precomputed["drill"]:
+        out = run_drill(desk_state, row["fault_id"], seed)
+        assert out.detected == row["detected"]
+        assert sorted(out.detected_by) == sorted(_detected_by_tuple(row["detected_by"]))
+
+
+@pytest.mark.slow
+def test_run_drill_unknown_fault_raises_key_error(desk_state):
+    """The route layer turns this into a 400 - see `explain_day`'s analogous rule for
+    an out-of-range date."""
+    from miniftse.desk.services import run_drill
+
+    with pytest.raises(KeyError):
+        run_drill(desk_state, "F99-does-not-exist", seed=1)
+
+
+@pytest.mark.slow
+def test_run_drill_does_not_mutate_the_shared_baseline(desk_state):
+    """`state.chaos_baseline` is the app's shared, load-once baseline. A live drill
+    must never leave a mark on it - every subsequent request, and the agreement test
+    above, would otherwise see a corrupted baseline.
+
+    Runs every precomputed fault (the same battery the agreement test exercises, which
+    between them mutate prices, prior_prices, shares, corp_actions/divisor_audit,
+    weights and fx) against the *same* baseline object, then checks every frame field
+    is bit-for-bit what it was before any of them ran.
+    """
+    from miniftse.desk.services import run_drill
+
+    baseline = desk_state.chaos_baseline
+    frame_fields = ("prices", "prior_prices", "shares", "corp_actions", "weights",
+                    "fx", "prior_fx", "divisor_audit")
+    before = {
+        name: getattr(baseline, name).copy()
+        for name in frame_fields if getattr(baseline, name) is not None
+    }
+    assert before, "fixture baseline must carry at least one frame for this test to mean anything"
+
+    seed = desk_state.chaos_precomputed["seed"]
+    for row in desk_state.chaos_precomputed["drill"]:
+        run_drill(desk_state, row["fault_id"], seed)
+
+    for name, snapshot in before.items():
+        current = getattr(baseline, name)
+        assert current is not None
+        if isinstance(snapshot, pd.Series):
+            pd.testing.assert_series_equal(current, snapshot)
+        else:
+            pd.testing.assert_frame_equal(current, snapshot)
+
+    # The strongest possible proof: the same fault at the same seed, run twice, gives
+    # an identical outcome - only possible if the second run saw the same baseline the
+    # first one did.
+    fault_id = desk_state.chaos_precomputed["drill"][0]["fault_id"]
+    first = run_drill(desk_state, fault_id, seed)
+    second = run_drill(desk_state, fault_id, seed)
+    assert first == second

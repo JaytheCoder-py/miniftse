@@ -26,6 +26,7 @@ import pandas as pd
 
 from miniftse.corpactions.events import apply_order
 from miniftse.desk.state import DeskState
+from miniftse.quality.faults import FAULTS, Fault, run_chaos_drill
 
 
 @dataclass(frozen=True)
@@ -194,6 +195,73 @@ def notable_days(state: DeskState) -> list[dict[str, Any]]:
     return notable
 
 
+_FAULTS_BY_ID: dict[str, Fault] = {fault.fault_id: fault for fault in FAULTS}
+"""Every chaos-drill fault, keyed by id, built once at import time. `run_drill` filters
+`FAULTS` down to a single fault through this lookup rather than scanning the tuple per
+request - and a missing key is exactly the `KeyError` an unrecognised `fault_id` should
+raise, the same pattern `explain_day` uses for an out-of-range date."""
+
+
+@dataclass(frozen=True)
+class DrillOutcome:
+    """One fault's live chaos-drill result, run against `state.chaos_baseline`.
+
+    Field names mostly follow `faults.DrillResult` - `severity` is that dataclass's
+    `highest_severity`, `publication_blocked` is its `blocked_publication`, renamed
+    because a desk route talks about "publication", not "blocked", and because
+    "highest" only matters when several rules could fire; here exactly one fault is in
+    play. `realism` is not on `DrillResult` at all - it lives on `Fault` (why the
+    defect is worth drilling for) and is looked up alongside it. `coverage_gap` is the
+    one sentence from `run_chaos_drill`'s gap list that concerns this fault, or `None`
+    if it was caught by the rule meant to catch it, or if it could not be injected into
+    this cross-section at all.
+    """
+
+    fault_id: str
+    detected: bool
+    detected_by: tuple[str, ...]
+    expected_detector: str
+    severity: str
+    publication_blocked: bool
+    realism: str
+    coverage_gap: str | None
+
+
+def run_drill(state: DeskState, fault_id: str, seed: int) -> DrillOutcome:
+    """Re-run one chaos-drill fault live, against the app's shared baseline.
+
+    Raises `KeyError` for a `fault_id` not in `FAULTS` - the route layer (Task 7) turns
+    that into a 400.
+
+    `state.chaos_baseline` is loaded once at startup and shared by every request this
+    process ever serves; this function must never leave a mark on it. It doesn't, but
+    not because of anything added here: every fault function in `quality.faults` makes
+    its own working copy (`faults._copy`) of the context before mutating anything, so
+    handing `state.chaos_baseline` straight to `run_chaos_drill` - rather than copying
+    it again first - is deliberate, not an oversight.
+    `test_run_drill_does_not_mutate_the_shared_baseline` is what stands behind that
+    claim, not this comment.
+
+    No drill or validation logic is reimplemented here: `run_chaos_drill` is the
+    library's own entry point, filtered to a single fault through its own `faults`
+    parameter, exactly as it is for the full battery `desk/snapshot.py` precomputes.
+    """
+    fault = _FAULTS_BY_ID[fault_id]
+    frame, gaps = run_chaos_drill(state.chaos_baseline, seed=seed, faults=(fault,))
+    row = frame.iloc[0]
+
+    return DrillOutcome(
+        fault_id=str(row["fault_id"]),
+        detected=bool(row["detected"]),
+        detected_by=_split_detected_by(row["detected_by"]),
+        expected_detector=str(row["expected_detector"]),
+        severity=str(row["highest_severity"]),
+        publication_blocked=bool(row["blocked_publication"]),
+        realism=fault.realism,
+        coverage_gap=gaps[0] if gaps else None,
+    )
+
+
 # --------------------------------------------------------------------------------------
 # Internals
 # --------------------------------------------------------------------------------------
@@ -302,6 +370,16 @@ def _as_date(value: Any) -> dt.date:
     if isinstance(value, dt.date):
         return value
     return pd.Timestamp(value).date()
+
+
+def _split_detected_by(value: str) -> tuple[str, ...]:
+    """The exact reverse of the join `run_chaos_drill` performs on `DrillResult.
+    detected_by` before putting it in a DataFrame column (`", ".join(...)`, right after
+    the `frame = pd.DataFrame(...)` line in `quality/faults.py`) - the same string
+    shape `chaos_precomputed.json` stores it in. Kept local because nothing in
+    `quality.faults` hands back the tuple form once a run has gone through a
+    DataFrame."""
+    return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
 def _to_bps(ratio: float) -> float:

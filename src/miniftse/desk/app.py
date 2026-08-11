@@ -171,8 +171,8 @@ _DIVERGENCE_INCIDENT: dict[str, Any] = {
             "now": "universe/banding.py:260",
             "fix": (
                 "the same treatment, and the tie-break written into Ground Rules 8.3: "
-                "exactly one buffer width out is not more than one buffer width out, "
-                "so the incumbent is held."
+                "a security exactly one buffer width past a boundary has not crossed "
+                "it by more than the buffer, so the incumbent is held."
             ),
         },
     ),

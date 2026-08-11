@@ -43,6 +43,7 @@ from miniftse.desk.services import (
 )
 from miniftse.desk.state import DeskState, load_desk_state
 from miniftse.quality.faults import FAULTS
+from miniftse.universe.banding import CUMULATIVE_PCT_DECIMALS
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates"
@@ -89,6 +90,104 @@ _EXAMPLE_QUESTIONS: tuple[dict[str, object], ...] = (
 """Seeded on `/ask` (Task 9) so a visitor sees a real answer and a real refusal without
 typing either - one of the three is deliberately out of scope, per the design spec's
 Screen 3 section."""
+
+_DIVERGENCE_INCIDENT: dict[str, Any] = {
+    "title": "The September 2024 constituent divergence",
+    "status": "Closed",
+    "review_date": "2024-09-20",
+    "constituents_pinned": 154,
+    "constituents_rebuild": 153,
+    "level_continuity_bps": 0.0,
+    "max_divisor_divergence_bps": 0.7426,
+    "divergent_dates": 65,
+    "total_dates": 2311,
+    "conclusion": (
+        "A rule whose outcome depends on floating-point summation order is not a rule."
+    ),
+    "quantisation_decimals": CUMULATIVE_PCT_DECIMALS,
+    # What re-pinning the master after the fix actually moved, on one machine. Kept
+    # with the incident because it is the strongest evidence the fix was worth making:
+    # the limb added on pattern-matching grounds was the limb that had already fired.
+    "repin": {
+        "reviews_replayed": 37,
+        "band_changes": 1,
+        "security": "SEC00012",
+        "review": "December 2024",
+        "cumulative_share": 1.0,
+        "boundary": 0.98,
+        "buffer_width": 0.02,
+        "computed_distance": 0.020000000000000018,
+        "ulp": "0.6",
+        "was_band": "Micro Cap",
+        "now_band": "Small Cap",
+        "level_move_bps": 0.0115,
+        "divisor_move_bps": 0.4534,
+        "dates_affected": 5,
+        "total_dates": 2311,
+        "hash_before": "6950d93e9cd4b13b3c25b72f602d8c44",
+        "hash_after": "7f0d834899e50a771e2fff1c2ec6e6d4",
+    },
+    "causes": (
+        {
+            "ref": "universe/banding.py:81",
+            "code": "cumulative = np.cumsum([v for _, v in ordered]) / total",
+            "problem": (
+                "numpy sums in blocks whose size and association depend on the SIMD "
+                "width and the BLAS build, so the last bits of the cumulative "
+                "percentile differ between platforms for identical inputs."
+            ),
+            "now": "universe/banding.py:116",
+            "fix": (
+                "_exact_cumulative - Shewchuk exact partial sums, every prefix "
+                "correctly rounded, so the result depends only on the values and "
+                "never on how the machine associated the additions."
+            ),
+        },
+        {
+            "ref": "universe/banding.py:112",
+            "code": "if cum <= cutoff:",
+            "problem": (
+                "a bare comparison against the band cutoff carrying no tolerance and "
+                "no tie-break. A security sitting on the cut landed on opposite sides "
+                "on the two platforms, and nothing in the ground rules said which side "
+                "was correct."
+            ),
+            "now": "universe/banding.py:221",
+            "fix": (
+                "both sides quantised to a documented precision, and the tie-break "
+                "written into Ground Rules 2.1: a security exactly on a cutoff belongs "
+                "to the band that cutoff closes."
+            ),
+        },
+        {
+            "ref": "universe/banding.py:142",
+            "code": "return abs(cum - boundary) <= width",
+            "problem": (
+                "the buffer-zone test carried the same exposure as the cutoff test. "
+                "Included by looking for the pattern rather than because a second "
+                "incident had reported it - and it turned out to have already fired "
+                "silently on the reference build. See the re-pin note below."
+            ),
+            "now": "universe/banding.py:260",
+            "fix": (
+                "the same treatment, and the tie-break written into Ground Rules 8.3: "
+                "exactly one buffer width out is not more than one buffer width out, "
+                "so the incumbent is held."
+            ),
+        },
+    ),
+}
+"""The written record behind Screen 4, kept here rather than in the template so the
+numbers have one home and the tests can assert against them.
+
+Every figure is the *historical, pre-fix* cross-platform comparison recorded in the ops
+desk design spec (Screen 4). It is deliberately not derived from `state.golden_diff`:
+that payload is the live comparison for the build being served, and conflating the two
+is precisely the misreading the template's "historical" labelling exists to prevent.
+
+`quantisation_decimals` is imported from `universe.banding`, not restated, so the
+precision the page publishes cannot drift from the precision the code applies.
+"""
 
 
 def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
@@ -418,6 +517,35 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
 
         return templates.TemplateResponse(
             request, "partials/draft_result.html", {"outcome": outcome}
+        )
+
+    @app.get("/reproducibility")
+    async def reproducibility(request: Request) -> Response:
+        """Screen 4: the pinned golden master against this build, and the incident that
+        made the band rule reproducible.
+
+        `desk.golden_diff` is exactly `desk/snapshot.py`'s `_golden_payload` - the
+        master's provenance and a `ComparisonResult` already computed - read straight
+        off state with nothing recomputed here, the same way `/evals` reads
+        `desk.evals`. No comparison runs on this GET; `golden.compare` ran when the
+        snapshot was built.
+
+        `{"pinned": false}` is a *state*, not an error: a repository can legitimately
+        have no master yet (a fresh clone before `miniftse pin-golden`, the same case
+        `TestGoldenMaster.test_reference_master_if_pinned` skips on). The template
+        branches on `golden.pinned` and the route does not - there is nothing for a
+        handler to validate here, unlike `/day`'s closed set of dates.
+
+        `_DIVERGENCE_INCIDENT` is passed alongside it and is deliberately *not* derived
+        from the comparison: it is a written historical record of a fixed defect, so it
+        renders identically whether or not a master is currently pinned, and it must
+        never be mistaken for the live numbers in the panel above it.
+        """
+        desk: DeskState = request.app.state.desk
+        return templates.TemplateResponse(
+            request,
+            "reproducibility.html",
+            {"golden": desk.golden_diff, "incident": _DIVERGENCE_INCIDENT},
         )
 
     @app.get("/healthz")

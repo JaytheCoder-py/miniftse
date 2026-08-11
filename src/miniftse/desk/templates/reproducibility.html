@@ -1,0 +1,507 @@
+{% extends "base.html" %}
+{# Screen 4: the golden master, and the defect that made the band rule reproducible.
+
+   Two independent halves, and keeping them independent is the point of the screen:
+
+   - The comparison panel is `state.golden_diff` - `desk/snapshot.py`'s
+     `_golden_payload`, i.e. `golden.compare(master, this_build)` already run at
+     snapshot time. Live, current, and about whichever platform built the snapshot.
+   - The incident section is `app._DIVERGENCE_INCIDENT`, a written historical record of
+     a *fixed* defect. It renders identically whether or not a master is pinned,
+     because a closed incident does not stop having happened.
+
+   A reader who came away thinking the 0.74bp divergence below is a live number would
+   be worse informed than one who never opened the page, so every figure in the lower
+   half is labelled pre-fix and the panel above is labelled current. #}
+
+{% block title %}Reproducibility - miniftse ops desk{% endblock %}
+
+{% block content %}
+<style>
+  /* Screen-specific styling lives with the screen that introduces it (see
+     static/style.css's header comment) rather than growing the shared shell. */
+  section.card {
+    margin-bottom: 1.5rem;
+  }
+  .verdict {
+    display: inline-block;
+    border-radius: var(--radius);
+    padding: 0.2rem 0.6rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .verdict-pass {
+    background: #14351f;
+    border: 1px solid #2a6b40;
+    color: #7ee2a4;
+  }
+  .verdict-fail {
+    background: #3a1616;
+    border: 1px solid #6b2a2a;
+    color: var(--error);
+  }
+  .verdict-closed {
+    background: #16283a;
+    border: 1px solid #2a4d6b;
+    color: #8ac4f3;
+  }
+  .provenance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 1rem 1.5rem;
+    margin: 0;
+  }
+  .provenance div {
+    min-width: 0;
+  }
+  .provenance dt {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.2rem;
+  }
+  .provenance dd {
+    margin: 0;
+    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+  }
+  .provenance dd.mono,
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .metric-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin: 1.25rem 0 0;
+  }
+  .metric-row .metric-label {
+    margin: 0 0 0.3rem;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .metric-row .metric-value {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+  /* The per-column breakdown, as inline bars rather than a Chart.js canvas. Four
+     numbers on one axis do not need a charting library, a second <canvas> lifecycle
+     and a CDN round trip to be legible - the bar is a div with a width. */
+  .col-diffs {
+    width: 100%;
+  }
+  .col-diffs td {
+    vertical-align: middle;
+  }
+  .col-diffs .bar-cell {
+    width: 60%;
+  }
+  .col-diffs .bar-track {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    height: 0.85rem;
+    overflow: hidden;
+  }
+  .col-diffs .bar-fill {
+    background: var(--accent);
+    height: 100%;
+  }
+  .col-diffs .bar-fill.zero {
+    background: #2a6b40;
+    min-width: 2px;
+  }
+  .dim {
+    color: var(--text-dim);
+  }
+  .date-list {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9rem;
+    line-height: 1.7;
+  }
+  .conclusion {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: var(--warn-text);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin: 1.25rem 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+  .historical-note {
+    background: var(--bg);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    margin-bottom: 1.25rem;
+  }
+  .cause-table code {
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+  }
+  .cause-table td {
+    vertical-align: top;
+  }
+  .cause-table .then {
+    color: var(--error);
+  }
+  .cause-table .now {
+    color: #7ee2a4;
+  }
+</style>
+
+<h1>Reproducibility</h1>
+<p class="summary-note">
+  The golden master pins ten years of published index levels to a hash. Any rebuild that
+  moves a number by more than the tolerance fails CI, because a refactor that changes the
+  index by half a basis point is a recalculation event, not a tidy-up.
+</p>
+
+{% if not golden.pinned %}
+  {# `snapshot._golden_payload` returns `{"pinned": false}` when tests/golden/ holds no
+     master. A state, not an error - see the route docstring. #}
+  <section class="card" data-testid="no-master-pinned">
+    <h2>No master pinned</h2>
+    <p>
+      This build has no golden master to compare against: <code>tests/golden/</code>
+      contains no pinned history. That is the state of a fresh clone before
+      <code>make pin-golden</code> has been run, not a failure &mdash; but until one is
+      pinned, nothing here is checking that the published numbers have not moved.
+    </p>
+    <p class="dim">
+      Pin one with <code>make pin-golden</code>, then rebuild this snapshot with
+      <code>make desk-data</code>.
+    </p>
+  </section>
+{% else %}
+  {% set comparison = golden.comparison %}
+  <section class="card" data-testid="comparison-panel">
+    <h2>
+      Pinned master vs this build
+      {% if comparison.passed %}
+        <span class="verdict verdict-pass" data-testid="golden-verdict">matched</span>
+      {% else %}
+        <span class="verdict verdict-fail" data-testid="golden-verdict">failed</span>
+      {% endif %}
+    </h2>
+
+    <dl class="provenance">
+      <div>
+        <dt>Master</dt>
+        <dd class="mono">{{ golden.master.name }}</dd>
+      </div>
+      <div>
+        <dt>Pinned at commit</dt>
+        <dd class="mono">{{ golden.master.git_sha[:10] }}</dd>
+      </div>
+      <div>
+        <dt>Created</dt>
+        <dd>{{ golden.master.created_at }}</dd>
+      </div>
+      <div>
+        <dt>Content hash</dt>
+        <dd class="mono">{{ golden.master.content_hash }}</dd>
+      </div>
+      <div>
+        <dt>Tolerance</dt>
+        <dd>{{ golden.master.tolerance_bps }} bp</dd>
+      </div>
+      <div>
+        <dt>Rows pinned</dt>
+        <dd>{{ golden.master.n_rows }}</dd>
+      </div>
+    </dl>
+
+    <div class="metric-row">
+      <div>
+        <p class="metric-label">Dates compared</p>
+        <p class="metric-value">{{ comparison.n_compared }}</p>
+      </div>
+      <div>
+        <p class="metric-label">Max difference</p>
+        <p class="metric-value" data-testid="max-diff-bps">
+          {{ "%.4f"|format(comparison.max_diff_bps) }} bp
+        </p>
+      </div>
+      <div>
+        <p class="metric-label">Mean difference</p>
+        <p class="metric-value">{{ "%.4f"|format(comparison.mean_diff_bps) }} bp</p>
+      </div>
+      <div>
+        <p class="metric-label">First divergence</p>
+        <p class="metric-value" data-testid="first-divergence">
+          {% if comparison.first_divergence %}
+            {{ comparison.first_divergence }}
+          {% else %}
+            none
+          {% endif %}
+        </p>
+      </div>
+    </div>
+
+    <p class="summary-note">{{ comparison.message }}</p>
+
+    {% if comparison.first_divergence %}
+      <p>
+        Start the investigation at the first divergence, not the largest. Later
+        differences are almost always downstream of the first, because the divisor
+        carries the error forward.
+      </p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Largest difference per column</h2>
+    {% set scale = comparison.column_diffs.values()|max if comparison.column_diffs else 0 %}
+    <table class="col-diffs" data-testid="column-diffs">
+      <thead>
+        <tr>
+          <th>Column</th>
+          <th>Max difference (bp)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for column, value in comparison.column_diffs.items() %}
+          <tr>
+            <td>{{ column|replace("_", " ") }}</td>
+            <td class="mono">{{ "%.4f"|format(value) }}</td>
+            <td class="bar-cell">
+              <div class="bar-track">
+                {# Bars are scaled to the largest column, not to the tolerance: when
+                   everything matches, every value is 0.0 and a tolerance-scaled bar
+                   would render four invisible slivers that say nothing. A flat green
+                   marker says "zero" legibly. #}
+                {% if scale > 0 %}
+                  <div class="bar-fill" style="width: {{ (value / scale * 100)|round(1) }}%"></div>
+                {% else %}
+                  <div class="bar-fill zero" style="width: 100%"></div>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if scale == 0 %}
+      <p class="dim">Every column is identical to the pinned master to the last bit.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Divergent dates ({{ comparison.divergent_dates|length }})</h2>
+    {% if comparison.divergent_dates %}
+      <p class="summary-note">
+        The first ten dates exceeding the {{ golden.master.tolerance_bps }}bp tolerance.
+      </p>
+      <p class="date-list" data-testid="divergent-dates">
+        {% for date in comparison.divergent_dates[:10] %}
+          {{ date }}{% if not loop.last %} &middot; {% endif %}
+        {% endfor %}
+        {% if comparison.divergent_dates|length > 10 %}
+          <span class="dim">
+            &nbsp;(+{{ comparison.divergent_dates|length - 10 }} more)
+          </span>
+        {% endif %}
+      </p>
+    {% else %}
+      <p class="dim" data-testid="divergent-dates">
+        No date exceeds the tolerance. The rebuild reproduces the pinned history.
+      </p>
+    {% endif %}
+    {% if comparison.missing_dates or comparison.extra_dates %}
+      <p>
+        {{ comparison.missing_dates|length }} date(s) in the master are absent from this
+        run; {{ comparison.extra_dates|length }} date(s) in this run are absent from the
+        master. A shape difference is a different failure from a value difference and is
+        reported separately.
+      </p>
+    {% endif %}
+  </section>
+{% endif %}
+
+{# ------------------------------------------------------------------------------- #}
+
+<section class="card" data-testid="incident-section">
+  <h2>
+    {{ incident.title }}
+    <span class="verdict verdict-closed" data-testid="incident-status">
+      {{ incident.status }}
+    </span>
+  </h2>
+
+  <p class="historical-note" data-testid="incident-historical-note">
+    <strong>Every number in this section is historical &mdash; the pre-fix comparison,
+    recorded when the defect was found.</strong> It is not the state of the build above:
+    the panel at the top of this page is the current, live comparison for the snapshot
+    being served. The fix described here has shipped, and these figures are kept because
+    a closed incident with its numbers intact is a stronger artefact than a tidy page.
+  </p>
+
+  <h3>What happened</h3>
+  <p>
+    The golden master had been pinned on Windows. A rebuild on Linux from the same
+    commit, the same config and the same synthetic inputs produced
+    <strong>{{ incident.constituents_rebuild }}</strong> constituents at the
+    <strong>{{ incident.review_date }}</strong> review where the pinned master had
+    <strong>{{ incident.constituents_pinned }}</strong>. One security, one review, one
+    band.
+  </p>
+  <p>
+    The index maths handled it perfectly, and that is what made it dangerous.
+    <code>level_continuity_bps</code> at that review was
+    <strong>{{ "%.1f"|format(incident.level_continuity_bps) }}</strong>: the divisor
+    absorbed the constituent change exactly as a rebase is supposed to, so the published
+    level did not jump and no validation rule fired. Nothing looked wrong on the day.
+  </p>
+  <p>
+    But a divisor that has absorbed a different set of constituents is a different
+    divisor from then on. From {{ incident.review_date }} the two builds were no longer
+    the same index computed twice &mdash; they were two indices. The divisor diverged by
+    up to <strong>{{ incident.max_divisor_divergence_bps }}bp</strong>, and
+    <strong>{{ incident.divergent_dates }}</strong> of
+    <strong>{{ incident.total_dates }}</strong> dates carried a different constituent
+    count. Below the 0.1bp golden tolerance on the levels, so CI stayed green; well above
+    zero, which is what the number should have been.
+  </p>
+
+  <h3>Root cause</h3>
+  <p>
+    Two lines, plus a third carrying the same exposure that had not fired yet. Line
+    numbers are as they were at the time of the incident; the current location of each is
+    given alongside.
+  </p>
+  <table class="cause-table">
+    <thead>
+      <tr>
+        <th>Then</th>
+        <th>Why it was wrong</th>
+        <th>Now</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for cause in incident.causes %}
+        <tr>
+          <td>
+            <div class="mono then">{{ cause.ref }}</div>
+            <code>{{ cause.code }}</code>
+          </td>
+          <td>{{ cause.problem }}</td>
+          <td>
+            <div class="mono now">{{ cause.now }}</div>
+            {{ cause.fix }}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p>
+    Band membership is defined on the <em>cumulative</em> share of free-float market cap,
+    so a last-bit difference in the running sum is not confined to one security &mdash;
+    it shifts the cumulative percentile of every name below it. All that is then needed
+    is one security close enough to a cutoff, and the whole band boundary moves by one
+    name.
+  </p>
+
+  <p class="conclusion" data-testid="incident-conclusion">{{ incident.conclusion }}</p>
+
+  <p>
+    That is the generalisable lesson, and it is not really about floating point. The
+    ground rules said "the top 70% by value" and left the boundary case undefined, so
+    when two platforms disagreed there was no document to say which one was right. The
+    arithmetic was deciding a question the methodology should have answered.
+  </p>
+
+  <h3>What shipped</h3>
+  <ol>
+    <li>
+      <strong>Deterministic summation.</strong> <code>np.cumsum</code> is gone.
+      <code>_exact_cumulative</code> computes every prefix with Shewchuk exact partial
+      sums &mdash; the algorithm behind <code>math.fsum</code>, kept open so the running
+      total can be read after each element. Each prefix is the correctly rounded value of
+      the exact sum, so it cannot depend on how the machine associated the additions.
+    </li>
+    <li>
+      <strong>A total order.</strong> The old sort was stable but only partial, so two
+      securities of exactly equal size ranked in whatever order the caller's dict
+      happened to iterate. Ties now break on ascending security id.
+    </li>
+    <li>
+      <strong>Quantisation to a documented precision.</strong> Cumulative percentiles are
+      rounded to <strong>{{ incident.quantisation_decimals }} decimal places</strong>
+      before any comparison against a cutoff or a buffer edge &mdash; four orders of
+      magnitude above the noise floor of an exactly rounded sum, and eight orders below
+      the smallest difference anyone would call material. The number is published in the
+      code, in <code>DECISIONS.md</code> D-014 and in the ground rules, not just one of
+      the three.
+    </li>
+    <li>
+      <strong>The tie-break written down.</strong> Ground Rules 2.1: a security exactly
+      on a cutoff belongs to the band that cutoff closes. Ground Rules 8.3: exactly one
+      buffer width past a boundary is not <em>more than</em> one buffer width, so the
+      incumbent is held. Both are now decisions the methodology makes, not accidents the
+      arithmetic makes.
+    </li>
+  </ol>
+  <p>
+    Proven by permutation tests in
+    <code>tests/test_index_maths.py::TestBandingDeterminism</code>, not by inspection:
+    the same universe presented in hundreds of different orders must produce
+    bit-identical cumulative percentiles and identical bands, and a security placed
+    exactly on a quantised cutoff must land on the documented side of it.
+  </p>
+
+  {% set repin = incident.repin %}
+  <h3>What the fix moved, and the second finding</h3>
+  <p data-testid="repin-note">
+    The fix changed the parent index, so the golden master was re-pinned deliberately,
+    in its own commit, with the reasoning in <code>DECISIONS.md</code> D-014. Content
+    hash <code class="mono">{{ repin.hash_before[:8] }}</code> &rarr;
+    <code class="mono">{{ repin.hash_after[:8] }}</code>. Re-pinning an index history is
+    a recalculation event, and it is worth showing exactly how small a thing caused this
+    one.
+  </p>
+  <p>
+    Replaying all <strong>{{ repin.reviews_replayed }}</strong> reviews of the reference
+    history through both the old and the new band logic gives exactly
+    <strong>{{ repin.band_changes }}</strong> differing assignment.
+    Not the <code>np.cumsum</code> limb &mdash; the cumulative percentiles came out
+    bit-identical before and after, which is what you would expect, because the incident
+    at the top of this page needed <em>two</em> platforms to show itself and this is one
+    machine.
+  </p>
+  <p>
+    It was the buffer edge: the line included in the fix on the grounds that it had the
+    same exposure and had simply not fired yet.
+    <strong>It had fired.</strong> At the {{ repin.review }} review,
+    <code class="mono">{{ repin.security }}</code> sat at a cumulative share of exactly
+    {{ repin.cumulative_share }} against a Small Cap boundary of {{ repin.boundary }} -
+    exactly one {{ "%.0f"|format(repin.buffer_width * 100) }}-point buffer width out. But
+    <code>abs({{ repin.cumulative_share }} - {{ repin.boundary }})</code> evaluates to
+    <code class="mono">{{ repin.computed_distance }}</code>, because
+    {{ repin.boundary }} has no exact binary representation. That is
+    {{ repin.ulp }} ulp above {{ repin.buffer_width }}, so the old comparison was false
+    and the security was dropped to {{ repin.was_band }} &mdash; out of the All Cap index
+    entirely. Under Ground Rules 8.3 as now written it is held in {{ repin.now_band }}.
+  </p>
+  <p>
+    One security, one review, decided by 1.7e-17. The divisor rebased to absorb it
+    exactly as it should &mdash; the levels moved
+    {{ repin.level_move_bps }}bp &mdash; and the divisor is
+    {{ repin.divisor_move_bps }}bp different from that review onward, across the final
+    {{ repin.dates_affected }} of {{ repin.total_dates }} dates. The same shape as the
+    cross-platform incident above, found on one machine, by fixing a line nobody had
+    watched fail. That is the argument for fixing a defect <em>class</em> rather than a
+    defect.
+  </p>
+</section>
+{% endblock %}

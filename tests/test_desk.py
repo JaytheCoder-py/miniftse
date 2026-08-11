@@ -1222,3 +1222,134 @@ def test_render_draft_base_draft_passes_the_guard_before_any_injection(desk_stat
             f"with no injection: {outcome.response.guard.message}"
         )
         assert outcome.injected_sentence is None
+
+
+# --------------------------------------------------------------------------------------
+# Task 11: Screen 4 - `/reproducibility`
+# --------------------------------------------------------------------------------------
+
+
+def _unpinned_snapshot(source, destination):
+    """A copy of a real snapshot whose `golden_diff.json` is the unpinned state.
+
+    `snapshot._golden_payload` writes `{"pinned": false}` when `tests/golden/` holds no
+    master, and a repository can legitimately be in that state (a fresh clone before
+    `miniftse pin-golden` has run - the same case `TestGoldenMaster`'s reference test
+    skips on). Rebuilding a whole snapshot against an emptied golden directory would
+    cost a full index build per test, so the one file that differs is rewritten instead.
+    """
+    import json
+    import shutil
+
+    shutil.copytree(source, destination, dirs_exist_ok=True)
+    (destination / "golden_diff.json").write_text(
+        json.dumps({"pinned": False}), encoding="utf-8"
+    )
+    return destination
+
+
+@pytest.mark.slow
+def test_reproducibility_get_shows_the_comparison_panel(client, desk_state):
+    """The pinned master's provenance and the comparison against this build, both from
+    `state.golden_diff` - the payload `snapshot._golden_payload` already computed."""
+    golden = desk_state.golden_diff
+    assert golden["pinned"], "fixture snapshot must have a pinned master"
+
+    response = client.get("/reproducibility")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-testid="comparison-panel"' in body
+    # Master provenance: which commit pinned it, when, and the content hash.
+    assert golden["master"]["git_sha"][:10] in body
+    assert golden["master"]["content_hash"] in body
+    assert str(golden["master"]["tolerance_bps"]) in body
+    # The comparison itself.
+    assert str(golden["comparison"]["n_compared"]) in body
+    assert 'data-testid="max-diff-bps"' in body
+    assert 'data-testid="first-divergence"' in body
+
+
+@pytest.mark.slow
+def test_reproducibility_shows_max_diff_and_column_diffs(client, desk_state):
+    """`max_diff_bps`, `mean_diff_bps` and every column in `column_diffs` are rendered,
+    not summarised away - the per-column breakdown is what tells an investigator which
+    quantity moved."""
+    comparison = desk_state.golden_diff["comparison"]
+
+    response = client.get("/reproducibility")
+
+    assert response.status_code == 200
+    body = response.text
+    assert f"{comparison['max_diff_bps']:.4f}" in body
+    assert f"{comparison['mean_diff_bps']:.4f}" in body
+    for column in comparison["column_diffs"]:
+        assert column.replace("_", " ") in body
+
+
+@pytest.mark.slow
+def test_reproducibility_unpinned_master_renders_a_state_not_an_error(
+    desk_data_dir, tmp_path
+):
+    """`{"pinned": false}` is a state the screen renders, not a 500 - see
+    `snapshot._golden_payload`'s docstring. The incident section must still be there:
+    it is a written record, not a function of the current comparison."""
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk.app import create_app
+
+    data = _unpinned_snapshot(desk_data_dir, tmp_path / "unpinned")
+
+    with TestClient(create_app(data_dir=data)) as c:
+        response = c.get("/reproducibility")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-testid="no-master-pinned"' in body
+    assert "Traceback" not in body
+    assert 'data-testid="comparison-panel"' not in body
+    assert 'data-testid="incident-section"' in body
+
+
+@pytest.mark.slow
+def test_reproducibility_incident_section_is_present_when_pinned(client):
+    """The September 2024 constituent divergence, with the conclusion stated verbatim.
+    This is the point of the screen (design spec, Screen 4: "deliberately a published
+    defect")."""
+    response = client.get("/reproducibility")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-testid="incident-section"' in body
+    assert "September 2024" in body
+    assert (
+        "a rule whose outcome depends on floating-point summation order is not a rule"
+        in body.lower()
+    )
+
+
+@pytest.mark.slow
+def test_reproducibility_incident_carries_the_agreed_numbers(client):
+    """The incident's facts must match the design spec's, not a parallel set invented
+    here: 154 constituents against 153 at the 2024-09-20 review, `level_continuity_bps`
+    0.0, 0.7426bp on the divisor, 65 of 2311 dates."""
+    body = client.get("/reproducibility").text
+
+    for fact in ("154", "153", "2024-09-20", "0.7426", "65", "2311"):
+        assert fact in body, f"incident section must state {fact}"
+
+
+@pytest.mark.slow
+def test_reproducibility_presents_the_incident_as_closed_and_historical(client):
+    """Closed, and honest about which numbers are which: the incident figures are the
+    pre-fix history, the comparison panel above is the current build. A page that let a
+    reader think the 0.74bp divergence is live would be worse than not publishing it."""
+    body = client.get("/reproducibility").text
+
+    assert 'data-testid="incident-status"' in body
+    assert "closed" in body.lower()
+    assert "historical" in body.lower()
+    # The remediation the incident claims shipped, named specifically enough to check
+    # against `universe/banding.py`.
+    for shipped in ("fsum", "quantis", "tie-break"):
+        assert shipped in body.lower()

@@ -277,6 +277,23 @@ class TestValidation:
         assert not allowed
         assert "BLOCK" in message or "ESCALATE" in message
 
+    def test_baseline_config_resolves_from_the_manifest_dict(self) -> None:
+        """`RunManifest.config` is `IndexConfig.to_dict()` output - a dict, never an
+        `IndexConfig` - so `baseline_from_build` must resolve it back to the named
+        constructor whose serialised form it is, for all three named variants, and
+        refuse a dict no named constructor produces (the same rule
+        `ValidationContext.save` already enforces for round-tripping by name)."""
+        from miniftse.config import developed_only, global_all_cap, global_large_mid
+        from miniftse.quality.faults import _config_from_manifest
+
+        for ctor in (global_all_cap, global_large_mid, developed_only):
+            assert _config_from_manifest(ctor().to_dict()) == ctor()
+
+        mangled = global_all_cap().to_dict()
+        mangled["base_level"] = 999.0
+        with pytest.raises(ValueError, match="named constructor"):
+            _config_from_manifest(mangled)
+
     def test_chaos_drill_detects_every_injected_fault(self, built) -> None:  # type: ignore[no-untyped-def]
         import pandas as pd
 

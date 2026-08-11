@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
-from miniftse.config import global_all_cap
 from miniftse.quality.rules import ValidationContext, ValidationEngine
 
 if TYPE_CHECKING:  # pragma: no cover - import for typing only
@@ -410,6 +409,39 @@ def build_baseline_context(
     )
 
 
+def _config_from_manifest(config_dict: dict[str, Any]) -> Any:
+    """The named `IndexConfig` whose serialised form the run manifest recorded.
+
+    `RunManifest.config` is `IndexConfig.to_dict()` output - a dict, and for any real
+    build a non-empty, truthy one - never an `IndexConfig`. An earlier version of
+    `baseline_from_build` wrote `result.manifest.config and global_all_cap()`, which
+    therefore always evaluated to `global_all_cap()` whatever config the build used:
+    the right answer for every caller in this repository (the CLI drill and the desk
+    snapshot both build the default global all-cap spec), but by accident, not by
+    decision. Matching the recorded dict against the named constructors keeps that
+    behaviour for those callers and stops silently mislabelling any other build's
+    baseline - a `global_large_mid` drill would otherwise report itself validated
+    against the wrong index's config.
+
+    The constructor set is `ValidationContext._CONFIG_CONSTRUCTORS` - the same closed
+    set `save()`/`load()` round-trip a config name through, kept as the single source
+    of truth rather than restated here. A dict no named constructor produces raises
+    for the same reason `ValidationContext._config_name` does: it cannot be identified
+    by name, and guessing would be worse than stopping.
+    """
+    for ctor in ValidationContext._CONFIG_CONSTRUCTORS.values():
+        candidate = ctor()
+        if candidate.to_dict() == config_dict:
+            return candidate
+    raise ValueError(
+        "the run manifest's config matches no named constructor in miniftse.config "
+        "(global_all_cap, global_large_mid, developed_only), so the drill baseline "
+        "cannot name the config it validated against. If configs are ever built "
+        "inline, extend ValidationContext's save()/load() to carry config.to_dict() "
+        "instead of a name first."
+    )
+
+
 def baseline_from_build(result: BuildResult) -> ValidationContext:
     """The clean context for a drill, taken from the final day of a completed build.
 
@@ -444,7 +476,7 @@ def baseline_from_build(result: BuildResult) -> ValidationContext:
         total_market_value=float(last["total_market_value"]),
         divisor_audit=result.calculator.engine.audit_frame(),
         corp_actions=universe.get_corp_actions(None, as_of, as_of),
-        config=result.manifest.config and global_all_cap(),
+        config=_config_from_manifest(result.manifest.config),
         prior_index_level=float(prior["price_return"]),
         prior_divisor=float(prior["divisor"]),
     )

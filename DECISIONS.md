@@ -394,3 +394,31 @@ does not imply the Small/Micro buffer does something it cannot.
 
 The parent index's numbers are permitted to move for a defect fix, but only in a commit that
 says so.
+
+---
+
+## D-015 — The drill baseline resolves its config from the manifest, by name
+**Date:** 2026-08-11 · **Module:** M12 · **Status:** accepted
+
+**Context.** `baseline_from_build` read `config=result.manifest.config and
+global_all_cap()`. `RunManifest.config` is `IndexConfig.to_dict()` output — a dict, and
+truthy for any real build — so the expression always evaluated to `global_all_cap()`: the
+right answer for both real callers (the CLI drill and the desk snapshot both build the
+default spec), but by an accident of `and`-semantics, not by decision. Flagged in the
+ops-desk final review as a non-blocking follow-up.
+
+**Decision.** Resolve the config by matching the manifest's serialised dict against the
+named constructors (`ValidationContext._CONFIG_CONSTRUCTORS`, the same closed set
+`save()`/`load()` already round-trips a config name through), and raise on a dict none of
+them produces.
+
+**Alternatives rejected.** *Hard-coding `config=global_all_cap()` with a comment* —
+preserves today's behaviour exactly, but bakes the accident in: a `global_large_mid`
+build's drill would keep reporting itself validated against the wrong index's config, now
+deliberately. *Passing `None`* — discards information the manifest genuinely carries, and
+silently downgrades every config-aware check in the drill to a skip.
+
+**Consequences.** Behaviour is unchanged for every existing caller — each builds the
+default spec, which resolves to `global_all_cap()` as before. A non-default named build
+now resolves to its own config instead of being mislabelled; an inline config fails loudly
+at baseline assembly, the same boundary `ValidationContext.save` already enforces.

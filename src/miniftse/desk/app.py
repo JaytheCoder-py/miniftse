@@ -17,20 +17,30 @@ itself, and uvicorn is run in factory mode: `uvicorn miniftse.desk.app:create_ap
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 import json
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import anyio.to_thread
-from fastapi import FastAPI, Form, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from miniftse.desk.limits import (
+    DEFAULT_RATE_LIMIT_PER_MINUTE,
+    TokenBucketLimiter,
+    enforce_rate_limit,
+    validate_date,
+    validate_fault_id,
+    validate_question,
+    validate_question_id,
+    validate_seed,
+)
 from miniftse.desk.services import (
     ask,
     available_dates,
@@ -43,19 +53,11 @@ from miniftse.desk.services import (
     run_drill,
 )
 from miniftse.desk.state import DeskState, load_desk_state
-from miniftse.quality.faults import FAULTS
 from miniftse.universe.banding import CUMULATIVE_PCT_DECIMALS
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates"
 STATIC_DIR = PACKAGE_DIR / "static"
-
-_VALID_FAULT_IDS = frozenset(fault.fault_id for fault in FAULTS)
-"""The closed set `/chaos/run` validates a requested `fault_id` against, mirroring how
-`/day` validates `date` against `available_dates` before calling a service function at
-all - see that route's docstring for why this lives in the route rather than being
-discovered via `run_drill`'s `KeyError` (a bad id should never even reach the
-semaphore/thread/timeout machinery below it)."""
 
 _DRILL_CONCURRENCY = 2
 """How many live chaos drills may run at once, across every request this process is
@@ -69,12 +71,6 @@ row for the same fault (see `chaos_run` below). A module-level name, not a liter
 inline at the call site, so a test can shrink it (`monkeypatch.setattr`) to exercise the
 timeout path without an actually-slow drill."""
 
-_MAX_QUESTION_LENGTH = 500
-"""`/ask/query`'s server-side cap on `question`, enforced by hand below rather than by a
-Pydantic `Field(max_length=...)` - the same reason `/chaos/run` validates `seed` itself
-(see that route's docstring): Pydantic's own length validation would answer an
-over-length question with FastAPI's default 422, and the plan requires 400 for every
-bad input on this route, matching every other route's validation style."""
 
 _EXAMPLE_QUESTIONS: tuple[dict[str, object], ...] = (
     {"text": "How is free float applied to index weights?", "out_of_scope": False},
@@ -238,13 +234,25 @@ def _embed_json(payload: Any) -> str:
     return json.dumps(payload).replace("</", "<\\/")
 
 
-def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
+def create_app(
+    data_dir: Path = Path("desk/data"),
+    rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
+    rate_limit_clock: Callable[[], float] | None = None,
+) -> FastAPI:
     """Build the ops desk application.
 
     Nothing is loaded from `data_dir` until the returned app's `lifespan` runs - the
     call itself is cheap, so constructing an app in a test with a `tmp_path` snapshot
     (or a `tmp_path` with no snapshot at all, to exercise the missing-snapshot path)
     costs nothing until a `TestClient` actually starts it.
+
+    `rate_limit_per_minute` and `rate_limit_clock` exist for tests, not deployment: the
+    deployed process always gets `limits.DEFAULT_RATE_LIMIT_PER_MINUTE` (60) and the
+    real wall clock via these parameters' defaults. A test that wants to prove the 429
+    path fires needs a real budget and a frozen/advanceable clock (`rate_limit_clock`);
+    a test that merely needs a *working* app - the module-scoped `client` fixture, which
+    fires a couple dozen POSTs across the whole test module, nowhere near the deployed
+    budget - never touches either parameter.
     """
     data_dir = Path(data_dir)
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -253,8 +261,14 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         desk = load_desk_state(data_dir)
         app.state.desk = desk
-        # Task 13 replaces this with a real per-IP token bucket for the POST routes.
-        app.state.limiter = None
+        # One limiter, shared by all three POST routes below (via the
+        # `enforce_rate_limit` dependency reading `request.app.state.limiter`) - not one
+        # instantiated per route, which would give each route its own 60/minute budget
+        # instead of one 60/minute budget per client across all three.
+        app.state.limiter = TokenBucketLimiter(
+            rate_per_minute=rate_limit_per_minute,
+            clock=rate_limit_clock or time.monotonic,
+        )
         # Every template extends base.html, and base.html's footer (git sha, build
         # date) and nav need the snapshot without every route handler threading it
         # through by hand - a Jinja global, set once `desk` is known, does that.
@@ -285,31 +299,18 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
         docstring) and not a 500. No index arithmetic happens in this handler: it
         picks a date, calls `services.explain_day`/`services.notable_days`, and hands
         the result to the template.
+
+        The parse-and-membership check itself is `limits.validate_date` (Task 13
+        centralised it there, alongside `/chaos/run`'s and `/ask/query`'s validation) -
+        this handler only supplies the closed set (`dates`) to validate against.
         """
         desk: DeskState = request.app.state.desk
         dates = available_dates(desk)
         notable = notable_days(desk)
 
-        if date is None:
-            # No date requested: the most recently published session, so the screen
-            # opens on "today" rather than an arbitrary or empty state.
-            selected = dates[-1]
-        else:
-            try:
-                selected = dt.date.fromisoformat(date)
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"'{date}' is not a valid date (expected YYYY-MM-DD).",
-                ) from exc
-            if selected not in dates:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"{selected.isoformat()} is not a date this index published "
-                        "a level for."
-                    ),
-                )
+        # No date requested: the most recently published session, so the screen opens
+        # on "today" rather than an arbitrary or empty state. Otherwise, validate.
+        selected = dates[-1] if date is None else validate_date(date, dates)
 
         explanation = explain_day(desk, selected)
         return templates.TemplateResponse(
@@ -345,7 +346,7 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
             },
         )
 
-    @app.post("/chaos/run")
+    @app.post("/chaos/run", dependencies=[Depends(enforce_rate_limit)])
     async def chaos_run(
         request: Request,
         fault_id: str = Form(...),
@@ -357,11 +358,16 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
         `seed` is declared `str`, not `int`: FastAPI would otherwise coerce the form
         field itself via Pydantic and answer a non-numeric value with 422, but the plan
         requires 400 for a bad `fault_id` or an out-of-range/non-integer `seed` - so
-        both raw strings are validated by hand below instead of trusting Pydantic
-        coercion. (A form field missing entirely is a different failure mode: FastAPI's
-        `Form(...)` still 422s before this handler body ever runs, since that happens
-        at request-parsing time, not at the value-validation time this docstring is
-        about.)
+        both raw strings are validated by `limits.validate_fault_id`/`validate_seed`
+        below instead of trusting Pydantic coercion. (A form field missing entirely is a
+        different failure mode: FastAPI's `Form(...)` still 422s before this handler
+        body ever runs, since that happens at request-parsing time, not at the
+        value-validation time this docstring is about.)
+
+        `dependencies=[Depends(enforce_rate_limit)]` is Task 13's per-IP token bucket
+        (`limits.TokenBucketLimiter`, one instance shared by all three POST routes via
+        `app.state.limiter`): a client past 60 requests/minute gets a 429 before this
+        body runs at all, never a 500 and never the drill machinery below.
 
         The live drill runs behind `app.state.drill_semaphore` (bounds concurrency to
         `_DRILL_CONCURRENCY`) and `asyncio.wait_for(..., timeout=_DRILL_TIMEOUT_SECONDS)`
@@ -391,23 +397,8 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
         """
         desk: DeskState = request.app.state.desk
 
-        if fault_id not in _VALID_FAULT_IDS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"'{fault_id}' is not a known chaos-drill fault id.",
-            )
-        try:
-            seed_value = int(seed)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"'{seed}' is not a valid seed (expected an integer).",
-            ) from exc
-        if not (0 <= seed_value <= 999_999):
-            raise HTTPException(
-                status_code=400,
-                detail=f"seed must be between 0 and 999999, got {seed_value}.",
-            )
+        validate_fault_id(fault_id)
+        seed_value = validate_seed(seed)
 
         semaphore: asyncio.Semaphore = request.app.state.drill_semaphore
         async with semaphore:
@@ -445,16 +436,16 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
             request, "ask.html", {"examples": _EXAMPLE_QUESTIONS}
         )
 
-    @app.post("/ask/query")
+    @app.post("/ask/query", dependencies=[Depends(enforce_rate_limit)])
     async def ask_query(request: Request, question: str = Form(...)) -> Response:
         """Screen 3a's live query: validate the raw form input, call `services.ask`,
         render the result fragment.
 
-        `question` is validated by hand, the same way `/chaos/run` validates `fault_id`
-        and `seed`: an empty or whitespace-only question, or one over
-        `_MAX_QUESTION_LENGTH` characters, is a 400 - never FastAPI's default 422 and
-        never a call into `services.ask` with input that was never going to produce a
-        real answer.
+        `question` is validated by `limits.validate_question`, the same way
+        `/chaos/run` validates `fault_id` and `seed`: an empty or whitespace-only
+        question, or one over `limits.MAX_QUESTION_LENGTH` characters, is a 400 - never
+        FastAPI's default 422 and never a call into `services.ask` with input that was
+        never going to produce a real answer.
 
         An abstention (`RetrievedAnswer.abstained`) is not an error - the scope check or
         an empty retrieval inside `MethodologyAssistant.ask` produced a real answer to
@@ -464,19 +455,10 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
 
         No retrieval logic lives here: validate, call `services.ask`, render. All of it
         lives in `agents/rag.py`'s `MethodologyAssistant`, reached through
-        `services.ask`.
+        `services.ask`. `dependencies=[Depends(enforce_rate_limit)]` is the same
+        Task 13 rate limit `/chaos/run` carries - see that route's docstring.
         """
-        stripped = question.strip()
-        if not stripped:
-            raise HTTPException(status_code=400, detail="question must not be empty.")
-        if len(question) > _MAX_QUESTION_LENGTH:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"question must be at most {_MAX_QUESTION_LENGTH} characters, "
-                    f"got {len(question)}."
-                ),
-            )
+        stripped = validate_question(question)
 
         desk: DeskState = request.app.state.desk
         result = ask(desk, stripped)
@@ -524,7 +506,7 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
             {"questions": draft_questions(), "outcome": outcome},
         )
 
-    @app.post("/draft/render")
+    @app.post("/draft/render", dependencies=[Depends(enforce_rate_limit)])
     async def draft_render(
         request: Request,
         question_id: str = Form(...),
@@ -536,10 +518,11 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
         `question_id` is declared `str`, not `int`, for the same reason `/chaos/run`
         declares `seed` a `str` (see that route's docstring): FastAPI's own Pydantic
         coercion would answer a non-numeric value with 422, but the plan requires 400
-        for every bad input on this route. `inject_bad_number` is a plain `bool` -
-        unlike `question_id`, a malformed value for it is not a validation case this
-        plan tests, and Pydantic's own boolean coercion (accepting "true"/"on"/etc.)
-        already matches an HTML checkbox's submitted value.
+        for every bad input on this route, so `limits.validate_question_id` parses it by
+        hand below. `inject_bad_number` is a plain `bool` - unlike `question_id`, a
+        malformed value for it is not a validation case this plan tests, and Pydantic's
+        own boolean coercion (accepting "true"/"on"/etc.) already matches an HTML
+        checkbox's submitted value.
 
         No drafting or guard logic lives here: validate `question_id`, call
         `services.render_draft` (which raises `IndexError` for one outside
@@ -547,15 +530,10 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
         for an unrecognised `fault_id`), render. The demonstration sentence
         `inject_bad_number=True` appends, and whether `NumberGuard` accepts or rejects
         it, are both entirely `render_draft`'s doing - this handler never inspects the
-        outcome.
+        outcome. `dependencies=[Depends(enforce_rate_limit)]` is the same Task 13 rate
+        limit `/chaos/run` and `/ask/query` carry - see `chaos_run`'s docstring.
         """
-        try:
-            qid = int(question_id)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"'{question_id}' is not a valid question id (expected an integer).",
-            ) from exc
+        qid = validate_question_id(question_id)
 
         desk: DeskState = request.app.state.desk
         try:

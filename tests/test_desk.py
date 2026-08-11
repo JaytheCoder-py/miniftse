@@ -1626,3 +1626,280 @@ def test_scheme_labels_cover_exactly_the_library_scheme_properties():
     from miniftse.weighting.schemes import SCHEME_PROPERTIES
 
     assert set(_SCHEME_LABELS) == set(SCHEME_PROPERTIES)
+
+
+# --------------------------------------------------------------------------------------
+# Task 13: rate limiting and centralised input validation
+# --------------------------------------------------------------------------------------
+
+
+class _FakeClock:
+    """A zero-argument `time.monotonic`-shaped callable a test can move by hand -
+    `TokenBucketLimiter`'s injected clock. Every Task 13 test uses this instead of
+    `time.sleep`: "61 rapid calls" must 429 deterministically on the 61st regardless of
+    how fast the test machine is, and "refills after 60 seconds" must be provable
+    without a 60-second test.
+    """
+
+    def __init__(self, start: float = 0.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+# ---- TokenBucketLimiter, unit level -----------------------------------------------
+
+
+def test_token_bucket_allows_up_to_capacity_then_denies():
+    """`rate_per_minute` calls succeed; the next one, in the same instant, does not -
+    the class-level building block behind "61 rapid POSTs yield at least one 429"."""
+    from miniftse.desk.limits import TokenBucketLimiter
+
+    clock = _FakeClock()
+    limiter = TokenBucketLimiter(rate_per_minute=5, clock=clock)
+
+    results = [limiter.allow("k") for _ in range(6)]
+
+    assert results == [True, True, True, True, True, False]
+
+
+def test_token_bucket_refills_after_60_seconds():
+    """An exhausted bucket denies immediately, but grants again once the fake clock has
+    advanced a full 60-second window - no sleeping, just moving the injected clock."""
+    from miniftse.desk.limits import TokenBucketLimiter
+
+    clock = _FakeClock()
+    limiter = TokenBucketLimiter(rate_per_minute=3, clock=clock)
+    for _ in range(3):
+        assert limiter.allow("k")
+    assert not limiter.allow("k")
+
+    clock.advance(60.0)
+
+    assert limiter.allow("k")
+
+
+def test_token_bucket_different_keys_do_not_share_a_bucket():
+    """Exhausting one key's bucket must not affect a different key's - each IP gets its
+    own budget. Exercised at the `TokenBucketLimiter` unit level rather than through two
+    simulated client IPs on a `TestClient`, per the task's own suggestion: forcing a
+    `TestClient` request to present a second, distinct `request.client.host` has no
+    straightforward public API in this project's Starlette/FastAPI version, whereas the
+    limiter's own key-independence is exactly what this test needs to prove."""
+    from miniftse.desk.limits import TokenBucketLimiter
+
+    clock = _FakeClock()
+    limiter = TokenBucketLimiter(rate_per_minute=1, clock=clock)
+
+    assert limiter.allow("1.2.3.4")
+    assert not limiter.allow("1.2.3.4")  # that key's bucket is now empty
+    assert limiter.allow("5.6.7.8")  # a different key, unaffected
+
+
+def test_token_bucket_prunes_buckets_idle_past_the_threshold():
+    """A bucket untouched for longer than `idle_after_seconds` is dropped from
+    `_buckets` on the next `allow()` call for any key - proof the dict cannot grow
+    unbounded across a long-lived deployment. Reads the private `_buckets` dict, the
+    same whitebox style this test module already uses elsewhere (e.g.
+    `monkeypatch.setattr` against module internals) - there is no public introspection
+    method, and adding one only for this test would be surface area nothing else needs.
+    """
+    from miniftse.desk.limits import TokenBucketLimiter
+
+    clock = _FakeClock()
+    limiter = TokenBucketLimiter(rate_per_minute=5, clock=clock, idle_after_seconds=100.0)
+
+    limiter.allow("stale")
+    clock.advance(150.0)
+    limiter.allow("fresh")  # any call sweeps stale entries first
+
+    assert "stale" not in limiter._buckets
+    assert "fresh" in limiter._buckets
+
+
+def test_token_bucket_rejects_non_positive_rate():
+    from miniftse.desk.limits import TokenBucketLimiter
+
+    with pytest.raises(ValueError, match="positive"):
+        TokenBucketLimiter(rate_per_minute=0)
+
+
+# ---- Wired into the app, via `create_app`'s injectable rate-limit parameters ------
+
+
+@pytest.mark.slow
+def test_61_rapid_posts_from_one_client_yield_at_least_one_429(desk_data_dir):
+    """Task 13 Step 1: 61 rapid `POST /ask/query` calls from one client, all in the same
+    frozen instant, exercise the deployed default (60/minute) - the first 60 succeed and
+    the 61st is a 429, never a 500 and never a raw traceback."""
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk.app import create_app
+
+    clock = _FakeClock()
+    app = create_app(data_dir=desk_data_dir, rate_limit_clock=clock)
+    with TestClient(app) as c:
+        responses = [
+            c.post(
+                "/ask/query",
+                data={"question": "How is free float applied to index weights?"},
+            )
+            for _ in range(61)
+        ]
+
+    statuses = [r.status_code for r in responses]
+    assert statuses[:60] == [200] * 60
+    assert statuses[60] == 429
+    assert "Traceback" not in responses[60].text
+
+
+@pytest.mark.slow
+def test_a_get_is_never_rate_limited(desk_data_dir):
+    """70 rapid `GET /day` calls - more than the 60/minute POST budget - all come back
+    200: rate limiting is wired onto the three POST routes only."""
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk.app import create_app
+
+    clock = _FakeClock()
+    app = create_app(data_dir=desk_data_dir, rate_limit_clock=clock)
+    with TestClient(app) as c:
+        statuses = [c.get("/day").status_code for _ in range(70)]
+
+    assert statuses == [200] * 70
+
+
+@pytest.mark.slow
+def test_the_three_post_routes_share_one_limiter_budget(desk_data_dir, desk_state):
+    """`/chaos/run`, `/ask/query` and `/draft/render` draw from the same per-IP bucket,
+    not one 60/minute budget each: 40 `/chaos/run` posts followed by 21 `/ask/query`
+    posts from one client (61 total) must 429 on the 61st, proving the third route's
+    request counts against the budget the first route already spent down."""
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk.app import create_app
+
+    fault_id = desk_state.chaos_precomputed["drill"][0]["fault_id"]
+    clock = _FakeClock()
+    app = create_app(data_dir=desk_data_dir, rate_limit_clock=clock)
+    with TestClient(app) as c:
+        chaos_statuses = [
+            c.post("/chaos/run", data={"fault_id": fault_id, "seed": "1"}).status_code
+            for _ in range(40)
+        ]
+        ask_statuses = [
+            c.post(
+                "/ask/query",
+                data={"question": "How is free float applied to index weights?"},
+            ).status_code
+            for _ in range(21)
+        ]
+
+    assert chaos_statuses == [200] * 40
+    assert ask_statuses[:20] == [200] * 20
+    assert ask_statuses[20] == 429
+
+
+@pytest.mark.slow
+def test_rate_limit_refills_across_app_after_60_fake_seconds(desk_data_dir):
+    """The same 429-then-refill behaviour `TokenBucketLimiter` proves in isolation,
+    wired all the way through the app: exhaust the budget, advance the injected clock by
+    60 seconds, and the next request succeeds again."""
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk.app import create_app
+
+    clock = _FakeClock()
+    app = create_app(data_dir=desk_data_dir, rate_limit_per_minute=2, rate_limit_clock=clock)
+    with TestClient(app) as c:
+        first = c.post("/ask/query", data={"question": "q1"})
+        second = c.post("/ask/query", data={"question": "q2"})
+        third = c.post("/ask/query", data={"question": "q3"})
+
+        clock.advance(60.0)
+        fourth = c.post("/ask/query", data={"question": "q4"})
+
+    assert (first.status_code, second.status_code, third.status_code) == (200, 200, 429)
+    assert fourth.status_code == 200
+
+
+def test_create_app_default_rate_limit_matches_the_deployed_constant():
+    """`create_app`'s `rate_limit_per_minute` default must be the real deployed budget,
+    not a value a test happened to leave behind - guards against a future edit changing
+    one without the other."""
+    import inspect
+
+    from miniftse.desk.app import create_app
+    from miniftse.desk.limits import DEFAULT_RATE_LIMIT_PER_MINUTE
+
+    default = inspect.signature(create_app).parameters["rate_limit_per_minute"].default
+    assert default == DEFAULT_RATE_LIMIT_PER_MINUTE == 60
+
+
+# ---- Centralised validation: same rules, one home -----------------------------------
+
+
+def test_validate_fault_id_rejects_unknown_id():
+    from fastapi import HTTPException
+
+    from miniftse.desk.limits import validate_fault_id
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_fault_id("F99-nonsense")
+    assert exc_info.value.status_code == 400
+
+
+def test_validate_seed_parses_and_range_checks():
+    from fastapi import HTTPException
+
+    from miniftse.desk.limits import validate_seed
+
+    assert validate_seed("42") == 42
+    for bad in ("-1", "1000000", "abc"):
+        with pytest.raises(HTTPException) as exc_info:
+            validate_seed(bad)
+        assert exc_info.value.status_code == 400
+
+
+def test_validate_question_strips_and_enforces_length_cap():
+    from fastapi import HTTPException
+
+    from miniftse.desk.limits import MAX_QUESTION_LENGTH, validate_question
+
+    assert validate_question("  hello  ") == "hello"
+    with pytest.raises(HTTPException) as exc_info:
+        validate_question("   ")
+    assert exc_info.value.status_code == 400
+    with pytest.raises(HTTPException) as exc_info:
+        validate_question("a" * (MAX_QUESTION_LENGTH + 1))
+    assert exc_info.value.status_code == 400
+
+
+def test_validate_question_id_rejects_non_integers():
+    from fastapi import HTTPException
+
+    from miniftse.desk.limits import validate_question_id
+
+    assert validate_question_id("2") == 2
+    with pytest.raises(HTTPException) as exc_info:
+        validate_question_id("abc")
+    assert exc_info.value.status_code == 400
+
+
+def test_validate_date_rejects_unparseable_and_out_of_set_dates():
+    from fastapi import HTTPException
+
+    from miniftse.desk.limits import validate_date
+
+    available = [dt.date(2020, 1, 2), dt.date(2020, 1, 3)]
+    assert validate_date("2020-01-02", available) == dt.date(2020, 1, 2)
+    with pytest.raises(HTTPException) as exc_info:
+        validate_date("not-a-date", available)
+    assert exc_info.value.status_code == 400
+    with pytest.raises(HTTPException) as exc_info:
+        validate_date("1990-01-01", available)
+    assert exc_info.value.status_code == 400

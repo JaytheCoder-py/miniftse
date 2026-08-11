@@ -63,6 +63,32 @@ def test_validation_context_round_trips_none_fields(tmp_path):
     assert back.fx is None
 
 
+def test_resave_to_a_reused_directory_leaves_no_orphaned_frame_files(tmp_path):
+    """Re-saving a smaller context over a directory that previously held more frames
+    must not leave the old frames' parquet files behind. `load` reads only what
+    `meta.json`'s `present` list names, so an orphan can never be read back - but it
+    sits in the directory looking like part of the saved context, and anything that
+    globs the directory instead of trusting `meta.json` (a backup script, a curious
+    investigator) would see frames this context never had.
+    """
+    target = tmp_path / "baseline"
+    full = _context()
+    full.corp_actions = pd.DataFrame({"security_id": ["S1"], "action": ["SPLIT"]})
+    full.save(target)
+    assert (target / "corp_actions.parquet").exists()
+    assert (target / "weights.parquet").exists()
+
+    smaller = _context()  # no corp_actions this time, and no weights either
+    smaller.weights = None
+    smaller.save(target)
+
+    assert not (target / "corp_actions.parquet").exists()
+    assert not (target / "weights.parquet").exists()
+    back = ValidationContext.load(target)
+    assert back.corp_actions is None
+    assert back.weights is None
+
+
 def test_loaded_context_passes_the_same_rules(tmp_path):
     """The real acceptance criterion: same findings before and after a round trip."""
     from miniftse.quality.rules import ValidationEngine

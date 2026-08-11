@@ -238,6 +238,13 @@ class ValidationContext:
         """
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
+        # A re-save into a reused directory must not leave the previous save's frames
+        # behind. `load` reads only what `meta.json`'s `present` list names, so an
+        # orphaned parquet file can never be read back - it just sits there looking
+        # like part of the saved context. Only the known frame names are cleaned:
+        # this method owns those files, not the whole directory.
+        for name in (*self._FRAME_FIELDS, "weights"):
+            (directory / f"{name}.parquet").unlink(missing_ok=True)
         present: list[str] = []
         for name in self._FRAME_FIELDS:
             frame = getattr(self, name)

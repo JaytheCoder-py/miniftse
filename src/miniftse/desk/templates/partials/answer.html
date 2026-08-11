@@ -1,0 +1,42 @@
+{# Ask screen's answer fragment (Task 9). Rendered by POST /ask/query and swapped by
+   HTMX into #ask-result on ask.html. Not a full page - it does not extend base.html -
+   because it is only ever loaded as an HTMX swap target, never navigated to directly.
+
+   `result` is the `RetrievedAnswer` `services.ask` returned, unmodified - no retrieval
+   or scoring logic runs here, only display. Two outcomes, same visual weight: an
+   abstention (`result.abstained`) is rendered as its own styled card, not as an error -
+   see `agents/rag.py`'s module docstring ("Abstention is a correct outcome") and the
+   design spec's Screen 3 section. #}
+
+{% if result.abstained %}
+  <div class="answer-card abstention-card" data-testid="abstention-card">
+    <p class="answer-kind">Abstained</p>
+    <p class="answer-text">{{ result.answer }}</p>
+    <p class="abstention-reason">
+      No confidence score is shown: an abstention means retrieval never found a
+      passage worth answering from, so there is nothing to be confident about.
+    </p>
+  </div>
+{% else %}
+  <div class="answer-card" data-testid="answer-card">
+    <p class="answer-kind">Answer</p>
+    <p class="answer-text">{{ result.answer }}</p>
+
+    <h3>Sources</h3>
+    <ul class="citation-list">
+      {% for citation in result.citations %}
+        <li>
+          <span class="citation-text">{{ citation }}</span>
+          <span class="citation-score">score {{ "%.2f"|format(result.scores[loop.index0]) }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+
+    <p class="confidence-line">
+      Confidence: <strong>{{ "%.2f"|format(result.confidence) }}</strong>
+      &mdash; this measures how concentrated the retrieval score is in the single
+      best-matching passage above: one decisive match scores higher here than several
+      mediocre passages whose scores merely add up to the same total.
+    </p>
+  </div>
+{% endif %}

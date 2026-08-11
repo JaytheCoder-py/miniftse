@@ -906,3 +906,64 @@ def test_chaos_run_timeout_falls_back_to_precomputed_with_badge(
     assert response.status_code == 200
     assert "showing precomputed result" in response.text.lower()
     assert fault_id in response.text
+
+
+# --------------------------------------------------------------------------------------
+# Task 9: Screen 3a - `/ask` and `/ask/query`
+# --------------------------------------------------------------------------------------
+
+#: The exact out-of-scope question `rag.py`'s scope-violation regex (and
+#: `test_assistant_abstains_on_an_out_of_scope_question` above) already relies on -
+#: seeded on `/ask` deliberately so a visitor sees a refusal without thinking of one.
+_OUT_OF_SCOPE_QUESTION = "What is the index level today?"
+
+
+@pytest.mark.slow
+def test_ask_get_shows_three_example_questions_including_out_of_scope(client):
+    """The GET renders a question form and three seeded example questions, one of
+    which is out of scope - a visitor sees a refusal without having to think of one."""
+    response = client.get("/ask")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'hx-post="/ask/query"' in body
+    assert _OUT_OF_SCOPE_QUESTION in body
+
+
+@pytest.mark.slow
+def test_ask_query_normal_question_returns_fragment_with_citation(client):
+    response = client.post(
+        "/ask/query", data={"question": "How is free float applied to index weights?"}
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "site-header" not in body
+    assert "<!doctype" not in body.lower()
+    assert "§" in body or "SUPERSEDED" in body  # a citation, per Chunk.citation
+
+
+@pytest.mark.slow
+def test_ask_query_out_of_scope_question_renders_abstention_card(client):
+    """Abstention is a first-class outcome, styled as its own card - not an error."""
+    response = client.post("/ask/query", data={"question": _OUT_OF_SCOPE_QUESTION})
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-testid="abstention-card"' in body
+    assert "cannot answer" in body.lower()
+
+
+@pytest.mark.slow
+def test_ask_query_over_500_chars_is_400_not_422(client):
+    response = client.post("/ask/query", data={"question": "a" * 600})
+
+    assert response.status_code == 400
+    assert "Traceback" not in response.text
+
+
+@pytest.mark.slow
+def test_ask_query_whitespace_only_is_400(client):
+    response = client.post("/ask/query", data={"question": "   "})
+
+    assert response.status_code == 400

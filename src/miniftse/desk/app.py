@@ -31,6 +31,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from miniftse.desk.services import (
+    ask,
     available_dates,
     chaos_drill_rows,
     explain_day,
@@ -63,6 +64,29 @@ _DRILL_TIMEOUT_SECONDS = 10.0
 row for the same fault (see `chaos_run` below). A module-level name, not a literal
 inline at the call site, so a test can shrink it (`monkeypatch.setattr`) to exercise the
 timeout path without an actually-slow drill."""
+
+_MAX_QUESTION_LENGTH = 500
+"""`/ask/query`'s server-side cap on `question`, enforced by hand below rather than by a
+Pydantic `Field(max_length=...)` - the same reason `/chaos/run` validates `seed` itself
+(see that route's docstring): Pydantic's own length validation would answer an
+over-length question with FastAPI's default 422, and the plan requires 400 for every
+bad input on this route, matching every other route's validation style."""
+
+_EXAMPLE_QUESTIONS: tuple[dict[str, object], ...] = (
+    {"text": "How is free float applied to index weights?", "out_of_scope": False},
+    {
+        "text": "What triggers a fast entry addition between reviews?",
+        "out_of_scope": False,
+    },
+    # Deliberately out of scope - the exact case `agents/rag.py`'s `_scope_violation`
+    # documents as the reason its scope check runs before retrieval at all: this
+    # shares all its vocabulary with the corpus, so a visitor sees a genuine refusal
+    # rather than one they had to think up themselves.
+    {"text": "What is the index level today?", "out_of_scope": True},
+)
+"""Seeded on `/ask` (Task 9) so a visitor sees a real answer and a real refusal without
+typing either - one of the three is deliberately out of scope, per the design spec's
+Screen 3 section."""
 
 
 def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
@@ -258,6 +282,57 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
             request,
             "partials/drill_result.html",
             {"timed_out": False, "outcome": outcome, "seed": seed_value},
+        )
+
+    @app.get("/ask")
+    async def ask_get(request: Request) -> Response:
+        """Screen 3a: the methodology assistant's question form.
+
+        Renders the form (posts to `/ask/query` via HTMX) and `_EXAMPLE_QUESTIONS` - no
+        retrieval runs on this GET, the same split `/chaos` keeps between its GET and
+        its live-drill POST.
+        """
+        return templates.TemplateResponse(
+            request, "ask.html", {"examples": _EXAMPLE_QUESTIONS}
+        )
+
+    @app.post("/ask/query")
+    async def ask_query(request: Request, question: str = Form(...)) -> Response:
+        """Screen 3a's live query: validate the raw form input, call `services.ask`,
+        render the result fragment.
+
+        `question` is validated by hand, the same way `/chaos/run` validates `fault_id`
+        and `seed`: an empty or whitespace-only question, or one over
+        `_MAX_QUESTION_LENGTH` characters, is a 400 - never FastAPI's default 422 and
+        never a call into `services.ask` with input that was never going to produce a
+        real answer.
+
+        An abstention (`RetrievedAnswer.abstained`) is not an error - the scope check or
+        an empty retrieval inside `MethodologyAssistant.ask` produced a real answer to
+        this question, just one that says no. `partials/answer.html` renders it as its
+        own styled card, the same visual weight as a normal answer, per the design
+        spec's Screen 3 section.
+
+        No retrieval logic lives here: validate, call `services.ask`, render. All of it
+        lives in `agents/rag.py`'s `MethodologyAssistant`, reached through
+        `services.ask`.
+        """
+        stripped = question.strip()
+        if not stripped:
+            raise HTTPException(status_code=400, detail="question must not be empty.")
+        if len(question) > _MAX_QUESTION_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"question must be at most {_MAX_QUESTION_LENGTH} characters, "
+                    f"got {len(question)}."
+                ),
+            )
+
+        desk: DeskState = request.app.state.desk
+        result = ask(desk, stripped)
+        return templates.TemplateResponse(
+            request, "partials/answer.html", {"result": result}
         )
 
     @app.get("/healthz")

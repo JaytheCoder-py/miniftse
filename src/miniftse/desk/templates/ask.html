@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{# Screen 3a: the methodology assistant. `examples` is three seeded questions (Task 9),
+   one deliberately out of scope, so a visitor sees a refusal without having to think of
+   one - clicking an example fills the textarea rather than submitting it directly, so
+   the same hx-post/hx-target the manual form uses is exercised either way. No retrieval
+   logic runs in this template: `services.ask` (a thin wrapper over `agents/rag.py`'s
+   `MethodologyAssistant`) does all of it; this page only renders the form and, via
+   partials/answer.html, whatever `/ask/query` hands back. #}
+
+{% block title %}Ask the rulebook - miniftse ops desk{% endblock %}
+
+{% block content %}
+<style>
+  /* Screen-specific styling lives with the screen that introduces it (see
+     static/style.css's header comment) rather than growing the shared shell. */
+  .ask-form {
+    margin-bottom: 1rem;
+  }
+  .ask-form label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 0.25rem;
+  }
+  .ask-form textarea {
+    width: 100%;
+    min-height: 4.5rem;
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.6rem;
+    font-family: inherit;
+    font-size: 0.95rem;
+    resize: vertical;
+  }
+  .ask-form .ask-form-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .char-hint {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .examples {
+    margin-bottom: 1.5rem;
+  }
+  .examples h2 {
+    margin-bottom: 0.5rem;
+  }
+  .example-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .example-btn {
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.4rem 0.75rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .example-btn:hover {
+    border-color: var(--accent);
+  }
+  .example-btn.out-of-scope {
+    border-style: dashed;
+  }
+  #ask-result p.placeholder {
+    color: var(--text-dim);
+    font-style: italic;
+    margin: 0;
+  }
+  /* The answer fragment (partials/answer.html), swapped into #ask-result above.
+     Abstention gets the same card treatment as an answer - a deliberate outcome, not
+     an error - so `.abstention-card` only adds a left accent, never the error colour. */
+  .answer-card {
+    border-left: 3px solid var(--accent);
+    padding-left: 1rem;
+  }
+  .answer-card.abstention-card {
+    border-left-color: var(--warn-border);
+  }
+  .answer-kind {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-dim);
+  }
+  .answer-text {
+    margin: 0 0 1rem;
+    white-space: pre-wrap;
+  }
+  .citation-list {
+    margin: 0 0 1rem;
+    padding-left: 1.25rem;
+  }
+  .citation-list li {
+    margin-bottom: 0.35rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .citation-score {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .confidence-line {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin: 0;
+  }
+  .abstention-reason {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin: 0;
+  }
+</style>
+
+<h1>Ask the rulebook</h1>
+<p class="summary-note">
+  Answers are retrieved from the Ground Rules and methodology memos only - not from
+  general knowledge - and every claim carries a citation. A question the documents
+  cannot answer gets a refusal, not a guess.
+</p>
+
+<section class="card examples" aria-label="Example questions">
+  <h2>Try one of these</h2>
+  <div class="example-list">
+    {% for example in examples %}
+      <button
+        type="button"
+        class="example-btn {{ 'out-of-scope' if example.out_of_scope else '' }}"
+        data-testid="{{ 'example-out-of-scope' if example.out_of_scope else 'example-in-scope' }}"
+        onclick="document.getElementById('question-input').value = this.dataset.question;"
+        data-question="{{ example.text }}"
+      >{{ example.text }}{% if example.out_of_scope %} (out of scope){% endif %}</button>
+    {% endfor %}
+  </div>
+</section>
+
+<form
+  class="ask-form card"
+  hx-post="/ask/query"
+  hx-target="#ask-result"
+  hx-swap="innerHTML"
+>
+  <label for="question-input">Your question</label>
+  <textarea
+    id="question-input"
+    name="question"
+    maxlength="500"
+    placeholder="e.g. How is free float applied to index weights?"
+  ></textarea>
+  <div class="ask-form-footer">
+    <span class="char-hint">Up to 500 characters.</span>
+    <button type="submit" class="btn">Ask</button>
+  </div>
+</form>
+
+<section id="ask-result" class="card" aria-live="polite">
+  <p class="placeholder">Ask a question above, or try one of the examples, to see an answer here.</p>
+</section>
+{% endblock %}

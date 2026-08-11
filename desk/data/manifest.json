@@ -1,7 +1,7 @@
 {
-  "git_sha": "c742fb0a9bea848a1ad807c76491dbd1bc325cd7",
-  "git_dirty": true,
-  "created_at": "2026-08-11T10:42:18.863730+00:00",
+  "git_sha": "bebca35c5d0c10f2cd9e8677dcaf83b14923c906",
+  "git_dirty": false,
+  "created_at": "2026-08-11T12:14:41.994422+00:00",
   "index_id": "MFTSE-GLOBAL",
   "build_spec": {
     "index_id": "MFTSE-GLOBAL",
@@ -11,7 +11,7 @@
     "start": "2016-01-04",
     "end": "2024-12-31"
   },
-  "duration_seconds": 28.2,
+  "duration_seconds": 103.1,
   "files": {
     "capacity.json": "48510741d251144d905bff43f0f63435e79b1857e745f1e0f687ffc286f9c1a0",
     "chaos_baseline/corp_actions.parquet": "f6eec6e26faef5969f4bd2dba1d072365a567df7337cc6f31f13d71450901f33",

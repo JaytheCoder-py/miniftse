@@ -258,3 +258,106 @@ defect this fixes.
 
 **Consequences.** The threshold matches Ground Rules section 5.7, where a suspension beyond
 20 days stops being a suspension and becomes a valuation question for the Committee.
+
+---
+
+## D-014 — Band assignment is decided on exact, quantised arithmetic with a written tie-break
+**Date:** 2026-08-11 · **Module:** M3 · **Status:** accepted
+
+**Context.** The golden master was pinned on Windows. A rebuild on Linux from the same
+commit, config and inputs produced 153 constituents at the 2024-09-20 review where the
+master had 154. The rebase maths was correct — `level_continuity_bps` was 0.0, the divisor
+absorbed the change, no validation rule fired — but a divisor that has absorbed a different
+constituent set is a different divisor from then on. The two builds diverged by up to
+0.7426bp on the divisor, with 65 of 2311 dates carrying a different constituent count:
+below the 0.1bp golden tolerance on levels, so CI stayed green, and well above zero, which
+is what it should have been.
+
+Three lines were responsible. `universe/banding.py:81` computed the cumulative percentile
+with `np.cumsum`, which sums in blocks whose size and association depend on the SIMD width
+and the BLAS build, so the last bits differ across platforms. Line 112 compared it to the
+band cutoff with a bare `<=` carrying no tolerance and no tie-break, so a security sitting
+on the cut landed on opposite sides on the two machines. Line 142's buffer-zone test had
+the same exposure and had simply not fired yet. Because bands are cut on the *cumulative*
+share, a last-bit difference is not confined to one security — it shifts every name below
+it, and one name near a cutoff moves the whole boundary.
+
+A fourth defect was found while fixing these, and is worth recording because it needed no
+platform difference at all: the sort was `sorted(..., key=cap, reverse=True)`, which is
+stable but only a *partial* order. Two securities of exactly equal float market cap ranked
+in whatever order the caller's dict iterated. A permutation test caught it immediately on
+Windows alone.
+
+**Decision.** Band assignment is a rule, and a rule whose outcome depends on floating-point
+summation order is not a rule. Four changes, all in `universe/banding.py`:
+
+1. **Exact summation.** `_exact_cumulative` replaces `np.cumsum`, using Shewchuk's exact
+   partial-sum algorithm — the one behind `math.fsum`, kept open so the running total can
+   be read after each element rather than only at the end. Every prefix is the correctly
+   rounded value of the exact mathematical sum, so it depends on the values alone and never
+   on how the machine associated the additions. It is O(n), against O(n²) for
+   `math.fsum(values[:i+1])` per element, and the tests assert the two agree bit for bit.
+2. **A total order.** Ties in float market cap break on ascending `security_id`. Arbitrary,
+   but written down, which is the property that matters.
+3. **Quantisation to 12 decimal places** of cumulative weight before any comparison against
+   a cutoff or a buffer edge. `CUMULATIVE_PCT_DECIMALS` in the code, Ground Rules 2.1, and
+   this entry — three places, because a precision that lives only in code is not a rule
+   anyone can hold us to.
+4. **The tie-break written into the ground rules.** 2.1: a security exactly on a cutoff
+   belongs to the band that cutoff closes. 8.3: exactly one buffer width past a boundary is
+   not *more than* one buffer width, so the incumbent is held.
+
+**Why 12.** An exactly rounded sum carries at most half an ulp of error, around 1e-16 on a
+cumulative share of order 1. Twelve decimal places sits four orders of magnitude above that
+noise floor, so quantisation can never mask a real difference; and 1e-12 of cumulative
+index weight is 1e-8 of a basis point, seven orders of magnitude finer than the golden
+master's own 0.1bp tolerance. It buys the thing that actually matters: "exactly on the
+cutoff" becomes a decidable state with a documented outcome instead of a coin-flip settled
+by a last bit.
+
+**Alternatives rejected.** *Kahan/Neumaier compensated summation* — O(1) per element and
+deterministic for a fixed order, but only approximately exact, so it still leaves a
+last-bit argument to have; `math.fsum` semantics are exact and need no caveat, and the
+performance difference is nil at universe sizes in the hundreds. *An absolute epsilon on
+the comparison* (`cum <= cutoff + 1e-9`) — moves the arbitrary boundary rather than
+removing it, and an epsilon in a comparison is undocumentable in a client-facing rulebook
+in a way that "rounded to 12 decimal places" is not. *Widening the golden tolerance until
+the platforms agree* — would have hidden the defect, which is what the tolerance had
+already effectively done. *Pinning numpy and declaring the build Linux-only* — makes
+reproducibility a property of the environment rather than of the methodology, and index
+rules must be reproducible by a client who is not running our container. *Leaving the
+tie-break to the code* — the actual root cause; the ground rules said "the top 70% by
+value" and left the boundary case undefined, so when two platforms disagreed there was no
+document that said which was right.
+
+**Consequences.** Band assignment is now bit-for-bit reproducible across platforms, numpy
+versions and BLAS builds, and `assign_bands` is a pure function of the universe rather than
+of the dict that carried it. The published `cumulative_pct` on each `BandAssignment` is the
+quantised value the rule was decided on, so a diagnostic can no longer disagree with the
+assignment it is explaining. Two securities of identical size are now separated by an
+alphabetical accident rather than an insertion-order accident — no better economically, but
+stable and stated.
+
+**What it actually changed, and the second finding.** The fix moved the parent index, so the
+golden master was re-pinned deliberately in its own commit. Across all 37 reviews in the
+2016–2024 reference history the fix changed exactly **one** band assignment, and it was not
+the `np.cumsum` limb that did it — the cumulative percentiles were bit-identical before and
+after on this machine, as expected, since the divergence that opened the incident needed two
+*different* platforms to show itself.
+
+It was the buffer-edge comparison at the old line 142, the one added to this fix on the
+grounds that it "had the same exposure and had simply not fired yet". It had fired. At the
+December 2024 review, SEC00012 sat at a cumulative share of exactly 1.0 against a Small Cap
+boundary of 0.98 — exactly one 2-point buffer width out. `abs(1.0 - 0.98)` evaluates to
+0.020000000000000018, because 0.98 has no exact binary representation; that is 0.6 ulp above
+0.02, so the old `<= width` was false and the security was dropped to Micro Cap and out of
+the All Cap index. Under Ground Rules 8.3 as now written it is held in Small Cap.
+
+One security, one review, decided by 1.7e-17. The divisor rebased to absorb it exactly as it
+should — the levels moved 0.0115bp — and the divisor is 0.4534bp different from that review
+onward, across the final 5 of 2311 dates. The same shape as the incident that started this,
+found on one machine, by fixing a line nobody had yet seen fail. It is the argument for
+fixing a defect class rather than a defect.
+
+The parent index's numbers are permitted to move for a defect fix, but only in a commit that
+says so.

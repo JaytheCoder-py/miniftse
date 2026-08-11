@@ -49,6 +49,37 @@ bands by cumulative share of total value:
 The All Cap index comprises the **Large, Mid and Small Cap** bands. Micro Cap securities
 are eligible for the universe but are not constituents of the All Cap index.
 
+### 2.1.1 Determination of the cumulative share
+
+The cumulative share is determined as follows, and the procedure is part of the rule
+rather than an implementation detail. Two parties applying these Ground Rules to the same
+universe must arrive at the same bands, on any machine.
+
+1. **Ranking.** Securities are ranked by free-float market capitalisation, largest first.
+   Where two securities have **identical** free-float market capitalisation, the security
+   with the lower **primary identifier** — the SEDOL where one exists, otherwise the first
+   available of ISIN, CUSIP, RIC or ticker — compared as a character string in ascending
+   order, ranks higher. This tie-break is arbitrary; it exists so that the ranking is a
+   total order and does not depend on the order in which the universe was assembled.
+
+2. **Summation.** The cumulative total is the exactly rounded value of the sum of the
+   free-float market capitalisations of the security and every security ranked above it.
+   "Exactly rounded" means the arithmetic must not depend on the order or grouping in which
+   the additions are performed.
+
+3. **Precision.** The resulting cumulative share is rounded to **12 decimal places** before
+   it is compared with any band boundary. All comparisons in this section and in Section
+   8.3 are made on the rounded value.
+
+4. **Boundary tie-break.** A security whose rounded cumulative share is **exactly equal**
+   to a band boundary falls in the band that boundary **closes** — that is, the larger
+   band. A security at exactly 70.000000000000% is Large Cap; a security at exactly
+   85.000000000000% is Mid Cap.
+
+The precision in (3) is chosen to sit far above the representational noise of the
+calculation and far below any threshold at which a difference would be material: 1e-12 of
+cumulative index weight is 1e-8 of a basis point.
+
 ### 2.2 Rationale for cumulative-value bands
 
 Boundaries are set on cumulative value rather than on a fixed constituent count. A fixed
@@ -342,6 +373,14 @@ the turnover saving is worth more to investors than the definitional purity.
 
 Buffers apply only to moves between **adjacent** bands. A security falling two bands in a
 single review has not oscillated, and is moved.
+
+**Determination and tie-break.** The cumulative share used in this section is the rounded
+value determined under Section 2.1.1, and the distance from the boundary is itself rounded
+to **12 decimal places** before it is compared with the buffer width. A constituent moves
+only when it crosses the boundary by **more than** the buffer width; a constituent at
+**exactly** the buffer width has not crossed by more than it, and is **held** in its
+existing band. A constituent at exactly 72.000000000000% whose previous band was Large Cap
+remains Large Cap.
 
 ### 8.4 Fast entry
 

@@ -353,3 +353,205 @@ def test_mark_preserves_adv() -> None:
     rolled = calc._mark(state, dt.date(2020, 1, 2), book)
     assert rolled.constituents["S1"].adv == 5_000_000.0
     assert rolled.constituents["S1"].price == 11.0
+
+
+# --------------------------------------------------------------------------------------
+# Size banding - determinism
+# --------------------------------------------------------------------------------------
+
+
+class TestBandingDeterminism:
+    """Band membership must be a function of the universe, not of how it was assembled
+    or which machine summed it. See DECISIONS.md D-014 and Ground Rules 2.1/8.3.
+
+    These are permutation tests, not smoke tests: each one re-runs the real
+    `assign_bands` over inputs that differ *only* in summation order, and demands
+    identical output.
+    """
+
+    @staticmethod
+    def _caps_with_ties() -> dict[str, float]:
+        """A universe carrying several exactly-equal float market caps, summing to 1000.
+
+        Ties are the case that exposes ordering: a stable sort leaves equal-sized names
+        in dict-iteration order, so permuting the input silently permutes the ranking
+        and moves the cumulative percentile of everything after them. BBB and CCC tie
+        at 200, and the twenty tail names all tie at 15.
+
+        Ranked, the cumulative percentiles are 0.300, 0.500, 0.700, 0.715, 0.730 ... up
+        to 1.000. That is chosen, not incidental: CCC closes at exactly the 70% cut, and
+        T00 lands 1.5 percentage points past it - inside the 2-point buffer - so the
+        fixture exercises the cutoff tie-break and both sides of the buffer test.
+        """
+        caps = {"AAA": 300.0, "BBB": 200.0, "CCC": 200.0}
+        caps.update({f"T{i:02d}": 15.0 for i in range(20)})
+        return caps
+
+    def test_cumulative_percentile_is_invariant_under_input_permutation(self) -> None:
+        """The property the September 2024 divergence violated.
+
+        The same securities with the same caps, presented in 200 different dict orders,
+        must produce the same cumulative percentile for every security - bit for bit,
+        not approximately. Plain `==` on the float is deliberate: `pytest.approx` here
+        would pass on exactly the drift this test exists to forbid.
+        """
+        import random
+
+        from miniftse.config import BandingConfig
+        from miniftse.universe.banding import assign_bands
+
+        caps = self._caps_with_ties()
+        config = BandingConfig(apply_buffers=False)
+        baseline = assign_bands(caps, config)
+
+        rng = random.Random(20260811)
+        for _ in range(200):
+            keys = list(caps)
+            rng.shuffle(keys)
+            permuted = assign_bands({k: caps[k] for k in keys}, config)
+
+            assert set(permuted) == set(baseline)
+            for sec_id, assignment in baseline.items():
+                assert permuted[sec_id].cumulative_pct == assignment.cumulative_pct
+                assert permuted[sec_id].band == assignment.band
+
+    def test_exact_cumulative_matches_prefix_fsum_and_ignores_association(self) -> None:
+        """`_exact_cumulative` is the correctly rounded sum of every prefix.
+
+        Two assertions, because they are different claims. First: it agrees exactly
+        with the O(n^2) `math.fsum` over each slice - the reference definition of
+        "correctly rounded prefix". Second: on values chosen so that naive
+        left-to-right addition loses the small terms entirely, it still recovers them.
+        That is what makes the result independent of how the additions were associated,
+        which is the freedom numpy uses (block size, SIMD width, BLAS build) and the
+        reason a cumulative percentile computed with `np.cumsum` was not reproducible.
+        """
+        import math
+
+        from miniftse.universe.banding import _exact_cumulative
+
+        catastrophic = [1e16, 1.0, 1.0, 1.0, -1e16, 1.0]
+        assert _exact_cumulative(catastrophic) == [
+            math.fsum(catastrophic[: i + 1]) for i in range(len(catastrophic))
+        ]
+        # Naive accumulation swallows the three unit terms against 1e16; the exact
+        # running sum does not.
+        naive = 0.0
+        for value in catastrophic:
+            naive += value
+        assert naive == 1.0
+        assert _exact_cumulative(catastrophic)[-1] == 4.0
+
+    def test_equal_caps_are_ranked_by_security_id_not_insertion_order(self) -> None:
+        """The written-down tie-break: equal float market caps rank by ascending
+        security id. Without it the ranking is whatever the caller's dict iterated.
+        """
+        from miniftse.universe.banding import _ordered
+
+        forwards = _ordered({"ZZZ": 100.0, "AAA": 100.0, "MMM": 100.0})
+        backwards = _ordered({"MMM": 100.0, "AAA": 100.0, "ZZZ": 100.0})
+
+        assert [sec_id for sec_id, _ in forwards] == ["AAA", "MMM", "ZZZ"]
+        assert forwards == backwards
+
+    def test_security_exactly_on_the_cutoff_lands_in_the_closing_band(self) -> None:
+        """The documented tie-break for the boundary case itself (Ground Rules 2.1): a
+        security whose quantised cumulative percentile is exactly a cutoff is in the
+        band that cutoff closes - the larger band.
+
+        The universe is built so the cumulative share after ON_CUT is exactly 0.70:
+        600 + 100 = 700 of 1000, with every tail name smaller than ON_CUT so it really
+        does rank second. Under the old bare comparison against an `np.cumsum` output
+        this was the case that could land either side; here it is required to be LARGE,
+        and required to stay LARGE when the input order changes.
+        """
+        from miniftse.config import BandingConfig
+        from miniftse.types import SizeBand
+        from miniftse.universe.banding import assign_bands
+
+        caps = {
+            "BIG": 600.0, "ON_CUT": 100.0,
+            "T0": 90.0, "T1": 90.0, "T2": 90.0, "T3": 30.0,
+        }
+        config = BandingConfig(apply_buffers=False)
+
+        for order in (list(caps), sorted(caps), sorted(caps, reverse=True)):
+            bands = assign_bands({k: caps[k] for k in order}, config)
+            assert bands["ON_CUT"].cumulative_pct == 0.70
+            assert bands["ON_CUT"].band is SizeBand.LARGE
+
+    def test_cumulative_percentile_is_quantised_to_the_documented_precision(self) -> None:
+        """Every reported `cumulative_pct` is the quantised value the rule was decided
+        on, so a diagnostic can never disagree with the assignment it explains.
+        """
+        from miniftse.config import BandingConfig
+        from miniftse.universe.banding import CUMULATIVE_PCT_DECIMALS, assign_bands
+
+        assert CUMULATIVE_PCT_DECIMALS == 12
+        caps = {f"S{i:03d}": 1.0 / (i + 3) for i in range(37)}
+        for assignment in assign_bands(caps, BandingConfig(apply_buffers=False)).values():
+            pct = assignment.cumulative_pct
+            assert pct == round(pct, CUMULATIVE_PCT_DECIMALS)
+
+    def test_incumbent_exactly_one_buffer_width_out_is_held(self) -> None:
+        """The buffer edge carried the same unquantised-comparison exposure as the
+        cutoff, so it gets the same rule (Ground Rules 8.3): "more than" the buffer
+        width moves a constituent, and exactly the buffer width does not.
+
+        ON_EDGE closes at a cumulative 0.72, exactly `buffer_width` past the 0.70 Large
+        cut, so a hard cut-off makes it Mid and the buffer must hold it Large. Nudging
+        it a hair further out must move it - otherwise this would pass on a buffer that
+        simply never releases anything.
+        """
+        from miniftse.config import BandingConfig
+        from miniftse.types import SizeBand
+        from miniftse.universe.banding import assign_bands
+
+        config = BandingConfig(buffer_width=0.02, apply_buffers=True)
+        previous = {"BIG": SizeBand.LARGE, "ON_EDGE": SizeBand.LARGE}
+
+        # 690 + 30 = 720 of 1000: ON_EDGE closes at exactly 0.72, one buffer width past
+        # the 0.70 cut. The tail is split into names smaller than ON_EDGE so it ranks
+        # second rather than behind them.
+        held_caps: dict[str, float] = {"BIG": 690.0, "ON_EDGE": 30.0}
+        held_caps.update({f"T{i:02d}": 28.0 for i in range(10)})
+        on_edge = assign_bands(held_caps, config, previous)["ON_EDGE"]
+        assert on_edge.cumulative_pct == 0.72
+        assert on_edge.band is SizeBand.LARGE
+        assert on_edge.held_by_buffer
+
+        # 690 + 31 = 721 of 1000: more than one buffer width out, so it moves.
+        moved_caps: dict[str, float] = {"BIG": 690.0, "ON_EDGE": 31.0, "T09": 27.0}
+        moved_caps.update({f"T{i:02d}": 28.0 for i in range(9)})
+        past_edge = assign_bands(moved_caps, config, previous)["ON_EDGE"]
+        assert past_edge.cumulative_pct == 0.721
+        assert past_edge.band is SizeBand.MID
+        assert not past_edge.held_by_buffer
+
+    def test_band_assignment_is_invariant_under_permutation_with_buffers_on(self) -> None:
+        """The permutation invariant must survive the buffer path too - `_within_buffer`
+        reads the same cumulative percentile the cutoff test does.
+        """
+        import random
+
+        from miniftse.config import BandingConfig
+        from miniftse.types import SizeBand
+        from miniftse.universe.banding import assign_bands
+
+        caps = self._caps_with_ties()
+        config = BandingConfig(apply_buffers=True)
+        previous = {k: SizeBand.LARGE for k in caps}
+        baseline = assign_bands(caps, config, previous)
+        assert any(a.held_by_buffer for a in baseline.values()), (
+            "fixture must exercise the buffer path for this test to mean anything"
+        )
+
+        rng = random.Random(11082026)
+        for _ in range(100):
+            keys = list(caps)
+            rng.shuffle(keys)
+            permuted = assign_bands({k: caps[k] for k in keys}, config, previous)
+            for sec_id, assignment in baseline.items():
+                assert permuted[sec_id].cumulative_pct == assignment.cumulative_pct
+                assert permuted[sec_id].band == assignment.band
+                assert permuted[sec_id].held_by_buffer == assignment.held_by_buffer

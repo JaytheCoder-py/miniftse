@@ -14,10 +14,20 @@ index no longer means exactly "the top 70% by value". Two names of identical siz
 sit in different bands depending on where they came from - path dependence, deliberately
 accepted, because the turnover saving is worth more than the definitional purity.
 `buffer_study` quantifies that trade-off.
+
+**Determinism.** Band membership is a rule, and a rule whose outcome depends on
+floating-point summation order is not a rule. This module therefore refuses to let the
+arithmetic decide anything the ground rules have not: the universe is put in a *total*
+order (`_ordered`), the cumulative percentile is summed *exactly* (`_exact_cumulative`),
+and every comparison against a cutoff or a buffer edge happens on values quantised to
+`CUMULATIVE_PCT_DECIMALS` decimal places with a written-down tie-break (Ground Rules
+2.1 and 8.3). See DECISIONS.md D-014 for the incident that forced this.
 """
 
 from __future__ import annotations
 
+import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -25,6 +35,25 @@ import pandas as pd
 
 from miniftse.config import BandingConfig
 from miniftse.types import SizeBand
+
+CUMULATIVE_PCT_DECIMALS = 12
+"""Decimal places the cumulative percentile is rounded to before any band comparison.
+
+Chosen deliberately, and the same number appears in Ground Rules 2.1 and DECISIONS.md
+D-014 - three places, because a precision that lives only in code is not a rule anyone
+can hold us to.
+
+Twelve, because: `_exact_cumulative` is correctly rounded, so its relative error is at
+most half an ulp - around 1e-16 on a cumulative share of order 1. Twelve decimal places
+sits four orders of magnitude above that noise floor, so quantisation never masks a real
+difference; and 1e-12 of cumulative index weight is 1e-8 of a basis point, which is
+immaterial by every threshold in this repository (the golden master's tolerance is
+0.1bp, i.e. 1e-5 of weight - seven orders of magnitude coarser).
+
+What it buys: "exactly on the cutoff" becomes a *decidable* state with a documented
+outcome, rather than a coin-flip settled by whichever last bit the platform's summation
+happened to produce.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,17 +97,23 @@ def assign_bands(
     Sorted largest first, cumulative share of total float market cap computed, and the
     boundaries applied. With `apply_buffers`, an incumbent keeps its band unless it has
     crossed the relevant boundary by more than `buffer_width`.
+
+    Bit-for-bit reproducible across platforms and numpy builds: see `_ordered` (total
+    order), `_exact_cumulative` (exact summation) and `_quantise` (documented precision
+    before every comparison). The `cumulative_pct` reported on each `BandAssignment` is
+    the quantised value the rule was actually decided on, not a rawer number that would
+    let a diagnostic disagree with the assignment it is explaining.
     """
     if not float_market_caps:
         return {}
     previous_bands = previous_bands or {}
 
-    ordered = sorted(float_market_caps.items(), key=lambda kv: kv[1], reverse=True)
-    total = sum(v for _, v in ordered)
+    ordered = _ordered(float_market_caps)
+    total = math.fsum(v for _, v in ordered)
     if total <= 0:
         raise ValueError("total float market cap must be positive")
 
-    cumulative = np.cumsum([v for _, v in ordered]) / total
+    cumulative = [_quantise(c / total) for c in _exact_cumulative([v for _, v in ordered])]
     boundaries = [
         (config.large_cutoff, SizeBand.LARGE),
         (config.mid_cutoff, SizeBand.MID),
@@ -86,8 +121,8 @@ def assign_bands(
     ]
 
     out: dict[str, BandAssignment] = {}
-    for (sec_id, cap), cum in zip(ordered, cumulative, strict=False):
-        hard = _band_for(float(cum), boundaries)
+    for (sec_id, cap), cum in zip(ordered, cumulative, strict=True):
+        hard = _band_for(cum, boundaries)
         prev = previous_bands.get(sec_id)
 
         band, held = hard, False
@@ -95,21 +130,95 @@ def assign_bands(
             config.apply_buffers
             and prev is not None
             and prev != hard
-            and _within_buffer(float(cum), prev, hard, boundaries, config.buffer_width)
+            and _within_buffer(cum, prev, hard, boundaries, config.buffer_width)
         ):
             band, held = prev, True
 
         out[sec_id] = BandAssignment(
-            security_id=sec_id, band=band, cumulative_pct=float(cum),
+            security_id=sec_id, band=band, cumulative_pct=cum,
             float_market_cap=cap, previous_band=prev,
             moved=prev is not None and band != prev, held_by_buffer=held,
         )
     return out
 
 
+def _ordered(float_market_caps: dict[str, float]) -> list[tuple[str, float]]:
+    """The universe in a *total* order: largest float market cap first, ties broken by
+    ascending `security_id`.
+
+    A plain `sorted(..., key=itemgetter(1), reverse=True)` is only a partial order. It
+    is stable, so two securities of exactly equal size come out in whatever order the
+    caller's dict happened to iterate - which makes the band of a name on a boundary a
+    function of upstream insertion order rather than of anything in the ground rules.
+    Ordering ties by security id is arbitrary but *written down* (Ground Rules 2.1),
+    which is the property that matters: the same universe always produces the same
+    ranking, whoever assembled the dict and in whatever order.
+    """
+    return sorted(float_market_caps.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def _exact_cumulative(values: Sequence[float]) -> list[float]:
+    """Running sum of `values` with every prefix correctly rounded, in one pass.
+
+    `np.cumsum` was here, and it is the wrong tool for a rule. numpy sums in blocks
+    whose size and order depend on the SIMD width and the BLAS build, so the last bits
+    of the cumulative percentile differ between platforms - which is exactly how a
+    security sitting on a band cutoff landed in Large on one machine and Mid on another
+    (DECISIONS.md D-014).
+
+    This is Shewchuk's exact partial-sum algorithm, the same one `math.fsum` uses
+    internally, kept open so the running total can be read after every element instead
+    of only at the end. `[math.fsum(values[:i + 1]) for i in range(len(values))]` gives
+    bit-identical output (asserted in the tests) but costs O(n^2); this is O(n).
+
+    Because every prefix is the correctly rounded value of the *exact* mathematical
+    sum, the result depends only on the multiset of values and their order - never on
+    how the machine chose to associate the additions.
+    """
+    partials: list[float] = []
+    out: list[float] = []
+    for value in values:
+        x = value
+        index = 0
+        for partial in partials:
+            y = partial
+            if abs(x) < abs(y):
+                x, y = y, x
+            hi = x + y
+            lo = y - (hi - x)
+            if lo:
+                partials[index] = lo
+                index += 1
+            x = hi
+        del partials[index:]
+        partials.append(x)
+        out.append(math.fsum(partials))
+    return out
+
+
+def _quantise(value: float) -> float:
+    """Round to `CUMULATIVE_PCT_DECIMALS` places - the only form of a cumulative
+    percentile that is ever compared against a cutoff or a buffer edge."""
+    return round(value, CUMULATIVE_PCT_DECIMALS)
+
+
 def _band_for(cum: float, boundaries: list[tuple[float, SizeBand]]) -> SizeBand:
+    """The hard-cut-off band for a cumulative percentile.
+
+    **Tie-break (Ground Rules 2.1).** Both sides are quantised to
+    `CUMULATIVE_PCT_DECIMALS` first, and the comparison is inclusive: a security whose
+    quantised cumulative percentile is *exactly* a cutoff belongs to the band that
+    cutoff closes - the larger band. That is what "the top 70% by value" means in
+    English, and it is now what it means in code, on every platform.
+
+    The bare `<=` against an unquantised `np.cumsum` output that used to be here made
+    that boundary case a coin-flip settled by the last bit of a summation. `cum` is
+    already quantised by `assign_bands`; it is quantised again here so the rule holds
+    for any other caller too, and `_quantise` of an already-quantised value is a no-op.
+    """
+    q_cum = _quantise(cum)
     for cutoff, band in boundaries:
-        if cum <= cutoff:
+        if q_cum <= _quantise(cutoff):
             return band
     return SizeBand.MICRO
 
@@ -126,6 +235,15 @@ def _within_buffer(
     Only adjacent-band moves get buffer protection. A name that has fallen two bands in
     one review has not wobbled - something real happened - and holding it would misstate
     the index rather than stabilise it.
+
+    **Tie-break (Ground Rules 8.3).** This comparison carried the same exposure as the
+    cutoff test in `_band_for` - a bare `<=` against an unquantised distance - so it
+    gets the same treatment: the distance from the boundary is quantised to
+    `CUMULATIVE_PCT_DECIMALS` before being compared to the (likewise quantised) buffer
+    width, and the comparison is inclusive. A security sitting at *exactly*
+    `buffer_width` from the boundary is inside the buffer and is held. Ground Rules 8.3
+    says a constituent moves only when it crosses "by more than" the buffer; exactly the
+    buffer width is not more than it.
     """
     order = [SizeBand.LARGE, SizeBand.MID, SizeBand.SMALL, SizeBand.MICRO]
     try:
@@ -139,7 +257,7 @@ def _within_buffer(
     if boundary_ix >= len(boundaries):
         return False
     boundary = boundaries[boundary_ix][0]
-    return abs(cum - boundary) <= width
+    return _quantise(abs(_quantise(cum) - _quantise(boundary))) <= _quantise(width)
 
 
 def band_summary(assignments: dict[str, BandAssignment]) -> pd.DataFrame:

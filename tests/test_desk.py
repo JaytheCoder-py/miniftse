@@ -836,6 +836,48 @@ def test_chaos_run_shows_wrong_rule_finding_for_a_live_mismatch(client, desk_sta
 
 
 @pytest.mark.slow
+def test_assistant_answers_an_in_scope_question(client):
+    """An in-scope methodology question retrieves passages and answers with citations,
+    exercising the real assistant `load_desk_state` built from the real ground_rules/
+    and memos/ corpus - not a mock."""
+    from miniftse.desk.services import ask
+
+    answer = ask(client.app.state.desk, "How is free float applied to index weights?")
+
+    assert not answer.abstained
+    assert answer.citations
+
+
+@pytest.mark.slow
+def test_assistant_abstains_on_an_out_of_scope_question(client):
+    """Abstention is a feature of this system, so it is tested as one. This is the
+    exact question `rag.py`'s `MethodologyAssistant.ask` documents (lines 276-292) as
+    the reason the scope check runs *before* retrieval: "What is the index level
+    today?" shares all its vocabulary with the corpus and would otherwise retrieve a
+    high-scoring, confidently wrong answer."""
+    from miniftse.desk.services import ask
+
+    answer = ask(client.app.state.desk, "What is the index level today?")
+
+    assert answer.abstained
+    assert answer.confidence == 0.0
+    assert answer.answer
+
+
+def test_select_llm_unrecognised_value_falls_back_to_offline(monkeypatch):
+    """`MINIFTSE_LLM` set to garbage must resolve to `OfflineLlm`, never raise - the
+    same rule the module docstring states for an unset or misspelled value. Exercised
+    directly against `_select_llm` rather than a full snapshot rebuild, since this is
+    the cheapest place the fallback is observable."""
+    from miniftse.agents.llm import OfflineLlm
+    from miniftse.desk.state import _select_llm
+
+    monkeypatch.setenv("MINIFTSE_LLM", "garbage-value")
+
+    assert isinstance(_select_llm(), OfflineLlm)
+
+
+@pytest.mark.slow
 def test_chaos_run_timeout_falls_back_to_precomputed_with_badge(
     desk_data_dir, desk_state, monkeypatch
 ):

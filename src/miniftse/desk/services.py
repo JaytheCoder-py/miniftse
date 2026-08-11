@@ -24,6 +24,7 @@ from typing import Any
 
 import pandas as pd
 
+from miniftse.agents.rag import RetrievedAnswer
 from miniftse.corpactions.events import apply_order
 from miniftse.desk.state import DeskState
 from miniftse.quality.faults import FAULTS, Fault, run_chaos_drill
@@ -193,6 +194,18 @@ def notable_days(state: DeskState) -> list[dict[str, Any]]:
         })
 
     return notable
+
+
+def ask(state: DeskState, question: str) -> RetrievedAnswer:
+    """The methodology assistant's answer to `question`.
+
+    A pure delegation to `state.assistant.ask` - the retrieval, scope-checking and
+    citation logic all live in `agents/rag.py`'s `MethodologyAssistant`, built once in
+    `desk/state.py`'s `load_desk_state`. This function exists only so a route (Task 9)
+    depends on the desk service layer rather than reaching into `agents/` directly,
+    the same boundary every other function in this module keeps for its own domain.
+    """
+    return state.assistant.ask(question)
 
 
 _FAULTS_BY_ID: dict[str, Fault] = {fault.fault_id: fault for fault in FAULTS}

@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{# Screen 3c: draft a client response. `questions` is `services.draft_questions()`'s
+   hard-coded, closed set (Task 10); `outcome` is `services.render_draft`'s result for
+   question 0 with the injection toggle off, rendered directly so the screen has real
+   content on first load - the same reason /day renders its default date's explanation
+   directly rather than leaving a placeholder. Picking a different question, or
+   toggling "inject an unverified number", both live entirely behind the /draft/render
+   POST below via HTMX - the same split /chaos keeps between its GET and its live-drill
+   POST. No fact computation, drafting or guard logic runs in this template or its
+   partial: `services.render_draft` composes all of it in `agents/drafter.py`. #}
+
+{% block title %}Draft a client response - miniftse ops desk{% endblock %}
+
+{% block content %}
+<style>
+  /* Screen-specific styling lives with the screen that introduces it (see
+     static/style.css's header comment) rather than growing the shared shell. */
+  .draft-form {
+    margin-bottom: 1.5rem;
+  }
+  .draft-form label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 0.25rem;
+  }
+  .question-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .question-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.95rem;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .question-option input {
+    margin-top: 0.2rem;
+  }
+  /* Honestly labelled as a demonstration, not a live failure - see the module
+     docstring and services.render_draft's own docstring: the sentence this appends is
+     only accepted as "fabricated" once NumberGuard itself has confirmed the pack
+     cannot account for it. */
+  .inject-control {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+  }
+  .inject-control label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    color: var(--warn-text);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .inject-control input {
+    margin-top: 0.2rem;
+  }
+  #draft-result {
+    margin-bottom: 1.5rem;
+  }
+  #draft-result h2 {
+    margin-top: 0;
+  }
+  #draft-result h3 {
+    margin-bottom: 0.4rem;
+  }
+  .fact-table {
+    margin-bottom: 1.25rem;
+  }
+  .draft-text {
+    white-space: pre-wrap;
+    line-height: 1.6;
+  }
+  /* The demonstration sentence, highlighted so a visitor can see exactly what the
+     guard is about to reject - not styled as an ordinary <mark>. */
+  .injected-sentence {
+    background: rgba(255, 107, 107, 0.25);
+    color: inherit;
+    border-radius: 3px;
+    padding: 0 0.15rem;
+  }
+  .guard-result {
+    border-left: 3px solid var(--border);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    background: var(--bg-raised);
+  }
+  .guard-result.guard-pass {
+    border-left-color: var(--accent);
+  }
+  .guard-result.guard-fail {
+    border-left-color: var(--error);
+  }
+  .guard-status {
+    margin: 0 0 0.35rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.02em;
+  }
+  .guard-fail .guard-status {
+    color: var(--error);
+  }
+  .unverified-numbers {
+    color: var(--error);
+  }
+</style>
+
+<h1>Draft a client response</h1>
+<p class="summary-note">
+  Every number in a client-facing draft must trace to a fact computed by code, not by a
+  language model - <code>NumberGuard</code> (<code>agents/drafter.py</code>) checks
+  every draft before it is shown. Pick a canned client question below to see the fact
+  pack it was drafted from, the draft itself, and the guard's verdict.
+</p>
+
+<form
+  class="draft-form card"
+  hx-post="/draft/render"
+  hx-target="#draft-result"
+  hx-swap="innerHTML"
+>
+  <div>
+    <label>Client question</label>
+    <div class="question-list">
+      {% for q in questions %}
+        <label class="question-option">
+          <input
+            type="radio"
+            name="question_id"
+            value="{{ q.question_id }}"
+            data-testid="question-option-{{ q.question_id }}"
+            {% if q.question_id == 0 %}checked{% endif %}
+          >
+          {{ q.text }}
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="inject-control">
+    <label>
+      <input type="checkbox" name="inject_bad_number" value="true" data-testid="inject-toggle">
+      Inject an unverified number &mdash; a demonstration only. Appends a plausible but
+      fabricated figure to the draft, after the fact pack was built, so you can watch
+      <code>NumberGuard</code> catch it. It is not a real failure of the drafting
+      system.
+    </label>
+  </div>
+
+  <button type="submit" class="btn">Draft response</button>
+</form>
+
+<section id="draft-result" class="card" aria-live="polite">
+  {% include "partials/draft_result.html" %}
+</section>
+{% endblock %}

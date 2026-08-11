@@ -1,0 +1,64 @@
+{# Draft screen's result fragment (Task 10). Rendered directly inside draft.html on
+   GET /draft (via include, for the default question) and swapped into #draft-result
+   by HTMX on POST /draft/render. Not a full page - it does not extend base.html -
+   because it is only ever loaded as an HTMX swap target or an include, never
+   navigated to directly, the same reason partials/drill_result.html and
+   partials/answer.html aren't.
+
+   `outcome` is a `services.DraftOutcome`, unmodified - `outcome.response` is
+   `agents/drafter.py`'s own `DraftResponse` (fact pack, guard result); no fact
+   computation, drafting or guard logic runs in this template, only display.
+   `outcome.response.draft` is exactly the text `outcome.response.guard` checked -
+   `outcome.base_draft` is the same text *before* the demonstration sentence was
+   appended, kept separately only so it can be shown plainly with the injected
+   sentence highlighted next to it, rather than the two run together. #}
+
+<h2>{{ outcome.question.text }}</h2>
+
+<h3>Fact pack</h3>
+<p class="summary-note">
+  The only numbers the draft below is allowed to contain - everything else in it must
+  trace to one of these.
+</p>
+<table class="fact-table" data-testid="fact-pack-table">
+  <thead>
+    <tr>
+      <th>Fact</th>
+      <th>Value</th>
+      <th>Description</th>
+      <th>Source</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for fact in outcome.response.fact_pack.facts.values() %}
+      <tr>
+        <td><code>{{ fact.key }}</code></td>
+        <td>{{ fact.formatted }}</td>
+        <td>{{ fact.description }}</td>
+        <td>{{ fact.source }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h3>Drafted response</h3>
+<p class="draft-text" data-testid="draft-text">{{ outcome.base_draft
+  }}{% if outcome.injected_sentence %}<mark class="injected-sentence" data-testid="injected-sentence">{{ outcome.injected_sentence }}</mark>{% endif %}</p>
+
+<h3>Number guard</h3>
+<div
+  class="guard-result {{ 'guard-pass' if outcome.response.guard.passed else 'guard-fail' }}"
+  data-testid="guard-result"
+  data-guard-passed="{{ outcome.response.guard.passed|lower }}"
+>
+  <p class="guard-status">
+    {{ "PASSED" if outcome.response.guard.passed else "BLOCKED" }} number verification
+  </p>
+  <p>{{ outcome.response.guard.message }}</p>
+  {% if outcome.response.guard.unverified_numbers %}
+    <p class="unverified-numbers">
+      Numbers that do not trace to the fact pack:
+      <strong>{{ outcome.response.guard.unverified_numbers|join(", ") }}</strong>
+    </p>
+  {% endif %}
+</div>

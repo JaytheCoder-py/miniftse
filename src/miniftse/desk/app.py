@@ -34,9 +34,11 @@ from miniftse.desk.services import (
     ask,
     available_dates,
     chaos_drill_rows,
+    draft_questions,
     explain_day,
     notable_days,
     precomputed_drill_row,
+    render_draft,
     run_drill,
 )
 from miniftse.desk.state import DeskState, load_desk_state
@@ -333,6 +335,89 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
         result = ask(desk, stripped)
         return templates.TemplateResponse(
             request, "partials/answer.html", {"result": result}
+        )
+
+    @app.get("/evals")
+    async def evals(request: Request) -> Response:
+        """Screen 3b: the eval report over the same assistant `/ask` answers with.
+
+        `desk.evals` is exactly `desk/snapshot.py`'s `_evals_payload` (Task 2) -
+        headline metrics, the `by_category` breakdown, every failing case with its
+        `CaseResult.explain()` string already computed, and the `corpus` this build's
+        assistant was scored against. No grading logic runs here, and nothing is
+        recomputed: the whole payload is read straight off `state.evals`, the same way
+        `/chaos`'s GET reads `desk.chaos_precomputed` directly rather than through a
+        service function - there is no calculation between the precomputed JSON and the
+        template for either screen.
+
+        Showing every failure, not just the passes, is the point of this screen (see
+        the design spec's Screen 3 section - "a scoreboard that only shows the wins is
+        marketing"), so `evals.html` renders the failures list in an always-visible
+        section, never behind a collapsed `<details>`.
+        """
+        desk: DeskState = request.app.state.desk
+        return templates.TemplateResponse(request, "evals.html", {"evals": desk.evals})
+
+    @app.get("/draft")
+    async def draft_get(request: Request) -> Response:
+        """Screen 3c: the canned-question picker, with the first question's fact pack,
+        draft and `GuardResult` rendered directly - not left as an empty placeholder
+        behind an HTMX round trip, so the screen has real content on first load.
+
+        Selecting a different question, or toggling `inject_bad_number`, both live
+        entirely behind the `/draft/render` POST below - the same split `/chaos` keeps
+        between its GET (precomputed content only) and its live-drill POST. No drafting
+        or guard logic runs here: `services.render_draft` composes it.
+        """
+        desk: DeskState = request.app.state.desk
+        outcome = render_draft(desk, question_id=0, inject_bad_number=False)
+        return templates.TemplateResponse(
+            request,
+            "draft.html",
+            {"questions": draft_questions(), "outcome": outcome},
+        )
+
+    @app.post("/draft/render")
+    async def draft_render(
+        request: Request,
+        question_id: str = Form(...),
+        inject_bad_number: bool = Form(False),
+    ) -> Response:
+        """Screen 3c's live re-render: validate the raw `question_id`, call
+        `services.render_draft`, render the result fragment.
+
+        `question_id` is declared `str`, not `int`, for the same reason `/chaos/run`
+        declares `seed` a `str` (see that route's docstring): FastAPI's own Pydantic
+        coercion would answer a non-numeric value with 422, but the plan requires 400
+        for every bad input on this route. `inject_bad_number` is a plain `bool` -
+        unlike `question_id`, a malformed value for it is not a validation case this
+        plan tests, and Pydantic's own boolean coercion (accepting "true"/"on"/etc.)
+        already matches an HTML checkbox's submitted value.
+
+        No drafting or guard logic lives here: validate `question_id`, call
+        `services.render_draft` (which raises `IndexError` for one outside
+        `DRAFT_QUESTIONS`, turned into a 400 below, the same pattern `/chaos/run` uses
+        for an unrecognised `fault_id`), render. The demonstration sentence
+        `inject_bad_number=True` appends, and whether `NumberGuard` accepts or rejects
+        it, are both entirely `render_draft`'s doing - this handler never inspects the
+        outcome.
+        """
+        try:
+            qid = int(question_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{question_id}' is not a valid question id (expected an integer).",
+            ) from exc
+
+        desk: DeskState = request.app.state.desk
+        try:
+            outcome = render_draft(desk, qid, inject_bad_number)
+        except IndexError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return templates.TemplateResponse(
+            request, "partials/draft_result.html", {"outcome": outcome}
         )
 
     @app.get("/healthz")

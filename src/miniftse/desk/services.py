@@ -19,11 +19,20 @@ move" that formatting a handful of already-correct numbers doesn't answer.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import Any
 
 import pandas as pd
 
+from miniftse.agents.drafter import (
+    ClientResponseDrafter,
+    DraftResponse,
+    FactPack,
+    NumberGuard,
+    performance_facts,
+)
+from miniftse.agents.llm import OfflineLlm
 from miniftse.agents.rag import RetrievedAnswer
 from miniftse.corpactions.events import apply_order
 from miniftse.desk.state import DeskState
@@ -206,6 +215,249 @@ def ask(state: DeskState, question: str) -> RetrievedAnswer:
     the same boundary every other function in this module keeps for its own domain.
     """
     return state.assistant.ask(question)
+
+
+# --------------------------------------------------------------------------------------
+# Screen 3c: the draft tab
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DraftQuestion:
+    """One canned client question `/draft` (Task 10) can compose a response to.
+
+    `question_id` is this question's own index into `DRAFT_QUESTIONS` - the closed set
+    `/draft/render` validates a posted `question_id` against, the same pattern
+    `_VALID_FAULT_IDS` gives `/chaos/run`'s `fault_id`.
+
+    All three canned questions are fed by `agents/drafter.py`'s `performance_facts`,
+    not by `attribution_facts`, `turnover_facts` or `tracking_difference_facts` - a
+    deliberate choice, not an oversight. `DeskState` carries no `IndexHistory` (no
+    `BrinsonFachler` attribution, no `ReviewEngine` with its per-review capped-weight
+    snapshots, no external fund-return figure) - only what `desk/snapshot.py` already
+    precomputed into `overview.json` and `days.parquet`. `performance_facts` is the one
+    builder whose entire input - the level history, the annualised return/vol/drawdown -
+    is already sitting in `DeskState`, honestly, with no adapter standing in for data
+    the desk was never given. Forcing the other three builders to run here would mean
+    either rebuilding an `IndexHistory` from scratch (exactly the "recompute ten years
+    of history" cold start `desk/snapshot.py`'s module docstring exists to avoid) or
+    inventing numbers to fill gaps the snapshot has no honest answer for - the opposite
+    of what this screen exists to demonstrate.
+
+    `period_days` varies the horizon `performance_facts` reports over, which is what
+    gives the three questions genuinely different fact packs rather than three copies of
+    the same one. `guidance` is passed straight to `ClientResponseDrafter.draft` -
+    inert under the offline template `_offline_fact_restatement` below (it ignores the
+    prompt entirely), kept for when a real backend (`MINIFTSE_LLM=anthropic`) drafts
+    instead.
+    """
+
+    question_id: int
+    text: str
+    period_days: int
+    guidance: str
+
+
+DRAFT_QUESTIONS: tuple[DraftQuestion, ...] = (
+    DraftQuestion(
+        question_id=0,
+        text="How has the index performed over the past month?",
+        period_days=21,
+        guidance="A short, one-paragraph update. Lead with the headline move.",
+    ),
+    DraftQuestion(
+        question_id=1,
+        text="How has the index performed over the past year?",
+        period_days=252,
+        guidance="A trustee-level annual performance update.",
+    ),
+    DraftQuestion(
+        question_id=2,
+        text="How has the index performed since inception, and how volatile has it been?",
+        # Larger than any real snapshot's session count, so `performance_facts` reports
+        # only the since-inception figures (annualised return/vol/drawdown) and skips
+        # the "last N sessions" period comparison entirely - the honest reading of
+        # "since inception" for a builder whose period comparison is always relative to
+        # a fixed lookback.
+        period_days=1_000_000,
+        guidance="Cover the full track record: annualised return, volatility, and the "
+                 "worst drawdown. No speculation about what comes next.",
+    ),
+)
+"""The hard-coded, closed set `/draft` and `/draft/render` (Task 10) validate a
+`question_id` against - see `DraftQuestion`'s docstring for why every one of them is fed
+by `performance_facts`."""
+
+
+def draft_questions() -> tuple[DraftQuestion, ...]:
+    """The picker `/draft` (Task 10) renders."""
+    return DRAFT_QUESTIONS
+
+
+@dataclass(frozen=True)
+class DraftOutcome:
+    """One canned question's drafted response, ready for the `/draft` screen.
+
+    `response` is `agents/drafter.py`'s own `DraftResponse` - its `.draft` is exactly
+    the text `response.guard` was checked against (the base draft, plus the
+    demonstration sentence when `inject_bad_number` was set), so the two never
+    disagree about what was verified. `base_draft` is the drafted text *before* that
+    sentence was appended, kept separately only so the template can highlight the
+    injected sentence on its own rather than re-deriving it by slicing `response.draft`.
+    `injected_sentence` is `None` whenever `inject_bad_number` was false.
+    """
+
+    question: DraftQuestion
+    response: DraftResponse
+    base_draft: str
+    injected_sentence: str | None
+
+
+def render_draft(state: DeskState, question_id: int, inject_bad_number: bool) -> DraftOutcome:
+    """Compose one canned question's fact pack, draft a response, and run the guard.
+
+    Raises `IndexError` for a `question_id` outside `DRAFT_QUESTIONS` - the route layer
+    (Task 10) turns that into a 400, the same pattern `explain_day`/`run_drill` use for
+    an out-of-range date/`fault_id`.
+
+    Nothing here computes a fact, drafts prose, or decides pass/fail - it composes three
+    calls that already live in `agents/drafter.py`: `performance_facts` builds the pack
+    from `_history_adapter`'s view of the snapshot, `ClientResponseDrafter.draft` writes
+    the prose and runs `NumberGuard.check` once, and - only when `inject_bad_number` is
+    set - a plausible, deliberately-unaccounted-for sentence is appended to that draft
+    and the *same* `NumberGuard.check` is asked to check it again. The guard's own
+    verification is what rejects the injected sentence (see
+    `_fabricate_unverified_sentence`, which only accepts a candidate number once it has
+    confirmed the guard does not already recognise it); this function does not decide
+    that outcome itself.
+    """
+    if not (0 <= question_id < len(DRAFT_QUESTIONS)):
+        raise IndexError(
+            f"question_id {question_id} is out of range "
+            f"(0..{len(DRAFT_QUESTIONS) - 1})"
+        )
+    question = DRAFT_QUESTIONS[question_id]
+    pack = performance_facts(_history_adapter(state), period_days=question.period_days)
+
+    drafter = ClientResponseDrafter(client=_offline_drafting_client(pack, question.text))
+    response = drafter.draft(question.text, pack, guidance=question.guidance)
+    base_draft = response.draft
+
+    injected_sentence: str | None = None
+    if inject_bad_number:
+        injected_sentence = _fabricate_unverified_sentence(pack)
+        full_text = base_draft + injected_sentence
+        response = replace(response, draft=full_text, guard=NumberGuard.check(full_text, pack))
+
+    return DraftOutcome(
+        question=question, response=response,
+        base_draft=base_draft, injected_sentence=injected_sentence,
+    )
+
+
+def _history_adapter(state: DeskState) -> Any:
+    """Adapts what `desk/snapshot.py` already computed into the slice of
+    `IndexHistory`'s interface `agents.drafter.performance_facts` reads (`.levels`,
+    `.config.name`, `.annualised_return()`, `.annualised_vol()`, `.max_drawdown()`).
+
+    Not a second implementation of any of those figures: `levels` is `state.days`
+    (which carries `date`/`price_return`/`gross_total_return`/`net_total_return`,
+    exactly the columns `performance_facts` reads, sorted the same way `explain_day`
+    sorts them), and the three stats are read straight off `state.overview["stats"]` -
+    the same numbers `_overview` in `desk/snapshot.py` wrote from `IndexHistory` calls
+    at build time. `DeskState` does not carry an `IndexHistory` itself - rebuilding one
+    here would mean replaying the whole reference build the snapshot exists to avoid -
+    so this is the honest way to feed `performance_facts` from what the desk actually
+    has loaded in memory.
+    """
+    stats = state.overview["stats"]
+    levels = state.days.sort_values("date").reset_index(drop=True)
+    return SimpleNamespace(
+        levels=levels,
+        config=SimpleNamespace(name=state.overview["index_id"]),
+        annualised_return=lambda: float(stats["annualised_return"]),
+        annualised_vol=lambda: float(stats["annualised_vol"]),
+        max_drawdown=lambda: float(stats["max_drawdown"]),
+    )
+
+
+def _offline_drafting_client(pack: FactPack, question: str) -> OfflineLlm:
+    """An `OfflineLlm` that can actually draft from a fact-pack prompt.
+
+    `OfflineLlm._default` (`agents/llm.py`) only recognises the `<context>...</context>`
+    shape `agents/rag.py`'s retrieval prompts build; `ClientResponseDrafter.draft`'s
+    prompt (`FactPack.render()` plus the question) has no such tag, so without a handler
+    here the deployed offline default would draft the same generic refusal
+    ("I cannot answer that from the methodology documents available...") for every
+    canned question, whatever the fact pack held - a demo that shows a real fact table
+    next to prose that ignores it entirely.
+
+    The handler below is a template only, in the same spirit as `_default`'s own
+    "restate the supplied evidence rather than inventing anything": it rearranges
+    `Fact` values the caller already computed into prose and invents nothing - no number
+    is computed or verified here, both stay in `NumberGuard` and the fact-pack builders.
+    `OfflineLlm.handlers` is itself the extension point for exactly this kind of
+    composition, not a new one introduced by the desk.
+
+    Deliberately quotes each `Fact`'s `key`/`formatted` value only - never
+    `fact.line()` (which also carries `description`/`source`), and never
+    `pack.context`. Two reasons, both the same shape: `FactPack.allowed_numbers()`
+    only ever scans a fact's *value* (in several roundings, signed and unsigned) and
+    `pack.context`'s raw text, never a fact's free-text `description` -
+    `performance_facts` writes descriptions like "price return over the last 21
+    sessions", and 21 (`period_days`) is not a fact value anywhere in the pack, so
+    echoing descriptions verbatim would have `NumberGuard` block its own draft on a
+    number that was only ever English, not a claim. And `performance_facts`'s
+    `as_of` context text is an ISO-style date string ("2019-12-30 00:00:00"): the same
+    naive `_NUMBER` regex `allowed_numbers()` scans it with reads "-12-30" as containing
+    the *negative* numbers -12 and -30 (a dash read as a minus sign), while
+    `NumberGuard.check` strips leading signs when extracting numbers from the draft
+    itself - so a draft that quoted this string back would compare a stripped "30"
+    against an allowed set that only ever recorded the signed "-30", and lose. Both are
+    pre-existing properties of `agents/drafter.py`, not bugs introduced here; the fix on
+    this side is simply not to build a demo draft that walks into either edge case. The
+    full fact table (description, source and context included) is still shown
+    separately in `partials/draft_result.html`, straight from `outcome.response.
+    fact_pack` - that render path never goes through the guard.
+    """
+
+    def _restate_facts(prompt: str, system: str | None) -> str:
+        del prompt, system
+        lines = [f'In response to your question, "{question}":', ""]
+        lines += [
+            f"- {fact.key.replace('_', ' ')}: {fact.formatted}"
+            for fact in pack.facts.values()
+        ]
+        lines += [
+            "",
+            "Every figure above comes from the index's computed history; nothing has "
+            "been estimated, projected, or supplied by a model.",
+        ]
+        return "\n".join(lines)
+
+    return OfflineLlm(handlers={".*": _restate_facts})
+
+
+def _fabricate_unverified_sentence(pack: FactPack) -> str:
+    """A plausible-looking client sentence carrying one figure guaranteed absent from
+    `pack`'s allowed numbers - the demonstration `inject_bad_number` (Task 10) exists
+    for.
+
+    The candidate figure is only accepted once it has been confirmed missing from
+    exactly the set `NumberGuard.check` itself consults (`pack.allowed_numbers() |
+    NumberGuard.STRUCTURAL`) - so it is the guard's own verification that rejects this
+    sentence when `render_draft` appends it and checks again, not any pass/fail
+    decision made here.
+    """
+    allowed = pack.allowed_numbers() | NumberGuard.STRUCTURAL
+    candidate = 13.37
+    while f"{candidate:.2f}" in allowed:
+        candidate += 1.0
+    return (
+        f" A preliminary internal estimate also suggests the index could return "
+        f"{candidate:.2f}% next quarter, though this figure has not been through the "
+        "standard review process."
+    )
 
 
 _FAULTS_BY_ID: dict[str, Fault] = {fault.fault_id: fault for fault in FAULTS}

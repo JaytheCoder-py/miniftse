@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{# Screen 3b: the eval report. `evals` is exactly `state.evals` - `desk/snapshot.py`'s
+   `_evals_payload` (Task 2) - passed straight through by app.py's `/evals` route with
+   no grading logic in between. Showing every failure, not just the passes, is the
+   point of this screen (design spec, Screen 3: "a scoreboard that only shows the wins
+   is marketing"), so the failures table below is always rendered, never behind a
+   collapsed <details> - the same reason /chaos's coverage-gaps section is a plain
+   <ul>, not a fold. #}
+
+{% block title %}Evaluation report - miniftse ops desk{% endblock %}
+
+{% block content %}
+<style>
+  /* Screen-specific styling lives with the screen that introduces it (see
+     static/style.css's header comment) rather than growing the shared shell. */
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .metric-tile {
+    text-align: center;
+  }
+  .metric-tile .metric-label {
+    margin: 0 0 0.35rem;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .metric-tile .metric-value {
+    margin: 0;
+    font-size: 1.8rem;
+    font-weight: 700;
+  }
+  /* Citation precision and hallucination rate are the two metrics the module
+     docstring for agents/evals.py calls out as mattering more than the first two -
+     a system that never abstains scores well on the rest and is dangerous here. No
+     colour-coding by threshold, though: this screen's whole point is publishing the
+     real number, not dressing it up as good or bad. */
+  .corpus-caveat {
+    background: var(--warn-bg);
+    color: var(--warn-text);
+    border: 1px solid var(--warn-border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+  }
+  section.card {
+    margin-bottom: 1.5rem;
+  }
+  .failures-section h2 {
+    color: var(--error);
+  }
+  .failures-table td {
+    vertical-align: top;
+  }
+  .no-gaps {
+    color: var(--text-dim);
+    font-style: italic;
+  }
+</style>
+
+<h1>Evaluation report</h1>
+<p class="summary-note">{{ evals.headline }}</p>
+
+<p class="corpus-caveat" data-testid="corpus-caveat">
+  Scored against the assistant's full deployed corpus &mdash;
+  <strong>{{ evals.corpus|join(" + ") }}</strong> &mdash; not a ground-rules-only
+  assistant. A narrower corpus scores higher on citation precision; this is the number
+  for what is actually deployed, not the more flattering one.
+</p>
+
+<div class="metric-grid">
+  <div class="card metric-tile" data-testid="metric-accuracy">
+    <p class="metric-label">Accuracy</p>
+    <p class="metric-value">{{ "%.0f%%"|format(evals.metrics.accuracy * 100) }}</p>
+  </div>
+  <div class="card metric-tile" data-testid="metric-citation-precision">
+    <p class="metric-label">Citation precision</p>
+    <p class="metric-value">{{ "%.0f%%"|format(evals.metrics.citation_precision * 100) }}</p>
+  </div>
+  <div class="card metric-tile" data-testid="metric-abstention-accuracy">
+    <p class="metric-label">Abstention accuracy</p>
+    <p class="metric-value">{{ "%.0f%%"|format(evals.metrics.abstention_accuracy * 100) }}</p>
+  </div>
+  <div class="card metric-tile" data-testid="metric-hallucination-rate">
+    <p class="metric-label">Hallucination rate</p>
+    <p class="metric-value">{{ "%.0f%%"|format(evals.metrics.hallucination_rate * 100) }}</p>
+  </div>
+</div>
+
+<section class="card">
+  <h2>By category</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Category</th>
+        <th>Cases</th>
+        <th>Passed</th>
+        <th>Abstained</th>
+        <th>Accuracy</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in evals.by_category %}
+        <tr>
+          <td>{{ row.category|replace("_", " ") }}</td>
+          <td>{{ row.n }}</td>
+          <td>{{ row.passed }}</td>
+          <td>{{ row.abstained }}</td>
+          <td>{{ "%.0f%%"|format(row.accuracy * 100) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card failures-section" data-testid="failures-section">
+  <h2>Failures ({{ evals.failures|length }})</h2>
+  {% if evals.failures %}
+    <p class="summary-note">
+      Every case the assistant got wrong on this run, not a curated subset.
+    </p>
+    <table class="failures-table">
+      <thead>
+        <tr>
+          <th>Case</th>
+          <th>Category</th>
+          <th>Question</th>
+          <th>What went wrong</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in evals.failures %}
+          <tr>
+            <td>{{ f.case_id }}</td>
+            <td>{{ f.category|replace("_", " ") }}</td>
+            <td>{{ f.question }}</td>
+            <td>{{ f.explanation }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="no-gaps">No failing cases in this eval run.</p>
+  {% endif %}
+</section>
+{% endblock %}

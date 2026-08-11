@@ -967,3 +967,258 @@ def test_ask_query_whitespace_only_is_400(client):
     response = client.post("/ask/query", data={"question": "   "})
 
     assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------------------
+# Task 10: Screen 3b/3c - `/evals` and `/draft`
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_evals_get_shows_all_four_headline_metrics_and_failures_heading(client):
+    """The four headline metrics from the design spec's Screen 3 section, plus a
+    visible "Failures" heading - the minimum bar before anything else about the
+    screen's content is worth testing."""
+    response = client.get("/evals")
+
+    assert response.status_code == 200
+    body = response.text
+    for label in ("Accuracy", "Citation precision", "Abstention accuracy",
+                  "Hallucination rate"):
+        assert label in body
+    assert "failures" in body.lower()
+
+
+@pytest.mark.slow
+def test_evals_get_lists_every_failing_case_with_its_explanation(client, desk_state):
+    """Every failing case from `state.evals["failures"]` (`CaseResult.explain()`,
+    precomputed by `desk/snapshot.py`) must appear by name with its real explanation -
+    not summarised, not truncated, not hidden behind a toggle. If the fixture's eval
+    run happens to have no failures, the "no failing cases" fallback text must show
+    instead, so the test still asserts something meaningful either way."""
+    failures = desk_state.evals["failures"]
+
+    response = client.get("/evals")
+    assert response.status_code == 200
+    body = response.text
+
+    if not failures:
+        assert "no failing cases" in body.lower()
+        return
+    from markupsafe import escape
+
+    for failure in failures:
+        assert failure["case_id"] in body
+        # Jinja2Templates autoescapes by default, so a raw explanation containing a
+        # quote (e.g. "missing required content: ['14']") is not a literal substring
+        # of the rendered HTML - compare against the same escaped form the template
+        # itself would have produced.
+        assert str(escape(failure["explanation"])) in body
+
+
+@pytest.mark.slow
+def test_evals_get_does_not_collapse_the_failures_section(client):
+    """Showing failures is the point of the screen (design spec: "a scoreboard that
+    only shows the wins is marketing") - the failures section must not be a
+    <details>/<summary> fold the way /chaos's per-row "why this fault" note is."""
+    response = client.get("/evals")
+
+    assert response.status_code == 200
+    body = response.text
+    section_start = body.lower().index('data-testid="failures-section"')
+    section = body[section_start:section_start + 2000]
+    assert "<details" not in section.lower()
+
+
+@pytest.mark.slow
+def test_evals_get_shows_corpus_caveat_near_the_headline_metrics(client, desk_state):
+    """The IMPORTANT ledger note: the deployed evals.json is scored over the full
+    corpus (ground_rules + memos), not a ground-rules-only assistant, and citation
+    precision is honestly lower for it. The caveat must name the actual corpus and sit
+    on the page, not be buried or omitted."""
+    corpus = desk_state.evals["corpus"]
+    assert corpus, "fixture's evals.json must record a non-empty corpus"
+
+    response = client.get("/evals")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-testid="corpus-caveat"' in body
+    for name in corpus:
+        assert name in body
+
+
+@pytest.mark.slow
+def test_evals_get_by_category_table_matches_state(client, desk_state):
+    """The by-category breakdown table renders every category `state.evals` computed,
+    not a subset."""
+    response = client.get("/evals")
+
+    assert response.status_code == 200
+    body = response.text
+    for row in desk_state.evals["by_category"]:
+        assert row["category"].replace("_", " ") in body
+
+
+@pytest.mark.slow
+def test_draft_get_shows_the_question_picker(client):
+    """3-4 canned client questions, hard-coded in `services.DRAFT_QUESTIONS`, each
+    rendered as its own option in the picker."""
+    from miniftse.desk.services import draft_questions
+
+    questions = draft_questions()
+    assert 3 <= len(questions) <= 4
+
+    response = client.get("/draft")
+
+    assert response.status_code == 200
+    body = response.text
+    for q in questions:
+        assert q.text in body
+
+
+@pytest.mark.slow
+def test_draft_get_shows_fact_pack_draft_and_guard_for_the_default_question(client):
+    """GET /draft renders real content for the default question - not an empty
+    placeholder - the fact pack table, the drafted response, and the guard result."""
+    response = client.get("/draft")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-testid="fact-pack-table"' in body
+    assert 'data-testid="draft-text"' in body
+    assert 'data-testid="guard-result"' in body
+    # The default question is drafted with the toggle off - the guard must show a real
+    # pass, since nothing was injected to make it fail.
+    assert 'data-guard-passed="true"' in body
+
+
+@pytest.mark.slow
+def test_draft_get_fact_pack_shows_every_fact_with_its_source(client):
+    """Every fact in the default question's `FactPack` appears with its formatted
+    value, description and source - the same fields `Fact.line()` carries - not just a
+    subset."""
+    from miniftse.desk.services import draft_questions, render_draft
+
+    response = client.get("/draft")
+    assert response.status_code == 200
+    body = response.text
+
+    # Recompute the same default outcome the route rendered, from the same desk state,
+    # to check the fact table against real values rather than a hand-picked subset.
+    desk = client.app.state.desk
+    outcome = render_draft(desk, draft_questions()[0].question_id, inject_bad_number=False)
+    for fact in outcome.response.fact_pack.facts.values():
+        assert fact.formatted in body
+        assert fact.description in body
+        assert fact.source in body
+
+
+@pytest.mark.slow
+def test_draft_render_inject_false_guard_passes(client):
+    response = client.post(
+        "/draft/render", data={"question_id": "0", "inject_bad_number": "false"}
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-guard-passed="true"' in body
+    assert "injected-sentence" not in body
+    assert "site-header" not in body
+    assert "<!doctype" not in body.lower()
+
+
+@pytest.mark.slow
+def test_draft_render_inject_true_guard_does_not_pass(client):
+    """The concrete demonstration the whole screen exists for: appending a fabricated
+    figure to the draft makes `NumberGuard` reject it - the guard's own verification,
+    not desk-side fakery (see `services._fabricate_unverified_sentence`)."""
+    response = client.post(
+        "/draft/render", data={"question_id": "0", "inject_bad_number": "true"}
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'data-guard-passed="false"' in body
+    assert 'data-testid="injected-sentence"' in body
+    assert "BLOCKED" in body
+
+
+@pytest.mark.slow
+def test_draft_render_injected_number_is_absent_from_the_fact_pack(client, desk_state):
+    """Confirms the injected figure genuinely does not trace to any fact - the guard's
+    rejection is a real finding, not a coincidence of a number that happened to already
+    be allowed."""
+    from miniftse.desk.services import draft_questions, render_draft
+
+    outcome = render_draft(desk_state, draft_questions()[0].question_id, inject_bad_number=True)
+
+    assert outcome.injected_sentence is not None
+    assert not outcome.response.guard.passed
+    assert outcome.response.guard.unverified_numbers
+    # Every unverified number the guard found must come from the injected sentence,
+    # not from the base draft - the base draft alone passed before injection.
+    for number in outcome.response.guard.unverified_numbers:
+        assert number in outcome.injected_sentence
+
+
+@pytest.mark.slow
+def test_draft_render_out_of_range_question_id_is_400(client):
+    response = client.post(
+        "/draft/render", data={"question_id": "999", "inject_bad_number": "false"}
+    )
+
+    assert response.status_code == 400
+    assert "Traceback" not in response.text
+
+
+@pytest.mark.slow
+def test_draft_render_negative_question_id_is_400(client):
+    response = client.post(
+        "/draft/render", data={"question_id": "-1", "inject_bad_number": "false"}
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.slow
+def test_draft_render_non_integer_question_id_is_400_not_422(client):
+    """The plan requires 400 for every bad input on this route - FastAPI's default 422
+    for a non-int form field is not acceptable, mirroring `/chaos/run`'s `seed`."""
+    response = client.post(
+        "/draft/render", data={"question_id": "abc", "inject_bad_number": "false"}
+    )
+
+    assert response.status_code == 400
+
+
+def test_render_draft_unknown_question_id_raises_index_error(desk_state):
+    """The route layer turns this into a 400 - see `explain_day`'s analogous rule for
+    an out-of-range date."""
+    from miniftse.desk.services import render_draft
+
+    with pytest.raises(IndexError):
+        render_draft(desk_state, 999, inject_bad_number=False)
+
+
+def test_draft_questions_is_a_closed_set_of_three_to_four(desk_state):
+    from miniftse.desk.services import draft_questions
+
+    questions = draft_questions()
+    assert 3 <= len(questions) <= 4
+    assert [q.question_id for q in questions] == list(range(len(questions)))
+
+
+def test_render_draft_base_draft_passes_the_guard_before_any_injection(desk_state):
+    """Every canned question's un-injected draft must pass `NumberGuard` on its own -
+    otherwise the inject_bad_number=False path would misleadingly show a "blocked"
+    verdict on a screen built to demonstrate the guard working correctly by default."""
+    from miniftse.desk.services import draft_questions, render_draft
+
+    for question in draft_questions():
+        outcome = render_draft(desk_state, question.question_id, inject_bad_number=False)
+        assert outcome.response.guard.passed, (
+            f"question {question.question_id} ({question.text!r}) failed the guard "
+            f"with no injection: {outcome.response.guard.message}"
+        )
+        assert outcome.injected_sentence is None

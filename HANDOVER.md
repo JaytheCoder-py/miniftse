@@ -25,15 +25,16 @@ M6, M8, M10, M13, M15.
 
 ```bash
 cd miniftse && uv sync
-make check                       # ruff + mypy --strict + tests, all green
+make ci                          # ruff + mypy --strict + tests + golden master, all green
 make build-index                 # 10y history + factsheet, no network, no keys
+make desk-serve                  # the ops desk on :8000, from the committed snapshot
 uv run miniftse documents        # regenerate every document from the code
 uv run miniftse reconcile        # constituent-level reconciliation study
 uv sync --extra orchestration    # then: uv run dagster dev -m miniftse.production.dagster_defs
 ```
 
-- **71 source files, ~21,000 lines.** `mypy --strict` clean, `ruff` clean, **89 tests**
-  (70 in a clean clone; the 19 Dagster/orchestration tests skip without the extra).
+- **77 source files, ~24,000 lines.** `mypy --strict` clean, `ruff` clean, **217 tests**
+  (198 in a clean clone; the 19 Dagster/orchestration tests skip without the extra).
 - The golden master pins a 10-year index history to a hash; CI fails on any drift.
 - Everything runs against a deterministic synthetic universe. No API keys, no network.
 - Verified from a fresh `git clone` + `uv sync` in this session.
@@ -56,6 +57,16 @@ variants build end to end from one shared universe:
 `miniftse daily` runs a real incremental production job: loads the day, validates,
 rolls the index forward one day from persisted state, validates, gates, publishes,
 writes a run manifest.
+
+Since the last handover the **ops desk** (`desk/`) exists: a FastAPI + HTMX
+application over a precomputed snapshot of the reference build (`desk/data/`,
+committed like `artefacts/`), with five screens — explain-a-day, a live chaos drill,
+the methodology assistant with its eval scoreboard and guarded draft demo,
+reproducibility against the pinned golden master, and the index overview with the
+capacity explorer. It rebuilds nothing at startup, computes no index figure of its own
+(`test_desk_contains_no_index_arithmetic` enforces that), and runs offline like
+everything else. `make desk-data` regenerates the snapshot; `make desk-serve` serves
+it.
 
 ### Bugs the build found — read these, they are the most instructive part of the repo
 
@@ -98,8 +109,11 @@ What remains is bounded by **access, not effort**:
   missing prerequisite rather than returning empty frames. It needs a licence. The
   reshaping functions (`_normalise_prices`, `_normalise_fundamentals`) are separated
   precisely so they are testable against a recorded fixture without one.
-- **No cloud deployment.** The container builds, the Dagster job runs locally. Nothing
-  is deployed to AWS or Azure.
+- **No cloud deployment of the production DAG.** The Dagster job runs locally; nothing
+  is deployed to AWS or Azure. The ops desk is further along: its container is
+  deployable to a Hugging Face Space as-is and `desk/README.md` is the step-by-step
+  runbook, but pushing it live needs the repository owner's own account, so it has not
+  been done from here.
 - **Free-data gaps are structural.** Free float, corporate action detail, analyst
   estimates and delisted securities have no free source. `docs/lseg_vocabulary_map.md`
   names each and what supplies it.
@@ -131,8 +145,9 @@ The build is complete against the plan. Natural next steps, none of them blockin
    today. `ISharesProvider.archive_all()` is a one-line scheduled job.
 3. **Golden-master the factor variant**, not just the parent — the capping incident
    would have been caught immediately by one.
-4. **Deploy the Dagster job** somewhere real if the cloud module matters for interview
-   purposes.
+4. **Deploy something.** The ops desk has a written Hugging Face Spaces runbook
+   (`desk/README.md`) waiting on the owner's account; the Dagster job still needs a
+   real scheduler somewhere if the cloud module matters for interview purposes.
 
 ---
 
@@ -141,7 +156,7 @@ The build is complete against the plan. Natural next steps, none of them blockin
 - **Never edit `miniftse-training/`.** That is Jason's work.
 - **Never fill in `memos/M1_why_yfinance_lies.md`.** It is an assigned exercise.
 - The golden master will fail if you change the parent index's numbers. If that is
-  intentional, regenerate it deliberately (`make golden`) and say so in the commit.
+  intentional, regenerate it deliberately (`make pin-golden`) and say so in the commit.
 - The synthetic universe is a **simulation**. Value and quality predict returns in it
   because they were built to. No result computed on it is evidence about real markets,
   and every research output in the repo carries that caveat. Keep it that way.

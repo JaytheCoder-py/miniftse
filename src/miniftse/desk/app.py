@@ -94,6 +94,7 @@ Screen 3 section."""
 _DIVERGENCE_INCIDENT: dict[str, Any] = {
     "title": "The September 2024 constituent divergence",
     "status": "Closed",
+    "source": "docs/superpowers/specs/2026-08-11-ops-desk-design.md",
     "review_date": "2024-09-20",
     "constituents_pinned": 154,
     "constituents_rebuild": 153,
@@ -108,6 +109,14 @@ _DIVERGENCE_INCIDENT: dict[str, Any] = {
     # What re-pinning the master after the fix actually moved, on one machine. Kept
     # with the incident because it is the strongest evidence the fix was worth making:
     # the limb added on pattern-matching grounds was the limb that had already fired.
+    #
+    # Note `computed_distance`: this is NOT a knife-edge quantity. The last-ranked
+    # security's cumulative share is always exactly 1.0, and `boundary + buffer_width`
+    # is exactly 1.0, so `abs(1.0 - 0.98) == 0.020000000000000018` is what IEEE-754
+    # gives on every platform, every run. The pre-fix comparison failed by construction
+    # whenever that configuration arose; what is rare is the configuration, not the
+    # arithmetic. An earlier draft of this page called it "0.6 ulp" and framed it as a
+    # coin-flip, which was wrong in a way that flattered the old code.
     "repin": {
         "reviews_replayed": 37,
         "band_changes": 1,
@@ -117,7 +126,6 @@ _DIVERGENCE_INCIDENT: dict[str, Any] = {
         "boundary": 0.98,
         "buffer_width": 0.02,
         "computed_distance": 0.020000000000000018,
-        "ulp": "0.6",
         "was_band": "Micro Cap",
         "now_band": "Small Cap",
         "level_move_bps": 0.0115,
@@ -155,8 +163,8 @@ _DIVERGENCE_INCIDENT: dict[str, Any] = {
             "now": "universe/banding.py:221",
             "fix": (
                 "both sides quantised to a documented precision, and the tie-break "
-                "written into Ground Rules 2.1: a security exactly on a cutoff belongs "
-                "to the band that cutoff closes."
+                "written into Ground Rules 2.1.1: a security exactly on a cutoff "
+                "belongs to the band that cutoff closes."
             ),
         },
         {
@@ -180,10 +188,17 @@ _DIVERGENCE_INCIDENT: dict[str, Any] = {
 """The written record behind Screen 4, kept here rather than in the template so the
 numbers have one home and the tests can assert against them.
 
-Every figure is the *historical, pre-fix* cross-platform comparison recorded in the ops
-desk design spec (Screen 4). It is deliberately not derived from `state.golden_diff`:
-that payload is the live comparison for the build being served, and conflating the two
-is precisely the misreading the template's "historical" labelling exists to prevent.
+**Two tiers of evidence, and the page must not blur them.** The `causes`/divergence
+figures are the *historical, pre-fix* cross-platform comparison, reproduced from
+`source` - this repository holds no independent record of that incident, and observing
+it needs two platforms where only one was available. The `repin` figures are different:
+they were measured on this machine and can be re-derived from the committed golden
+master by anyone with the repo. `source` is rendered on the page so a reader can tell
+which is which, rather than having to assume both carry the same authority.
+
+Neither is derived from `state.golden_diff`: that payload is the live comparison for the
+build being served, and conflating it with either tier is precisely the misreading the
+template's "historical" labelling exists to prevent.
 
 `quantisation_decimals` is imported from `universe.banding`, not restated, so the
 precision the page publishes cannot drift from the precision the code applies.

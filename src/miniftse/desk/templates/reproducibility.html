@@ -340,11 +340,19 @@
   </h2>
 
   <p class="historical-note" data-testid="incident-historical-note">
-    <strong>Every number in this section is historical &mdash; the pre-fix comparison,
-    recorded when the defect was found.</strong> It is not the state of the build above:
-    the panel at the top of this page is the current, live comparison for the snapshot
-    being served. The fix described here has shipped, and these figures are kept because
-    a closed incident with its numbers intact is a stronger artefact than a tidy page.
+    <strong>Every number in this section is historical &mdash; the pre-fix,
+    cross-platform comparison.</strong> It is not the state of the build above: the panel
+    at the top of this page is the current, live comparison for the snapshot being
+    served. The fix described here has shipped, and these figures are kept because a
+    closed incident with its numbers intact is a stronger artefact than a tidy page.
+  </p>
+  <p class="historical-note" data-testid="incident-provenance">
+    <strong>Provenance.</strong> The figures below are as recorded in
+    <code>{{ incident.source }}</code>. Unlike the re-pin numbers at the foot of this
+    page &mdash; which were reproduced on this machine and can be re-derived from the
+    committed golden master &mdash; the cross-platform comparison predates this
+    repository's records and is reproduced here from that document rather than
+    re-measured. Two platforms are needed to observe it and only one was available.
   </p>
 
   <h3>What happened</h3>
@@ -445,7 +453,7 @@
       the three.
     </li>
     <li>
-      <strong>The tie-break written down.</strong> Ground Rules 2.1: a security exactly
+      <strong>The tie-break written down.</strong> Ground Rules 2.1.1: a security exactly
       on a cutoff belongs to the band that cutoff closes. Ground Rules 8.3: exactly one
       buffer width past a boundary is not <em>more than</em> one buffer width, so the
       incumbent is held. Both are now decisions the methodology makes, not accidents the
@@ -483,25 +491,53 @@
     It was the buffer edge: the line included in the fix on the grounds that it had the
     same exposure and had simply not fired yet.
     <strong>It had fired.</strong> At the {{ repin.review }} review,
-    <code class="mono">{{ repin.security }}</code> sat at a cumulative share of exactly
-    {{ repin.cumulative_share }} against a Small Cap boundary of {{ repin.boundary }} -
-    exactly one {{ "%.0f"|format(repin.buffer_width * 100) }}-point buffer width out. But
+    <code class="mono">{{ repin.security }}</code> was the smallest name in the universe,
+    so its cumulative share was exactly {{ repin.cumulative_share }} &mdash; the
+    last-ranked security's always is. The Small Cap boundary is {{ repin.boundary }} and
+    the buffer is {{ repin.buffer_width }}, and
+    {{ repin.boundary }}&nbsp;+&nbsp;{{ repin.buffer_width }} is exactly
+    {{ repin.cumulative_share }}, so it sat exactly one buffer width out. But
     <code>abs({{ repin.cumulative_share }} - {{ repin.boundary }})</code> evaluates to
     <code class="mono">{{ repin.computed_distance }}</code>, because
-    {{ repin.boundary }} has no exact binary representation. That is
-    {{ repin.ulp }} ulp above {{ repin.buffer_width }}, so the old comparison was false
-    and the security was dropped to {{ repin.was_band }} &mdash; out of the All Cap index
-    entirely. Under Ground Rules 8.3 as now written it is held in {{ repin.now_band }}.
+    {{ repin.boundary }} has no exact binary representation, so the old
+    <code>&lt;= width</code> was false and the security was dropped to
+    {{ repin.was_band }} &mdash; out of the All Cap index entirely. Under Ground Rules
+    8.3 as now written it is held in {{ repin.now_band }}.
+  </p>
+  <p class="historical-note">
+    <strong>This was not a knife-edge, and it is worth being precise about that.</strong>
+    <code class="mono">{{ repin.computed_distance }}</code> is not a value that varies
+    between machines or runs &mdash; it is what IEEE-754 double arithmetic gives for that
+    subtraction, every time, everywhere. The old comparison was false <em>by
+    construction</em>: any Small Cap incumbent that was also the smallest name in the
+    universe was dropped to Micro Cap, reliably, not occasionally.
   </p>
   <p>
-    One security, one review, decided by 1.7e-17. The divisor rebased to absorb it
-    exactly as it should &mdash; the levels moved
-    {{ repin.level_move_bps }}bp &mdash; and the divisor is
+    What is rare is the <em>configuration</em>, not the arithmetic. It takes a Small Cap
+    incumbent that is simultaneously the last-ranked name and would otherwise fall to
+    Micro, which lined up once in {{ repin.reviews_replayed }} reviews. Left unfixed it
+    was guaranteed to recur the next time it lined up &mdash; which is a materially worse
+    defect than a coin-flip, because a coin-flip at least announces itself by giving two
+    different answers to the same question.
+  </p>
+  <p>
+    One security, one review. The divisor rebased to absorb it exactly as it should
+    &mdash; the levels moved {{ repin.level_move_bps }}bp &mdash; and the divisor is
     {{ repin.divisor_move_bps }}bp different from that review onward, across the final
     {{ repin.dates_affected }} of {{ repin.total_dates }} dates. The same shape as the
     cross-platform incident above, found on one machine, by fixing a line nobody had
     watched fail. That is the argument for fixing a defect <em>class</em> rather than a
     defect.
+  </p>
+  <p class="dim">
+    Recorded while fixing this, and deliberately <em>not</em> changed here: because
+    {{ repin.boundary }}&nbsp;+&nbsp;{{ repin.buffer_width }} is exactly
+    {{ repin.cumulative_share }}, the entire Micro Cap band lies within one buffer width
+    of the Small/Micro boundary. That buffer therefore can never release anything &mdash;
+    post-fix, a Small Cap incumbent is always held. That is a consequence of the band
+    boundaries and buffer width the ground rules specify, not of this fix, and changing
+    it would be a methodology change requiring consultation. It is noted here so the
+    record does not imply the Small/Micro buffer does something it cannot.
   </p>
 </section>
 {% endblock %}

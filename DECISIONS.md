@@ -264,7 +264,13 @@ defect this fixes.
 ## D-014 — Band assignment is decided on exact, quantised arithmetic with a written tie-break
 **Date:** 2026-08-11 · **Module:** M3 · **Status:** accepted
 
-**Context.** The golden master was pinned on Windows. A rebuild on Linux from the same
+**Context.** *(Divergence figures in this paragraph are as recorded in the ops-desk design
+spec, `docs/superpowers/specs/2026-08-11-ops-desk-design.md` (2026-08-11). This repository
+holds no independent record of that incident and observing it requires two platforms, so
+unlike the re-pin numbers below they are reproduced from that document rather than
+re-measured here.)*
+
+The golden master was pinned on Windows. A rebuild on Linux from the same
 commit, config and inputs produced 153 constituents at the 2024-09-20 review where the
 master had 154. The rebase maths was correct — `level_continuity_bps` was 0.0, the divisor
 absorbed the change, no validation rule fired — but a divisor that has absorbed a different
@@ -300,7 +306,7 @@ summation order is not a rule. Four changes, all in `universe/banding.py`:
 2. **A total order.** Ties in float market cap break on ascending `security_id`. Arbitrary,
    but written down, which is the property that matters.
 3. **Quantisation to 12 decimal places** of cumulative weight before any comparison against
-   a cutoff or a buffer edge. `CUMULATIVE_PCT_DECIMALS` in the code, Ground Rules 2.1, and
+   a cutoff or a buffer edge. `CUMULATIVE_PCT_DECIMALS` in the code, Ground Rules 2.1.1, and
    this entry — three places, because a precision that lives only in code is not a rule
    anyone can hold us to.
 4. **The tie-break written into the ground rules.** 2.1: a security exactly on a cutoff
@@ -347,17 +353,43 @@ after on this machine, as expected, since the divergence that opened the inciden
 
 It was the buffer-edge comparison at the old line 142, the one added to this fix on the
 grounds that it "had the same exposure and had simply not fired yet". It had fired. At the
-December 2024 review, SEC00012 sat at a cumulative share of exactly 1.0 against a Small Cap
-boundary of 0.98 — exactly one 2-point buffer width out. `abs(1.0 - 0.98)` evaluates to
-0.020000000000000018, because 0.98 has no exact binary representation; that is 0.6 ulp above
-0.02, so the old `<= width` was false and the security was dropped to Micro Cap and out of
-the All Cap index. Under Ground Rules 8.3 as now written it is held in Small Cap.
+December 2024 review, SEC00012 was the smallest name in the universe, so its cumulative
+share was exactly 1.0 — the last-ranked security's always is. The Small Cap boundary is 0.98
+and the buffer is 0.02, and `0.98 + 0.02 == 1.0` exactly, so it sat exactly one buffer width
+out. `abs(1.0 - 0.98)` evaluates to 0.020000000000000018, because 0.98 has no exact binary
+representation, so the old `<= width` was false and the security was dropped to Micro Cap
+and out of the All Cap index. Under Ground Rules 8.3 as now written it is held in Small Cap.
 
-One security, one review, decided by 1.7e-17. The divisor rebased to absorb it exactly as it
+**This was not a knife-edge, and the distinction matters.** 0.020000000000000018 is not a
+value that varies between machines or runs — it is what IEEE-754 double arithmetic gives for
+that subtraction, everywhere, every time. The old comparison failed *by construction*: every
+Small Cap incumbent that was also the smallest name in the universe was dropped to Micro Cap,
+reliably. What is rare is the *configuration* — a Small Cap incumbent that is simultaneously
+last-ranked and would otherwise fall to Micro — which arose once in 37 reviews. Left
+unfixed, recurrence was guaranteed the next time it arose. That is worse than a coin-flip,
+not better: a coin-flip at least announces itself by giving two different answers to the
+same question, where this returned the same wrong answer every time and so looked like a
+rule.
+
+(An earlier draft of this entry and of the `/reproducibility` page described this as "0.6
+ulp" and framed it as a freak knife-edge. That was wrong in the direction that flattered the
+old code, and is corrected here rather than quietly reworded.)
+
+One security, one review. The divisor rebased to absorb it exactly as it
 should — the levels moved 0.0115bp — and the divisor is 0.4534bp different from that review
 onward, across the final 5 of 2311 dates. The same shape as the incident that started this,
 found on one machine, by fixing a line nobody had yet seen fail. It is the argument for
 fixing a defect class rather than a defect.
+
+**A structural consequence, recorded and deliberately not fixed.** Because
+`small_cutoff + buffer_width == 0.98 + 0.02 == 1.0` exactly, the entire Micro Cap band lies
+within one buffer width of the Small/Micro boundary. Post-fix, that buffer can therefore
+never release anything: a Small Cap incumbent whose hard band is Micro is *always* inside
+the buffer and is always held. Pre-fix the only escape was the representation error
+described above — that is, the defect. This follows from the band boundaries and buffer
+width the Ground Rules specify, not from this fix; changing it would be a methodology change
+requiring consultation under M15 and is out of scope here. It is written down so the record
+does not imply the Small/Micro buffer does something it cannot.
 
 The parent index's numbers are permitted to move for a defect fix, but only in a commit that
 says so.

@@ -1328,15 +1328,70 @@ def test_reproducibility_incident_section_is_present_when_pinned(client):
     )
 
 
+def _incident_section(body: str) -> str:
+    """Everything from the incident section's marker to the end of the page.
+
+    The incident figures are short numeric strings - "65", "153", "154", "2311" - and
+    the comparison panel above is full of digits (a content hash, a git sha, an ISO
+    timestamp, a row count that is also 2311). Asserting them against the whole document
+    would pass on a coincidence in the panel, so every incident assertion is scoped to
+    the section that is supposed to carry them.
+    """
+    return body[body.index('data-testid="incident-section"'):]
+
+
+def _collapse(text: str) -> str:
+    """Whitespace-normalised lowercase, for asserting on rendered prose.
+
+    A Jinja template wraps its source at 90 characters, so a phrase the page reads as
+    "by construction" is "by\\n    construction" in the response body. Asserting on the
+    raw text would make every prose assertion a hostage to where the template happens to
+    wrap, which is a reformatting away from a false failure.
+    """
+    return " ".join(text.split()).lower()
+
+
 @pytest.mark.slow
 def test_reproducibility_incident_carries_the_agreed_numbers(client):
     """The incident's facts must match the design spec's, not a parallel set invented
     here: 154 constituents against 153 at the 2024-09-20 review, `level_continuity_bps`
-    0.0, 0.7426bp on the divisor, 65 of 2311 dates."""
-    body = client.get("/reproducibility").text
+    0.0, 0.7426bp on the divisor, 65 of 2311 dates.
 
-    for fact in ("154", "153", "2024-09-20", "0.7426", "65", "2311"):
-        assert fact in body, f"incident section must state {fact}"
+    Sourced from `_DIVERGENCE_INCIDENT` rather than restated, so the constant and the
+    rendered page cannot drift apart - if someone edits one of these numbers, they have
+    to mean it.
+    """
+    from miniftse.desk.app import _DIVERGENCE_INCIDENT as incident
+
+    section = _incident_section(client.get("/reproducibility").text)
+
+    for key in (
+        "constituents_pinned",
+        "constituents_rebuild",
+        "review_date",
+        "max_divisor_divergence_bps",
+        "divergent_dates",
+        "total_dates",
+    ):
+        assert str(incident[key]) in section, (
+            f"incident section must state {key} ({incident[key]})"
+        )
+
+
+@pytest.mark.slow
+def test_reproducibility_incident_attributes_its_source(client):
+    """The September 2024 figures are reproduced from the ops-desk design spec - this
+    repository holds no independent record of that incident, and observing it needs two
+    platforms. The re-pin figures below them were measured here and are re-derivable
+    from the committed golden master. The page must not present the two with the same
+    authority, so the source is named on the page.
+    """
+    from miniftse.desk.app import _DIVERGENCE_INCIDENT as incident
+
+    section = _incident_section(client.get("/reproducibility").text)
+
+    assert 'data-testid="incident-provenance"' in section
+    assert incident["source"] in section
 
 
 @pytest.mark.slow
@@ -1344,12 +1399,38 @@ def test_reproducibility_presents_the_incident_as_closed_and_historical(client):
     """Closed, and honest about which numbers are which: the incident figures are the
     pre-fix history, the comparison panel above is the current build. A page that let a
     reader think the 0.74bp divergence is live would be worse than not publishing it."""
-    body = client.get("/reproducibility").text
+    section = _incident_section(client.get("/reproducibility").text).lower()
 
-    assert 'data-testid="incident-status"' in body
-    assert "closed" in body.lower()
-    assert "historical" in body.lower()
+    assert 'data-testid="incident-status"' in section
+    assert "closed" in section
+    assert "historical" in section
     # The remediation the incident claims shipped, named specifically enough to check
     # against `universe/banding.py`.
     for shipped in ("fsum", "quantis", "tie-break"):
-        assert shipped in body.lower()
+        assert shipped in section
+
+
+@pytest.mark.slow
+def test_reproducibility_repin_is_not_framed_as_a_knife_edge(client):
+    """`abs(1.0 - 0.98) == 0.020000000000000018` is what IEEE-754 gives on every
+    platform, every run - so the pre-fix comparison failed *by construction* whenever a
+    Small Cap incumbent was also the smallest name in the universe, not on a freak
+    coincidence of last bits. What is rare is the configuration, not the arithmetic.
+
+    An earlier draft of this page called it "0.6 ulp" and read as a knife-edge, which
+    flattered the old code: a defect that returns the same wrong answer every time is
+    worse than one that flickers, because it looks like a rule. This test exists so that
+    framing cannot come back.
+    """
+    section = _incident_section(client.get("/reproducibility").text)
+    prose = _collapse(section)
+
+    assert 'data-testid="repin-note"' in section
+    assert "ulp" not in prose, "the ulp framing was wrong; do not reintroduce it"
+    assert "not a knife-edge" in prose
+    # The page must say the failure was reliable, and that the rarity is the setup.
+    assert "by construction" in prose
+    assert "what is rare is the <em>configuration</em>" in prose
+    # And it must record that the Small/Micro buffer can never release, so the page
+    # does not imply a buffer that does something it structurally cannot.
+    assert "never release anything" in prose

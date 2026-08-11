@@ -21,7 +21,7 @@ arithmetic decide anything the ground rules have not: the universe is put in a *
 order (`_ordered`), the cumulative percentile is summed *exactly* (`_exact_cumulative`),
 and every comparison against a cutoff or a buffer edge happens on values quantised to
 `CUMULATIVE_PCT_DECIMALS` decimal places with a written-down tie-break (Ground Rules
-2.1 and 8.3). See DECISIONS.md D-014 for the incident that forced this.
+2.1.1 and 8.3). See DECISIONS.md D-014 for the incident that forced this.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from miniftse.types import SizeBand
 CUMULATIVE_PCT_DECIMALS = 12
 """Decimal places the cumulative percentile is rounded to before any band comparison.
 
-Chosen deliberately, and the same number appears in Ground Rules 2.1 and DECISIONS.md
+Chosen deliberately, and the same number appears in Ground Rules 2.1.1 and DECISIONS.md
 D-014 - three places, because a precision that lives only in code is not a rule anyone
 can hold us to.
 
@@ -150,7 +150,7 @@ def _ordered(float_market_caps: dict[str, float]) -> list[tuple[str, float]]:
     is stable, so two securities of exactly equal size come out in whatever order the
     caller's dict happened to iterate - which makes the band of a name on a boundary a
     function of upstream insertion order rather than of anything in the ground rules.
-    Ordering ties by security id is arbitrary but *written down* (Ground Rules 2.1),
+    Ordering ties by security id is arbitrary but *written down* (Ground Rules 2.1.1),
     which is the property that matters: the same universe always produces the same
     ranking, whoever assembled the dict and in whatever order.
     """
@@ -169,7 +169,10 @@ def _exact_cumulative(values: Sequence[float]) -> list[float]:
     This is Shewchuk's exact partial-sum algorithm, the same one `math.fsum` uses
     internally, kept open so the running total can be read after every element instead
     of only at the end. `[math.fsum(values[:i + 1]) for i in range(len(values))]` gives
-    bit-identical output (asserted in the tests) but costs O(n^2); this is O(n).
+    bit-identical output (asserted in the tests, over random inputs as well as a
+    hand-picked cancellation case) but costs O(n^2); this is O(n*k), where k is the
+    length of the partials list - bounded by the number of distinct exponent ranges in
+    play, and in practice a small constant (one to three for a universe of market caps).
 
     Because every prefix is the correctly rounded value of the *exact* mathematical
     sum, the result depends only on the multiset of values and their order - never on
@@ -205,7 +208,7 @@ def _quantise(value: float) -> float:
 def _band_for(cum: float, boundaries: list[tuple[float, SizeBand]]) -> SizeBand:
     """The hard-cut-off band for a cumulative percentile.
 
-    **Tie-break (Ground Rules 2.1).** Both sides are quantised to
+    **Tie-break (Ground Rules 2.1.1).** Both sides are quantised to
     `CUMULATIVE_PCT_DECIMALS` first, and the comparison is inclusive: a security whose
     quantised cumulative percentile is *exactly* a cutoff belongs to the band that
     cutoff closes - the larger band. That is what "the top 70% by value" means in

@@ -362,7 +362,7 @@ def test_mark_preserves_adv() -> None:
 
 class TestBandingDeterminism:
     """Band membership must be a function of the universe, not of how it was assembled
-    or which machine summed it. See DECISIONS.md D-014 and Ground Rules 2.1/8.3.
+    or which machine summed it. See DECISIONS.md D-014 and Ground Rules 2.1.1/8.3.
 
     These are permutation tests, not smoke tests: each one re-runs the real
     `assign_bands` over inputs that differ *only* in summation order, and demands
@@ -442,6 +442,38 @@ class TestBandingDeterminism:
         assert naive == 1.0
         assert _exact_cumulative(catastrophic)[-1] == 4.0
 
+    def test_exact_cumulative_matches_prefix_fsum_over_random_inputs(self) -> None:
+        """The bit-identity claim again, but randomised rather than hand-picked.
+
+        One curated cancellation case proves the algorithm handles the case its author
+        thought of. This runs the same equality - `_exact_cumulative(v)[i] ==
+        math.fsum(v[:i+1])` for every prefix - over 200 random inputs of varying length
+        and magnitude, which is the claim the docstring on `_exact_cumulative` actually
+        makes. Seeded, so a failure is reproducible.
+
+        Two populations, because they fail differently: positive-only values spanning
+        many orders of magnitude (a real universe of market caps, where small names are
+        lost against the running total) and mixed-sign values (adversarial cancellation,
+        where the running total can collapse toward zero and lose everything).
+        """
+        import math
+        import random
+
+        from miniftse.universe.banding import _exact_cumulative
+
+        rng = random.Random(20260811)
+        for mixed_sign in (False, True):
+            for _ in range(100):
+                n = rng.randint(1, 400)
+                values = [
+                    (rng.uniform(-1.0, 1.0) if mixed_sign else rng.uniform(0.0, 1.0))
+                    * 10.0 ** rng.randint(-6, 12)
+                    for _ in range(n)
+                ]
+                assert _exact_cumulative(values) == [
+                    math.fsum(values[: i + 1]) for i in range(n)
+                ], f"prefix mismatch at n={n}, mixed_sign={mixed_sign}"
+
     def test_equal_caps_are_ranked_by_security_id_not_insertion_order(self) -> None:
         """The written-down tie-break: equal float market caps rank by ascending
         security id. Without it the ranking is whatever the caller's dict iterated.
@@ -455,7 +487,7 @@ class TestBandingDeterminism:
         assert forwards == backwards
 
     def test_security_exactly_on_the_cutoff_lands_in_the_closing_band(self) -> None:
-        """The documented tie-break for the boundary case itself (Ground Rules 2.1): a
+        """The documented tie-break for the boundary case itself (Ground Rules 2.1.1): a
         security whose quantised cumulative percentile is exactly a cutoff is in the
         band that cutoff closes - the larger band.
 

@@ -382,6 +382,18 @@ only when it crosses the boundary by **more than** the buffer width; a constitue
 existing band. A constituent at exactly 72.000000000000% whose previous band was Large Cap
 remains Large Cap.
 
+**A consequence of the boundaries above, stated rather than left to be discovered.** The
+Small Cap boundary is 98% and the buffer is 2 percentage points, and 98% + 2% is exactly
+100%. The whole of the Micro Cap band therefore lies within one buffer width of the
+Small/Micro boundary, so **that buffer never releases a constituent**: an existing Small Cap
+constituent whose cumulative share falls into Micro Cap is always held in Small Cap. This is
+the intended reading of the buffer rule applied consistently, not an exception to it, but it
+means the Small/Micro boundary is in practice one-way for incumbents — a security may enter
+Micro Cap, and a Small Cap incumbent may not be demoted into it by cumulative share alone.
+Removal from the index for other reasons (Sections 5 and 7) is unaffected. Narrowing the
+buffer at this boundary, or applying it asymmetrically, would be a change to the methodology
+and would require consultation under Section 11.
+
 ### 8.4 Fast entry
 
 A newly listed security - typically a large IPO - may enter outside the review

@@ -1911,12 +1911,19 @@ def test_validate_date_rejects_unparseable_and_out_of_set_dates():
 
 
 _INDEX_ARITHMETIC = re.compile(
-    r"\*\s*100\b"       # percent recomputation: ratio * 100
-    r"|/\s*10_?000\b"   # bps -> fraction: x / 10000 or x / 10_000
-    r"|\*\s*10_?000\b"  # fraction -> bps: x * 10000 or x * 10_000
-    r"|\*\s*252\b"      # annualisation factor
-    r"|\*\*\s*\(\s*1\s*/"  # nth root: x ** (1 / n)
+    r"\*\s*100\b|\b100\s*\*"            # percent recomputation, either operand order:
+                                         # ratio * 100 or 100 * ratio
+    r"|/\s*10_?000\b"                   # bps -> fraction: x / 10000 or x / 10_000
+    r"|\*\s*10_?000\b|\b10_?000\s*\*"   # fraction -> bps, either operand order:
+                                         # x * 10000/10_000 or 10000/10_000 * x
+    r"|\*\s*252\b|\b252\s*\*"           # annualisation factor, either operand order
+    r"|\*\*\s*\(\s*1\s*/"               # nth root: x ** (1 / n)
+    r"|\*\*\s*0\.5\b"                   # the sqrt idiom: x ** 0.5
 )
+# Every operator is required to sit adjacent to its number - a bare `252` (a line
+# count, a port, an HTTP status) never matches on its own, only `252 *`/`* 252`. Every
+# reversed form above exists because Python doesn't care which side of `*` a literal
+# is on, and multiplication is commutative - `_INDEX_ARITHMETIC.search` must not either.
 _ALLOWLIST_MARKER = "desk-arithmetic-allowlist:"
 
 
@@ -1958,9 +1965,65 @@ def test_desk_arithmetic_allowlist_marker_is_actually_present_on_to_bps():
     """The allowlist mechanism only means something if the one line it is meant to
     cover actually carries the marker - otherwise `test_desk_contains_no_index_
     arithmetic` passing would prove nothing about `_to_bps` being deliberate rather
-    than merely un-scanned."""
+    than merely un-scanned. A bare `# desk-arithmetic-allowlist:` with nothing after
+    the colon would satisfy `_ALLOWLIST_MARKER in line` exactly as well as a real
+    reason would, so this also requires non-whitespace text after the colon - the
+    marker has to force someone to write down *why*, not just to type the token."""
     source = pathlib.Path("src/miniftse/desk/services.py").read_text()
     to_bps_line = next(
         line for line in source.splitlines() if "ratio * 10_000" in line
     )
     assert _ALLOWLIST_MARKER in to_bps_line
+    reason = to_bps_line.split(_ALLOWLIST_MARKER, 1)[1].strip()
+    assert reason, "the allowlist marker must carry a reason, not a bare colon"
+
+
+_KNOWN_BAD_ARITHMETIC: tuple[str, ...] = (
+    "weight * 100",
+    "100 * ratio",
+    "value / 10000",
+    "value / 10_000",
+    "value * 10000",
+    "value * 10_000",
+    "10000 * value",
+    "10_000 * value",
+    "daily_var * 252",
+    "252 * daily_var",
+    "level_ratio ** (1 / years)",
+    "level_ratio ** (1/years)",
+    "variance ** 0.5",
+    "variance**0.5",
+)
+"""Snippets `_INDEX_ARITHMETIC` must match - one per banned form, in both operand
+orders where multiplication makes that meaningful (`* 100`/`100 *`, not `/ 10000`,
+since division isn't commutative and only one order is a bps->fraction conversion)."""
+
+_KNOWN_GOOD_NON_ARITHMETIC: tuple[str, ...] = (
+    'f"{x:.2%}"',                # percent formatting, not a percent recomputation
+    "# HTTP 100 Continue",       # a bare number, no adjacent operator
+    "port = 7860",               # an unrelated integer
+    "SESSIONS_PER_YEAR = 252",   # a bare 252, no adjacent operator - see the module
+                                  # docstring's note on why this containment matters
+    "weight * 10",               # an unrelated small multiplier, not 100/10000/252
+    "self.value * other.factor", # generic multiplication, no banned literal at all
+    "compounded ** 2",           # squaring, not the `** 0.5`/`** (1/n)` root idiom
+)
+"""Snippets that must *not* match - each one exercises a specific way the pattern
+could over-match if a future edit widened it carelessly (a bare number, an unrelated
+multiplier, an unrelated exponent, a percent-format string)."""
+
+
+def test_index_arithmetic_pattern_matches_known_bad_not_known_good():
+    """`_INDEX_ARITHMETIC` is what stands between a future commit and this suite
+    actually catching it - a change to the pattern that quietly narrows what it
+    matches is exactly as dangerous as never having the pattern at all. Pinning it
+    against a fixed list of known-bad and known-good snippets, independent of
+    whatever happens to be in `services.py` today, makes a regression in the pattern
+    itself visible - not just a regression in the code it scans. Every alternative
+    here was proven red first: before the reversed-operand-order and `** 0.5`
+    alternatives existed, this test failed on exactly the bad snippets that exercise
+    them (`100 * ratio`, `10_000 * value`, `252 * daily_var`, `variance ** 0.5`)."""
+    for snippet in _KNOWN_BAD_ARITHMETIC:
+        assert _INDEX_ARITHMETIC.search(snippet), f"expected a match: {snippet!r}"
+    for snippet in _KNOWN_GOOD_NON_ARITHMETIC:
+        assert not _INDEX_ARITHMETIC.search(snippet), f"expected no match: {snippet!r}"

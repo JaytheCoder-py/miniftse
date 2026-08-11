@@ -6,12 +6,17 @@ number on every page is produced by a library call reached through `state.py` (a
 from Task 4 on, `services.py`). This module's job is HTTP, HTML and process wiring.
 
 **Deviation from the plan's sketch.** The plan shows a module-level `app =
-create_app()` for uvicorn to import directly. `desk/data/` is not committed to the
-repository, so a module-level call would raise `FileNotFoundError` at import time
-everywhere the module is merely imported - test collection, CI, a stray `python -c
-"import miniftse.desk.app"`. Only `create_app` is exported; every entry point calls it
-itself, and uvicorn is run in factory mode: `uvicorn miniftse.desk.app:create_app
---factory` (see the Makefile's `desk-serve` target).
+create_app()` for uvicorn to import directly. A module-level call would hard-code one
+`data_dir` (the default `Path("desk/data")`) into a singleton every importer shares -
+`create_app`'s own docstring is why that would be a problem even though `desk/data/`
+is committed to the repository (Task 14) and loading it no longer risks a
+`FileNotFoundError`: tests construct an app against a `tmp_path` snapshot, or a
+`tmp_path` with no snapshot at all to exercise the missing-snapshot startup path
+(`test_missing_snapshot_refuses_to_start`), and neither can share one fixed,
+already-bound module-level object. Only `create_app` is exported; every entry point
+calls it itself, and uvicorn is run in factory mode: `uvicorn miniftse.desk.app:
+create_app --factory` (see the Makefile's `desk-serve` target and the Dockerfile's
+`desk` stage CMD).
 """
 
 from __future__ import annotations

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import pathlib
+import re
 from dataclasses import replace
 
 import pandas as pd
@@ -1903,3 +1905,62 @@ def test_validate_date_rejects_unparseable_and_out_of_set_dates():
     with pytest.raises(HTTPException) as exc_info:
         validate_date("1990-01-01", available)
     assert exc_info.value.status_code == 400
+
+
+# ---- The layer boundary: desk/ is a surface, not a second calculator ----------------
+
+
+_INDEX_ARITHMETIC = re.compile(
+    r"\*\s*100\b"       # percent recomputation: ratio * 100
+    r"|/\s*10_?000\b"   # bps -> fraction: x / 10000 or x / 10_000
+    r"|\*\s*10_?000\b"  # fraction -> bps: x * 10000 or x * 10_000
+    r"|\*\s*252\b"      # annualisation factor
+    r"|\*\*\s*\(\s*1\s*/"  # nth root: x ** (1 / n)
+)
+_ALLOWLIST_MARKER = "desk-arithmetic-allowlist:"
+
+
+def test_desk_contains_no_index_arithmetic():
+    """`desk/` is a surface over the library. Every number comes from a library call.
+
+    Not a style preference: the moment a percentage or a basis-point figure gets
+    recomputed in a route or a service function, two sources of truth exist for a
+    published figure and they will disagree. Scans every `.py` source under
+    `src/miniftse/desk` (not templates, not `static/capacity.js` - Jinja's `* 100`
+    percent formatting and the browser-side capacity chart are sanctioned house style,
+    and this test only ever greps `*.py`) line by line for the re-derivation patterns
+    a desk route has no business writing: recomputing a percentage, converting between
+    a fraction and basis points, annualising by 252, or taking an nth root.
+
+    One line is allowed to trip this: `services._to_bps`, the single sanctioned
+    presentation helper for the one bps figure with no precomputed column
+    (`services.py`'s module docstring explains why). It carries its own
+    `# desk-arithmetic-allowlist: <reason>` marker rather than being carved out of the
+    pattern here - an allowlist that lives on the line it exempts is one a future
+    violation elsewhere in the file cannot hide behind.
+    """
+    violations = []
+    root = pathlib.Path("src/miniftse/desk")
+    for path in sorted(root.rglob("*.py")):
+        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+            if _INDEX_ARITHMETIC.search(line) and _ALLOWLIST_MARKER not in line:
+                violations.append(f"{path}:{lineno}: {line.strip()}")
+
+    assert not violations, (
+        "desk/ looks like it recomputed an index figure instead of reading one off "
+        "a library call - add the missing library call, or if this really is the one "
+        "legitimate case, mark it `# desk-arithmetic-allowlist: <reason>`:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_desk_arithmetic_allowlist_marker_is_actually_present_on_to_bps():
+    """The allowlist mechanism only means something if the one line it is meant to
+    cover actually carries the marker - otherwise `test_desk_contains_no_index_
+    arithmetic` passing would prove nothing about `_to_bps` being deliberate rather
+    than merely un-scanned."""
+    source = pathlib.Path("src/miniftse/desk/services.py").read_text()
+    to_bps_line = next(
+        line for line in source.splitlines() if "ratio * 10_000" in line
+    )
+    assert _ALLOWLIST_MARKER in to_bps_line

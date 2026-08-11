@@ -707,4 +707,4 @@ def _to_bps(ratio: float) -> float:
     already uses for the same purpose (`level_continuity_error_bps`,
     `realised_return_bps`) - so a reader comparing the two sees one convention, not two.
     """
-    return ratio * 10_000
+    return ratio * 10_000  # desk-arithmetic-allowlist: sanctioned, see docstring above

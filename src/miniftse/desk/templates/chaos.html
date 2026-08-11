@@ -125,7 +125,15 @@
   </div>
   <div>
     <label for="seed-input">Seed</label>
-    <input id="seed-input" type="number" name="seed" min="0" max="999999" value="{{ seed }}">
+    {# Deliberately NOT `value="{{ seed }}"` - `seed` here is the precomputed battery's
+       DRILL_SEED (20260809), which is outside this field's own 0..999999 range. A
+       number input pre-filled past its own max fails the browser's native HTML5
+       validation; HTMX honours that and silently sends no request at all when the
+       button is clicked without the field being touched first - see
+       test_chaos_seed_input_default_value_is_within_its_own_bounds. 0 is simply an
+       in-range default; the precomputed seed is still shown as context in the
+       "Precomputed battery" section below. #}
+    <input id="seed-input" type="number" name="seed" min="0" max="999999" value="0">
   </div>
   <button type="submit" class="btn">Run live drill</button>
 </form>

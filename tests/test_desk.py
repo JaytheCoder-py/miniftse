@@ -650,6 +650,47 @@ def test_chaos_get_lists_all_twelve_fault_names(client):
 
 
 @pytest.mark.slow
+def test_chaos_seed_input_default_value_is_within_its_own_bounds(client):
+    """Regression test: the seed input was pre-filled with the precomputed battery's
+    DRILL_SEED (20260809), which is outside the field's own `min`/`max` (0..999999).
+    A number input whose default value fails its own HTML5 range constraint means a
+    browser (and HTMX, which honours native validation) refuses to submit the form at
+    all when a visitor clicks "Run live drill" without first touching the field -
+    silently killing the screen's primary flow. Parses the actual rendered attributes,
+    not a substring, since that is exactly the class of regression this guards
+    against - a `str(seed)` appearing in the page text would not have caught it.
+    """
+    import html.parser
+
+    class _SeedInputFinder(html.parser.HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attrs: dict[str, str | None] | None = None
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            attr_dict = dict(attrs)
+            if tag == "input" and attr_dict.get("id") == "seed-input":
+                self.attrs = attr_dict
+
+        def handle_startendtag(
+            self, tag: str, attrs: list[tuple[str, str | None]]
+        ) -> None:
+            self.handle_starttag(tag, attrs)
+
+    response = client.get("/chaos")
+    assert response.status_code == 200
+
+    parser = _SeedInputFinder()
+    parser.feed(response.text)
+    assert parser.attrs is not None, 'no <input id="seed-input"> found on /chaos'
+
+    value = int(parser.attrs["value"])  # type: ignore[arg-type]
+    minimum = int(parser.attrs["min"])  # type: ignore[arg-type]
+    maximum = int(parser.attrs["max"])  # type: ignore[arg-type]
+    assert minimum <= value <= maximum
+
+
+@pytest.mark.slow
 def test_chaos_get_shows_wrong_rule_finding_when_precomputed_disagrees(client, desk_state):
     """Whichever precomputed rows were caught by a rule other than their
     `expected_detector` must be visibly labelled a finding, not a pass - that column

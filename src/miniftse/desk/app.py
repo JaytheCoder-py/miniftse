@@ -183,8 +183,12 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
 
         `seed` is declared `str`, not `int`: FastAPI would otherwise coerce the form
         field itself via Pydantic and answer a non-numeric value with 422, but the plan
-        requires 400 for every invalid input on this route with no exceptions - so the
-        raw string is validated by hand below instead.
+        requires 400 for a bad `fault_id` or an out-of-range/non-integer `seed` - so
+        both raw strings are validated by hand below instead of trusting Pydantic
+        coercion. (A form field missing entirely is a different failure mode: FastAPI's
+        `Form(...)` still 422s before this handler body ever runs, since that happens
+        at request-parsing time, not at the value-validation time this docstring is
+        about.)
 
         The live drill runs behind `app.state.drill_semaphore` (bounds concurrency to
         `_DRILL_CONCURRENCY`) and `asyncio.wait_for(..., timeout=_DRILL_TIMEOUT_SECONDS)`
@@ -192,6 +196,22 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
         `services.run_drill` reruns the whole validation engine - never blocks the event
         loop. On timeout, the precomputed row for the same fault is rendered instead,
         with a visible badge - a 200, never a hang and never an error page.
+
+        Concurrency tradeoff, made deliberately, not discovered later: the semaphore
+        only genuinely bounds requests that finish inside the timeout budget.
+        `anyio.to_thread.run_sync` defaults to `abandon_on_cancel=False`, so when
+        `wait_for` gives up at `_DRILL_TIMEOUT_SECONDS`, the worker thread running
+        `services.run_drill` is *not* killed - Python cannot forcibly kill a running
+        thread - it keeps executing to completion in the background and its result is
+        discarded. Because the timeout branch's `return` sits inside `async with
+        semaphore`, leaving that block releases the permit immediately, before the
+        orphaned thread actually finishes. A burst of near-simultaneous timeouts can
+        therefore let more than `_DRILL_CONCURRENCY` drills run at once for a window
+        bounded by the drill's own runtime (and, in practice, further capped by
+        anyio's own worker-thread pool limit). Holding the permit until the orphaned
+        thread finishes would need a detached background task with its own error
+        handling, outliving this request/response cycle, to close a failure mode (many
+        simultaneous timeouts) judged rare enough not to justify that machinery here.
 
         No drill logic lives here: validate, call `services.run_drill` (or, on timeout,
         `services.precomputed_drill_row`), render. Both live entirely in services.py.

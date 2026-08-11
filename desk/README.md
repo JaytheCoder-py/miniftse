@@ -30,6 +30,15 @@ written for the owner to run, not automated here.
 5. Put the Space's URL in the root `README.md`'s "Ops desk" section, replacing the
    `TODO` line.
 
+A Space's router is the only thing that can reach the container, which is what makes
+the Dockerfile's `desk` stage CMD safe to trust every forwarding hop
+(`--proxy-headers --forwarded-allow-ips=*`) so `desk/limits.py`'s per-IP rate limiter
+sees each visitor's own address instead of bucketing everyone under the router's.
+
+**Known deviation:** the design spec says memo M2 is linked from `/day`; it is named
+in a `<code>` block instead (`day.html`'s "Background reading" note) because no memo
+route exists — a deliberate simplification, not an oversight.
+
 To rebuild and redeploy after a change to the library or to `desk/`: rerun
 `make desk-data` locally, commit the refreshed `desk/data/` tree, and push to the
 `space` remote again — the same two-commit shape this repository already uses

@@ -38,6 +38,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from miniftse.desk.limits import (
     DEFAULT_RATE_LIMIT_PER_MINUTE,
+    MAX_SEED,
+    MIN_SEED,
     TokenBucketLimiter,
     enforce_rate_limit,
     validate_date,
@@ -348,6 +350,12 @@ def create_app(
                 "gaps": desk.chaos_precomputed["gaps"],
                 "summary": desk.chaos_precomputed["summary"],
                 "seed": desk.chaos_precomputed["seed"],
+                # `limits.MIN_SEED`/`MAX_SEED` are the one authority for `/chaos/run`'s
+                # seed range - threaded through rather than restated as literals in the
+                # template, so the rendered input's `min`/`max` cannot silently drift
+                # from what `validate_seed` actually enforces server-side.
+                "min_seed": MIN_SEED,
+                "max_seed": MAX_SEED,
             },
         )
 
@@ -420,6 +428,12 @@ def create_app(
                         "timed_out": True,
                         "precomputed": precomputed_drill_row(desk, fault_id),
                         "seed": seed_value,
+                        # The precomputed row was computed at DRILL_SEED
+                        # (`snapshot.py`), not at the `seed_value` the visitor's timed-
+                        # out live request asked for - the two can differ, so the
+                        # fallback badge must say which seed the row it is showing
+                        # actually came from.
+                        "precomputed_seed": desk.chaos_precomputed["seed"],
                     },
                 )
 

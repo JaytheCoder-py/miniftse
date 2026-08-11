@@ -23,7 +23,7 @@ A small FastAPI application over the library above — not a second implementati
 it. Every figure the desk renders is either read straight from the precomputed
 snapshot or a direct library call; a dedicated test
 (`tests/test_desk.py::test_desk_contains_no_index_arithmetic`) greps every desk
-source file for the re-derivation patterns (`* 100`, bps/fraction conversions, `*
+Python source for the re-derivation patterns (`* 100`, bps/fraction conversions, `*
 252`, nth roots) that would create a second source of truth for a published number,
 and fails the build if one appears. Five screens: **explain a day** (the divisor and
 market moves behind one session's level), a **chaos-drill console** (re-run any of

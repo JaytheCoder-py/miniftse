@@ -8,9 +8,23 @@
 
   <!-- Pinned CDN versions - bump deliberately, not on whatever "latest" resolves to
        the day the page happens to load. HTMX 2.0.3 and Chart.js 4.4.4 (the same pin
-       the capacity-viz spec uses, so Screen 5 does not carry a second copy). -->
-  <script src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+       the capacity-viz spec uses, so Screen 5 does not carry a second copy).
+
+       `integrity`/`crossorigin` are Subresource Integrity: sha384 of the exact bytes
+       fetched from each pinned URL above, checked in this repo by fetching both files
+       and re-fetching to confirm byte-for-byte stability before hashing. A CDN serving
+       anything else for either URL - compromise, MITM, a version pin that silently
+       stopped meaning what it says - fails the browser's integrity check instead of
+       executing. `chart.umd.min.js` is jsdelivr's on-the-fly minification of the
+       package's published `chart.umd.js` (the npm tarball for 4.4.4 ships no pre-built
+       min file); jsdelivr's own guarantee that a versioned package URL never changes
+       its bytes is what makes pinning that hash here safe. -->
+  <script src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js"
+          integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq"
+          crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"
+          integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt"
+          crossorigin="anonymous"></script>
 </head>
 <body>
   <div class="banner" role="note">

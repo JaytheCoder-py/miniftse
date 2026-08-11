@@ -1,0 +1,139 @@
+{
+  "drill": [
+    {
+      "fault_id": "F01",
+      "fault_name": "price off by 10x",
+      "detected": true,
+      "detected_by": "ohlc_consistency, price_outliers",
+      "expected_detector": "price_outliers",
+      "caught_by_expected": true,
+      "highest_severity": "BLOCK",
+      "blocked_publication": true,
+      "detail": "SEC00173 price multiplied by 10"
+    },
+    {
+      "fault_id": "F02",
+      "fault_name": "missing dividend",
+      "detected": false,
+      "detected_by": "",
+      "expected_detector": "corp_actions_applied",
+      "caught_by_expected": false,
+      "highest_severity": "n/a",
+      "blocked_publication": false,
+      "detail": "NOT INJECTED - no dividend events with today's ex-date"
+    },
+    {
+      "fault_id": "F03",
+      "fault_name": "stale feed",
+      "detected": true,
+      "detected_by": "ohlc_consistency, price_outliers, stale_prices",
+      "expected_detector": "stale_prices",
+      "caught_by_expected": true,
+      "highest_severity": "BLOCK",
+      "blocked_publication": true,
+      "detail": "85 prices held at yesterday's close"
+    },
+    {
+      "fault_id": "F04",
+      "fault_name": "swapped identifiers",
+      "detected": true,
+      "detected_by": "ohlc_consistency, price_outliers",
+      "expected_detector": "price_outliers",
+      "caught_by_expected": true,
+      "highest_severity": "BLOCK",
+      "blocked_publication": true,
+      "detail": "prices for SEC00125 and SEC00090 transposed"
+    },
+    {
+      "fault_id": "F05",
+      "fault_name": "inverted FX rate",
+      "detected": true,
+      "detected_by": "fx_continuity",
+      "expected_detector": "fx_continuity",
+      "caught_by_expected": true,
+      "highest_severity": "ESCALATE",
+      "blocked_publication": true,
+      "detail": "EUR rate inverted (0.7440 -> 1.3442)"
+    },
+    {
+      "fault_id": "F06",
+      "fault_name": "double-applied split",
+      "detected": true,
+      "detected_by": "ohlc_consistency, price_outliers",
+      "expected_detector": "price_outliers",
+      "caught_by_expected": true,
+      "highest_severity": "BLOCK",
+      "blocked_publication": true,
+      "detail": "SEC00154 halved by a duplicate split"
+    },
+    {
+      "fault_id": "F07",
+      "fault_name": "negative price",
+      "detected": true,
+      "detected_by": "positive_prices, ohlc_consistency, price_outliers",
+      "expected_detector": "positive_prices",
+      "caught_by_expected": true,
+      "highest_severity": "BLOCK",
+      "blocked_publication": true,
+      "detail": "SEC00285 price sign flipped"
+    },
+    {
+      "fault_id": "F08",
+      "fault_name": "weights do not sum",
+      "detected": true,
+      "detected_by": "weights_sum",
+      "expected_detector": "weights_sum",
+      "caught_by_expected": true,
+      "highest_severity": "BLOCK",
+      "blocked_publication": true,
+      "detail": "SEC00019 removed from the weight vector after normalisation"
+    },
+    {
+      "fault_id": "F09",
+      "fault_name": "cap breach",
+      "detected": true,
+      "detected_by": "max_weight",
+      "expected_detector": "max_weight",
+      "caught_by_expected": true,
+      "highest_severity": "BLOCK",
+      "blocked_publication": true,
+      "detail": "SEC00010 pushed to 16.3%"
+    },
+    {
+      "fault_id": "F10",
+      "fault_name": "duplicate row",
+      "detected": true,
+      "detected_by": "no_duplicate_prices, stale_prices",
+      "expected_detector": "no_duplicate_prices",
+      "caught_by_expected": true,
+      "highest_severity": "BLOCK",
+      "blocked_publication": true,
+      "detail": "price row for SEC00081 duplicated"
+    },
+    {
+      "fault_id": "F11",
+      "fault_name": "delisted but still held",
+      "detected": true,
+      "detected_by": "constituents_priced",
+      "expected_detector": "constituents_priced",
+      "caught_by_expected": true,
+      "highest_severity": "WARN",
+      "blocked_publication": true,
+      "detail": "SEC00142 still weighted but has no price row"
+    },
+    {
+      "fault_id": "F12",
+      "fault_name": "negative share count",
+      "detected": true,
+      "detected_by": "shares_plausible",
+      "expected_detector": "shares_plausible",
+      "caught_by_expected": true,
+      "highest_severity": "BLOCK",
+      "blocked_publication": true,
+      "detail": "SEC00072 share count sign flipped"
+    }
+  ],
+  "gaps": [],
+  "seed": 20260809,
+  "summary": "11/11 injected faults detected, 11/11 blocked publication, 11/11 caught by the intended rule (1 not injectable in this cross-section)."
+}

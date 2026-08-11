@@ -1,0 +1,563 @@
+{
+  "cases": [
+    {
+      "case_id": "E01",
+      "category": "eligibility",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "E02",
+      "category": "eligibility",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "E03",
+      "category": "eligibility",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "E04",
+      "category": "eligibility",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "E05",
+      "category": "eligibility",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "E06",
+      "category": "eligibility",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "E07",
+      "category": "eligibility",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "E08",
+      "category": "eligibility",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "W01",
+      "category": "weighting",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "W02",
+      "category": "weighting",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "W03",
+      "category": "weighting",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "W04",
+      "category": "weighting",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "W05",
+      "category": "weighting",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "R01",
+      "category": "review",
+      "difficulty": "standard",
+      "passed": false,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.25,
+      "hallucinated": 0,
+      "explanation": "citation precision 25%"
+    },
+    {
+      "case_id": "R02",
+      "category": "review",
+      "difficulty": "standard",
+      "passed": false,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.5,
+      "hallucinated": 0,
+      "explanation": "missing required content: ['14']; citation precision 50%"
+    },
+    {
+      "case_id": "R03",
+      "category": "review",
+      "difficulty": "standard",
+      "passed": false,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.25,
+      "hallucinated": 0,
+      "explanation": "missing required content: ['turnover']; citation precision 25%"
+    },
+    {
+      "case_id": "R04",
+      "category": "review",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "R05",
+      "category": "review",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "R06",
+      "category": "review",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "R07",
+      "category": "review",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "C01",
+      "category": "corporate_actions",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "C02",
+      "category": "corporate_actions",
+      "difficulty": "standard",
+      "passed": false,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "missing required content: ['unchanged']; citation precision 75%"
+    },
+    {
+      "case_id": "C03",
+      "category": "corporate_actions",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "C04",
+      "category": "corporate_actions",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "C05",
+      "category": "corporate_actions",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "C06",
+      "category": "corporate_actions",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.5,
+      "hallucinated": 0,
+      "explanation": "citation precision 50%"
+    },
+    {
+      "case_id": "C07",
+      "category": "corporate_actions",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "C08",
+      "category": "corporate_actions",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "K01",
+      "category": "calculation",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "K02",
+      "category": "calculation",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "K03",
+      "category": "calculation",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.5,
+      "hallucinated": 0,
+      "explanation": "citation precision 50%"
+    },
+    {
+      "case_id": "K04",
+      "category": "calculation",
+      "difficulty": "hard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "K05",
+      "category": "calculation",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "G01",
+      "category": "governance",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "G02",
+      "category": "governance",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.75,
+      "hallucinated": 0,
+      "explanation": "citation precision 75%"
+    },
+    {
+      "case_id": "G03",
+      "category": "governance",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": false,
+      "should_abstain": false,
+      "citation_precision": 0.5,
+      "hallucinated": 0,
+      "explanation": "citation precision 50%"
+    },
+    {
+      "case_id": "A01",
+      "category": "out_of_scope",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": true,
+      "should_abstain": true,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "A02",
+      "category": "out_of_scope",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": true,
+      "should_abstain": true,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "A03",
+      "category": "out_of_scope",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": true,
+      "should_abstain": true,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "A04",
+      "category": "out_of_scope",
+      "difficulty": "standard",
+      "passed": true,
+      "abstained": true,
+      "should_abstain": true,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "passed"
+    },
+    {
+      "case_id": "A05",
+      "category": "not_in_corpus",
+      "difficulty": "standard",
+      "passed": false,
+      "abstained": false,
+      "should_abstain": true,
+      "citation_precision": 1.0,
+      "hallucinated": 0,
+      "explanation": "answered when it should have abstained"
+    }
+  ],
+  "metrics": {
+    "accuracy": 0.8780487804878049,
+    "citation_precision": 0.7916666666666666,
+    "abstention_accuracy": 0.975609756097561,
+    "hallucination_rate": 0.0
+  },
+  "headline": "The methodology assistant answers 88% of 41 evaluation questions correctly, with 79% citation precision. It correctly decides whether to answer or abstain 98% of the time, and its hallucinated-number rate is 0%.",
+  "by_category": [
+    {
+      "category": "calculation",
+      "n": 5,
+      "passed": 5,
+      "abstained": 0,
+      "accuracy": 1.0
+    },
+    {
+      "category": "corporate_actions",
+      "n": 8,
+      "passed": 7,
+      "abstained": 0,
+      "accuracy": 0.875
+    },
+    {
+      "category": "eligibility",
+      "n": 8,
+      "passed": 8,
+      "abstained": 0,
+      "accuracy": 1.0
+    },
+    {
+      "category": "governance",
+      "n": 3,
+      "passed": 3,
+      "abstained": 0,
+      "accuracy": 1.0
+    },
+    {
+      "category": "not_in_corpus",
+      "n": 1,
+      "passed": 0,
+      "abstained": 0,
+      "accuracy": 0.0
+    },
+    {
+      "category": "out_of_scope",
+      "n": 4,
+      "passed": 4,
+      "abstained": 4,
+      "accuracy": 1.0
+    },
+    {
+      "category": "review",
+      "n": 7,
+      "passed": 4,
+      "abstained": 0,
+      "accuracy": 0.5714285714285714
+    },
+    {
+      "category": "weighting",
+      "n": 5,
+      "passed": 5,
+      "abstained": 0,
+      "accuracy": 1.0
+    }
+  ],
+  "failures": [
+    {
+      "case_id": "R01",
+      "category": "review",
+      "question": "How often is the index reviewed?",
+      "explanation": "citation precision 25%"
+    },
+    {
+      "case_id": "R02",
+      "category": "review",
+      "question": "How much notice is given before changes take effect?",
+      "explanation": "missing required content: ['14']; citation precision 50%"
+    },
+    {
+      "case_id": "R03",
+      "category": "review",
+      "question": "What is a buffer and why does the index use one?",
+      "explanation": "missing required content: ['turnover']; citation precision 25%"
+    },
+    {
+      "case_id": "C02",
+      "category": "corporate_actions",
+      "question": "What happens to the divisor on a share split?",
+      "explanation": "missing required content: ['unchanged']; citation precision 75%"
+    },
+    {
+      "case_id": "A05",
+      "category": "not_in_corpus",
+      "question": "What is the carbon reduction requirement for this index?",
+      "explanation": "answered when it should have abstained"
+    }
+  ],
+  "assistant_stats": {
+    "documents": 13,
+    "chunks": 117,
+    "sections": 113,
+    "superseded_chunks": 0,
+    "vocabulary": 1848
+  },
+  "corpus": [
+    "ground_rules",
+    "memos"
+  ]
+}

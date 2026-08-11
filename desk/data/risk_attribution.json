@@ -1,0 +1,225 @@
+{
+  "risk": {
+    "title": "Risk report \u2014 miniFTSE Global Value Tilt",
+    "meta": "Against miniFTSE Global All Cap \u00b7 As at 2021-01-14 \u00b7 Model fundamental factor model, 16 factors",
+    "sections": [
+      {
+        "heading": "Headline",
+        "text": "Forecast tracking error: 10.90% a year. Tracking error is how far this index is expected to move away from its parent over a year. Roughly two years in three the difference should fall within plus or minus 10.9%; in one year in twenty it could be more than twice that.",
+        "table": null
+      },
+      {
+        "heading": "Where the risk comes from",
+        "text": "Factor risk accounts for 81% of the total and stock-specific risk for 19%. A high specific share means the index is taking risk the model cannot name \u2014 which is either genuine diversifiable risk or a factor the model is missing.",
+        "table": {
+          "columns": [
+            "Source",
+            "Exposure",
+            "Share of risk"
+          ],
+          "rows": [
+            [
+              "Value",
+              "+1.202",
+              "45.3%"
+            ],
+            [
+              "Quality",
+              "+0.594",
+              "17.8%"
+            ],
+            [
+              "Industry 50",
+              "+0.051",
+              "6.7%"
+            ],
+            [
+              "Low volatility",
+              "-0.248",
+              "4.1%"
+            ],
+            [
+              "Industry 55",
+              "-0.069",
+              "3.6%"
+            ],
+            [
+              "Industry 45",
+              "+0.046",
+              "3.0%"
+            ],
+            [
+              "Industry 15",
+              "-0.040",
+              "2.8%"
+            ],
+            [
+              "Industry 40",
+              "+0.131",
+              "2.5%"
+            ],
+            [
+              "Stock-specific",
+              "-",
+              "18.6%"
+            ]
+          ]
+        }
+      },
+      {
+        "heading": "Largest individual contributors",
+        "text": "Marginal contribution is how much the index's overall risk would rise if the position were increased slightly. A large marginal contribution is not automatically bad \u2014 it is only bad if nothing is expected in return for it.",
+        "table": {
+          "columns": [
+            "Security",
+            "Active weight",
+            "Marginal contribution to risk"
+          ],
+          "rows": [
+            [
+              "SEC00005",
+              "+8.23%",
+              "+40.70%"
+            ],
+            [
+              "SEC00086",
+              "+13.94%",
+              "+31.11%"
+            ],
+            [
+              "SEC00039",
+              "+4.18%",
+              "+29.11%"
+            ],
+            [
+              "SEC00048",
+              "+1.16%",
+              "+23.80%"
+            ],
+            [
+              "SEC00007",
+              "+0.00%",
+              "+22.92%"
+            ]
+          ]
+        }
+      },
+      {
+        "heading": "Is the forecast any good?",
+        "text": "- Forecast at 2021-01-14: 10.90% - Realised over the following period: 6.80% - Verdict: OVER-forecasts risk (statistic 0.62). Costs return through unnecessary caution, but does not surprise anyone. The forecast was made using data available at the estimation date only, and compared with what happened afterwards. A model tested on the period it was fitted to will always look accurate and tells you nothing. *Risk figures are forecasts, not guarantees. This index is calculated on simulated market data and is not an investable benchmark.*",
+        "table": null
+      }
+    ]
+  },
+  "attribution": {
+    "title": "Performance attribution \u2014 Value Tilt",
+    "meta": "Against Parent \u00b7 Period 2021-12-17 to 2021-12-30",
+    "sections": [
+      {
+        "heading": "Headline",
+        "text": "The index finished 1.07% ahead of its parent over the period.",
+        "table": null
+      },
+      {
+        "heading": "What caused it \u2014 by design decision",
+        "text": "This is the decomposition that maps onto choices we actually made.",
+        "table": {
+          "columns": [
+            "Component",
+            "Contribution",
+            "Detail"
+          ],
+          "rows": [
+            [
+              "Names held only by child",
+              "+0.00%",
+              "0 names, 0.0% weight"
+            ],
+            [
+              "Names dropped from parent",
+              "-0.00%",
+              "0 names, 0.0% weight"
+            ],
+            [
+              "Reweighting of shared names",
+              "+0.90%",
+              "137 names in both"
+            ],
+            [
+              "Largest group effect (40)",
+              "+0.00%",
+              "+0.937% from 40; memo item, already counted in reweighting"
+            ],
+            [
+              "Unexplained residual",
+              "-0.00%",
+              "not attributable to an identified effect"
+            ]
+          ]
+        }
+      },
+      {
+        "heading": "What caused it \u2014 by sector",
+        "text": "The traditional view. *Allocation* is the effect of holding more or less of a sector than the parent; *selection* is the effect of holding different companies within a sector. Active return +0.90% = allocation +0.16% + selection +0.39% + interaction +0.35%",
+        "table": {
+          "columns": [
+            "Sector",
+            "Active weight",
+            "Allocation",
+            "Selection",
+            "Total"
+          ],
+          "rows": [
+            [
+              "40",
+              "+6.83%",
+              "-0.046%",
+              "+0.291%",
+              "+0.613%"
+            ],
+            [
+              "15",
+              "-1.76%",
+              "+0.049%",
+              "+0.219%",
+              "+0.228%"
+            ],
+            [
+              "35",
+              "-1.46%",
+              "-0.071%",
+              "-0.091%",
+              "-0.151%"
+            ],
+            [
+              "45",
+              "+4.65%",
+              "+0.125%",
+              "+0.004%",
+              "+0.132%"
+            ],
+            [
+              "50",
+              "-0.48%",
+              "-0.034%",
+              "-0.072%",
+              "-0.102%"
+            ],
+            [
+              "55",
+              "-4.73%",
+              "+0.181%",
+              "-0.126%",
+              "+0.084%"
+            ]
+          ]
+        }
+      },
+      {
+        "heading": "Reading this",
+        "text": "The two tables above will not agree, and that is expected rather than an error. The first attributes the difference to the design decisions that created this index \u2014 which securities it holds and how it weights them. The second attributes it to sectors. A company that is both a technology company and an expensive one appears in different places in each. The first table is the more useful of the two, because every line in it corresponds to something that could be changed. *Calculated on simulated market data. Not an investable benchmark, and not a forecast of future results.*",
+        "table": null
+      }
+    ]
+  }
+}

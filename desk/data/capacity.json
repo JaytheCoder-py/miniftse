@@ -1,0 +1,1268 @@
+{
+  "schemes": {
+    "float_market_cap": {
+      "turnover": "lowest - self-rebalancing as prices move",
+      "capacity": "highest - weights track what the market actually holds",
+      "factor_exposure": "none by construction",
+      "explainability": "highest",
+      "use_when": "a broad benchmark that must be replicable at any scale"
+    },
+    "equal": {
+      "turnover": "high - prices drift apart and must be traded back",
+      "capacity": "low - bounded by the smallest constituent",
+      "factor_exposure": "incidental small and value tilt",
+      "explainability": "high",
+      "use_when": "concentration in the parent is the problem being solved"
+    },
+    "fundamental": {
+      "turnover": "moderate - rebalances against price moves",
+      "capacity": "high",
+      "factor_exposure": "value tilt as a by-product, not by design",
+      "explainability": "moderate - needs the 'weight does not follow price' argument",
+      "use_when": "the client objects to weighting by valuation"
+    },
+    "score_tilt": {
+      "turnover": "low to moderate - every name keeps a position",
+      "capacity": "high - stays close to cap weights",
+      "factor_exposure": "modest, tunable with the tilt strength",
+      "explainability": "high",
+      "use_when": "cheap factor exposure with a strict turnover budget"
+    },
+    "selection": {
+      "turnover": "high - cliff edge at the selection boundary",
+      "capacity": "moderate - concentrates into a subset",
+      "factor_exposure": "strong",
+      "explainability": "highest of the factor approaches",
+      "use_when": "the client wants a clean story and can absorb the turnover"
+    },
+    "optimised": {
+      "turnover": "controllable - it is an explicit constraint",
+      "capacity": "controllable - likewise",
+      "factor_exposure": "highest per unit of tracking error",
+      "explainability": "lowest - 'the optimiser did it' is not a client answer",
+      "use_when": "several constraints must hold simultaneously, e.g. a climate index"
+    }
+  },
+  "constituents": [
+    {
+      "security_id": "SEC00010",
+      "weight": 0.07747467639333491,
+      "adv": 108204537.08263901,
+      "sector": "45",
+      "country": "FR",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00011",
+      "weight": 0.0452525697466001,
+      "adv": 171305282.37945822,
+      "sector": "50",
+      "country": "GB",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00104",
+      "weight": 0.04034095489805485,
+      "adv": 10846900.337002864,
+      "sector": "40",
+      "country": "GB",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00102",
+      "weight": 0.03327583857191567,
+      "adv": 8953379.316834502,
+      "sector": "60",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00014",
+      "weight": 0.030606469340042988,
+      "adv": 49251763.661594376,
+      "sector": "45",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00024",
+      "weight": 0.027849365764964117,
+      "adv": 107886252.93726894,
+      "sector": "30",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00028",
+      "weight": 0.022688735410205704,
+      "adv": 11327369.993275652,
+      "sector": "20",
+      "country": "DE",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00019",
+      "weight": 0.022539935384317665,
+      "adv": 120284942.59805712,
+      "sector": "60",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00006",
+      "weight": 0.02176969615235311,
+      "adv": 322334854.59148705,
+      "sector": "60",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00030",
+      "weight": 0.02127332503755035,
+      "adv": 56436538.36312162,
+      "sector": "55",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00053",
+      "weight": 0.018031694838491975,
+      "adv": 47008402.448168635,
+      "sector": "20",
+      "country": "CH",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00071",
+      "weight": 0.017645172296216042,
+      "adv": 24272557.158895537,
+      "sector": "50",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00063",
+      "weight": 0.01763959674533832,
+      "adv": 13110881.945360694,
+      "sector": "35",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00088",
+      "weight": 0.017227975836706415,
+      "adv": 51265466.86651768,
+      "sector": "50",
+      "country": "GB",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00023",
+      "weight": 0.01712543932050549,
+      "adv": 157938907.09638482,
+      "sector": "55",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00042",
+      "weight": 0.017044359476388056,
+      "adv": 29490860.240285605,
+      "sector": "10",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00109",
+      "weight": 0.016625062552899004,
+      "adv": 14700856.07132079,
+      "sector": "10",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00147",
+      "weight": 0.014513551706401855,
+      "adv": 5909046.097888948,
+      "sector": "50",
+      "country": "AU",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00075",
+      "weight": 0.013825866109965062,
+      "adv": 13898370.968337074,
+      "sector": "10",
+      "country": "CA",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00217",
+      "weight": 0.013424027285698529,
+      "adv": 12047189.217023935,
+      "sector": "15",
+      "country": "GB",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00105",
+      "weight": 0.013414705603444644,
+      "adv": 21714987.14393043,
+      "sector": "50",
+      "country": "GB",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00016",
+      "weight": 0.01312296673880797,
+      "adv": 160070713.54885575,
+      "sector": "10",
+      "country": "CA",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00009",
+      "weight": 0.013116936000087372,
+      "adv": 74990881.30331117,
+      "sector": "65",
+      "country": "NL",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00059",
+      "weight": 0.01269579750252726,
+      "adv": 10793707.077108981,
+      "sector": "10",
+      "country": "GB",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00037",
+      "weight": 0.012266297139317182,
+      "adv": 31007205.182643995,
+      "sector": "55",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00173",
+      "weight": 0.01205557923817336,
+      "adv": 3879102.397937003,
+      "sector": "15",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00132",
+      "weight": 0.011621335231391344,
+      "adv": 5651976.130804482,
+      "sector": "15",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00160",
+      "weight": 0.011063215616533653,
+      "adv": 9962707.508337514,
+      "sector": "35",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00065",
+      "weight": 0.01103094392010934,
+      "adv": 15586530.603274684,
+      "sector": "10",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00048",
+      "weight": 0.010675932326183279,
+      "adv": 8467348.069580384,
+      "sector": "40",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00163",
+      "weight": 0.010457804436828954,
+      "adv": 9154581.727321235,
+      "sector": "60",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00244",
+      "weight": 0.009433500500266886,
+      "adv": 4122257.456474427,
+      "sector": "10",
+      "country": "GB",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00137",
+      "weight": 0.009021668915700146,
+      "adv": 5110331.187119945,
+      "sector": "60",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00131",
+      "weight": 0.008516796560229141,
+      "adv": 48613645.463475555,
+      "sector": "30",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00161",
+      "weight": 0.008186891165899875,
+      "adv": 7915226.235252647,
+      "sector": "35",
+      "country": "GB",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00033",
+      "weight": 0.00781658481387535,
+      "adv": 10217092.444731155,
+      "sector": "45",
+      "country": "CA",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00168",
+      "weight": 0.007690643265345003,
+      "adv": 3681611.0188447535,
+      "sector": "50",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00079",
+      "weight": 0.007571056058523101,
+      "adv": 4770943.093797726,
+      "sector": "55",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00096",
+      "weight": 0.007531946449740362,
+      "adv": 26834873.493321393,
+      "sector": "10",
+      "country": "GB",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00117",
+      "weight": 0.006709774684285675,
+      "adv": 8689463.17902356,
+      "sector": "20",
+      "country": "US",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00077",
+      "weight": 0.006284468022748756,
+      "adv": 6894048.06761091,
+      "sector": "20",
+      "country": "AU",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00149",
+      "weight": 0.006201367978323509,
+      "adv": 3122110.51384944,
+      "sector": "30",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00230",
+      "weight": 0.00606935227730539,
+      "adv": 12161093.498973535,
+      "sector": "35",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00095",
+      "weight": 0.006058199687328324,
+      "adv": 2831644.332518531,
+      "sector": "10",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00041",
+      "weight": 0.0060300936007325725,
+      "adv": 59745359.054697976,
+      "sector": "30",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00094",
+      "weight": 0.005957029974672223,
+      "adv": 6890020.538285961,
+      "sector": "20",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00125",
+      "weight": 0.005802434538401316,
+      "adv": 5306928.68031228,
+      "sector": "10",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00159",
+      "weight": 0.005758530401582834,
+      "adv": 25715511.368480153,
+      "sector": "50",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00069",
+      "weight": 0.0057234838026216164,
+      "adv": 11681223.796654835,
+      "sector": "15",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00056",
+      "weight": 0.005516183193190049,
+      "adv": 24936160.25199966,
+      "sector": "50",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00205",
+      "weight": 0.005392308457795066,
+      "adv": 1623510.4768404134,
+      "sector": "10",
+      "country": "GB",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00128",
+      "weight": 0.0053388449512165904,
+      "adv": 7791518.8507639505,
+      "sector": "15",
+      "country": "GB",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00181",
+      "weight": 0.005282961512079035,
+      "adv": 5698606.660615105,
+      "sector": "15",
+      "country": "GB",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00115",
+      "weight": 0.005236330806708921,
+      "adv": 3336737.2046250748,
+      "sector": "10",
+      "country": "FR",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00178",
+      "weight": 0.005135229474448124,
+      "adv": 3096277.095046127,
+      "sector": "20",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00150",
+      "weight": 0.0050764270883804415,
+      "adv": 4724708.494872502,
+      "sector": "55",
+      "country": "CH",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00039",
+      "weight": 0.004630597171013693,
+      "adv": 16959565.341271427,
+      "sector": "50",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00166",
+      "weight": 0.00461934766190716,
+      "adv": 5092873.304256957,
+      "sector": "30",
+      "country": "AU",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00081",
+      "weight": 0.004525590371661963,
+      "adv": 6251112.342583185,
+      "sector": "15",
+      "country": "GB",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00087",
+      "weight": 0.0043540773219436675,
+      "adv": 13007291.649008973,
+      "sector": "65",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00013",
+      "weight": 0.004291004737258134,
+      "adv": 76083080.16587955,
+      "sector": "35",
+      "country": "DE",
+      "size_band": "LARGE"
+    },
+    {
+      "security_id": "SEC00086",
+      "weight": 0.004284779064024185,
+      "adv": 4570190.8278892785,
+      "sector": "15",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00106",
+      "weight": 0.004073055378539875,
+      "adv": 16073035.679065958,
+      "sector": "65",
+      "country": "GB",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00121",
+      "weight": 0.003996586595118072,
+      "adv": 5903421.205447637,
+      "sector": "35",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00145",
+      "weight": 0.003885247625325297,
+      "adv": 4211979.403342184,
+      "sector": "60",
+      "country": "FR",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00261",
+      "weight": 0.0038517282439997106,
+      "adv": 1991084.8973879954,
+      "sector": "60",
+      "country": "GB",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00098",
+      "weight": 0.0037652945332807197,
+      "adv": 45313702.21498917,
+      "sector": "30",
+      "country": "DE",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00276",
+      "weight": 0.0036823196653729406,
+      "adv": 2887135.9220544957,
+      "sector": "60",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00051",
+      "weight": 0.0036045686270355,
+      "adv": 48094208.71344215,
+      "sector": "55",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00040",
+      "weight": 0.0035288071406951466,
+      "adv": 29832871.428477995,
+      "sector": "45",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00155",
+      "weight": 0.0032484512633023494,
+      "adv": 16845404.16550093,
+      "sector": "40",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00266",
+      "weight": 0.0032366017193101245,
+      "adv": 1435950.6532058371,
+      "sector": "10",
+      "country": "FR",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00182",
+      "weight": 0.0032266862764832906,
+      "adv": 2349772.8518798035,
+      "sector": "50",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00038",
+      "weight": 0.0031807793980702407,
+      "adv": 62616754.34249741,
+      "sector": "55",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00203",
+      "weight": 0.0030994882888574606,
+      "adv": 4217626.387902569,
+      "sector": "15",
+      "country": "US",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00158",
+      "weight": 0.003059442714171637,
+      "adv": 24523254.604995217,
+      "sector": "30",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00090",
+      "weight": 0.0030348244503078303,
+      "adv": 73714501.1254337,
+      "sector": "20",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00189",
+      "weight": 0.003003468715987028,
+      "adv": 1559951.1482761474,
+      "sector": "15",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00129",
+      "weight": 0.0029610000815365207,
+      "adv": 18383029.051494516,
+      "sector": "40",
+      "country": "GB",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00198",
+      "weight": 0.002955273108738912,
+      "adv": 3386152.675513691,
+      "sector": "10",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00179",
+      "weight": 0.002886116853305359,
+      "adv": 2911972.2079165056,
+      "sector": "55",
+      "country": "AU",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00124",
+      "weight": 0.0028543960766683825,
+      "adv": 1933551.4897072886,
+      "sector": "60",
+      "country": "CA",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00110",
+      "weight": 0.002829879888528073,
+      "adv": 7214287.067344423,
+      "sector": "20",
+      "country": "AU",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00164",
+      "weight": 0.0027861331521148404,
+      "adv": 6702130.769235747,
+      "sector": "55",
+      "country": "FR",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00057",
+      "weight": 0.0027649290307296135,
+      "adv": 18093373.246650442,
+      "sector": "40",
+      "country": "NL",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00114",
+      "weight": 0.00272554280516035,
+      "adv": 56033063.101906314,
+      "sector": "15",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00076",
+      "weight": 0.002595070277431873,
+      "adv": 4418866.774453171,
+      "sector": "20",
+      "country": "CA",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00126",
+      "weight": 0.002586284050686884,
+      "adv": 9035904.06207342,
+      "sector": "30",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00020",
+      "weight": 0.002538548140359826,
+      "adv": 6425252.204663467,
+      "sector": "20",
+      "country": "HK",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00120",
+      "weight": 0.002399968156604349,
+      "adv": 8248514.083470147,
+      "sector": "30",
+      "country": "DE",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00257",
+      "weight": 0.0023499850002488094,
+      "adv": 2290492.7504033875,
+      "sector": "10",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00187",
+      "weight": 0.0023171628845873047,
+      "adv": 16545942.319231734,
+      "sector": "55",
+      "country": "FR",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00184",
+      "weight": 0.0023097860836945342,
+      "adv": 3583580.730700275,
+      "sector": "65",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00256",
+      "weight": 0.0021918911845257793,
+      "adv": 1442108.743261768,
+      "sector": "20",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00162",
+      "weight": 0.0021665327982357944,
+      "adv": 8594193.90845503,
+      "sector": "65",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00264",
+      "weight": 0.002130583783697608,
+      "adv": 2550906.3720607664,
+      "sector": "30",
+      "country": "GB",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00066",
+      "weight": 0.0021212205737773833,
+      "adv": 6141349.481309406,
+      "sector": "10",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00139",
+      "weight": 0.002100585350251497,
+      "adv": 3193281.98865139,
+      "sector": "65",
+      "country": "GB",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00206",
+      "weight": 0.0020974687461155217,
+      "adv": 1868977.7042936203,
+      "sector": "35",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00220",
+      "weight": 0.0020779379176380478,
+      "adv": 7224332.057626673,
+      "sector": "55",
+      "country": "DE",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00201",
+      "weight": 0.0020616412814148575,
+      "adv": 2217530.2802714715,
+      "sector": "60",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00174",
+      "weight": 0.002044045654856357,
+      "adv": 12799892.299561147,
+      "sector": "15",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00116",
+      "weight": 0.002033265194106115,
+      "adv": 9475914.838290952,
+      "sector": "30",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00045",
+      "weight": 0.00202672779800443,
+      "adv": 10107668.759669442,
+      "sector": "35",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00049",
+      "weight": 0.0020028380891362564,
+      "adv": 47180512.54867785,
+      "sector": "50",
+      "country": "FR",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00003",
+      "weight": 0.00198088716162655,
+      "adv": 7486767.065166902,
+      "sector": "60",
+      "country": "HK",
+      "size_band": "MID"
+    },
+    {
+      "security_id": "SEC00141",
+      "weight": 0.001966653458326814,
+      "adv": 4989799.050434455,
+      "sector": "10",
+      "country": "CA",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00186",
+      "weight": 0.0019148317141047357,
+      "adv": 4563669.411958607,
+      "sector": "30",
+      "country": "FR",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00142",
+      "weight": 0.0018263483002292976,
+      "adv": 11623088.476981774,
+      "sector": "15",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00078",
+      "weight": 0.0017410562792564567,
+      "adv": 50707360.07559055,
+      "sector": "10",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00265",
+      "weight": 0.0017046322869580918,
+      "adv": 1491681.824877942,
+      "sector": "15",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00183",
+      "weight": 0.0016676176268815867,
+      "adv": 36015230.97945167,
+      "sector": "45",
+      "country": "CA",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00222",
+      "weight": 0.0016460173812989953,
+      "adv": 5125628.365958007,
+      "sector": "30",
+      "country": "AU",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00267",
+      "weight": 0.0016409644331847545,
+      "adv": 1111330.7659653127,
+      "sector": "60",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00154",
+      "weight": 0.0016399785602709746,
+      "adv": 20772006.549616933,
+      "sector": "15",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00054",
+      "weight": 0.0016224751838832608,
+      "adv": 17194868.910662517,
+      "sector": "55",
+      "country": "GB",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00251",
+      "weight": 0.0015826875308055054,
+      "adv": 1171782.1687194528,
+      "sector": "60",
+      "country": "CA",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00052",
+      "weight": 0.0015563302905314904,
+      "adv": 18938194.62256554,
+      "sector": "40",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00213",
+      "weight": 0.0015004610667634772,
+      "adv": 3901564.4455936076,
+      "sector": "40",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00231",
+      "weight": 0.0014772502418800195,
+      "adv": 1084080.5320579289,
+      "sector": "15",
+      "country": "FR",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00133",
+      "weight": 0.0014460311323671944,
+      "adv": 2556198.2147130556,
+      "sector": "65",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00249",
+      "weight": 0.0014162097593300247,
+      "adv": 666257.3838826034,
+      "sector": "50",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00097",
+      "weight": 0.001400910494884638,
+      "adv": 6997318.742801214,
+      "sector": "35",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00152",
+      "weight": 0.0013802674824050175,
+      "adv": 6069194.518477568,
+      "sector": "20",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00234",
+      "weight": 0.0013008070884025864,
+      "adv": 4599815.383898888,
+      "sector": "60",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00157",
+      "weight": 0.0012080172609062825,
+      "adv": 2242214.2947532865,
+      "sector": "40",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00195",
+      "weight": 0.0012036653096605485,
+      "adv": 6511855.475027085,
+      "sector": "65",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00136",
+      "weight": 0.0011840247104759742,
+      "adv": 2137759.2526588477,
+      "sector": "55",
+      "country": "GB",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00279",
+      "weight": 0.0010107308311883068,
+      "adv": 2748356.3858573902,
+      "sector": "15",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00209",
+      "weight": 0.000986333987974721,
+      "adv": 4578803.866249118,
+      "sector": "65",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00191",
+      "weight": 0.0009139823839334815,
+      "adv": 2475626.665477015,
+      "sector": "35",
+      "country": "AU",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00218",
+      "weight": 0.0008740224045742908,
+      "adv": 6681939.548003268,
+      "sector": "55",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00165",
+      "weight": 0.0008365323462163692,
+      "adv": 1176297.994720507,
+      "sector": "60",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00089",
+      "weight": 0.0008300720030397068,
+      "adv": 9801507.12900687,
+      "sector": "15",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00153",
+      "weight": 0.0008287501689705197,
+      "adv": 2612110.5390219125,
+      "sector": "55",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00064",
+      "weight": 0.0008270313456936304,
+      "adv": 1745906.3376548302,
+      "sector": "30",
+      "country": "HK",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00170",
+      "weight": 0.0007788474721994816,
+      "adv": 7993079.120720135,
+      "sector": "20",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00238",
+      "weight": 0.0007686135893637687,
+      "adv": 3079996.2836113293,
+      "sector": "30",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00061",
+      "weight": 0.000751981633009423,
+      "adv": 12301642.046507595,
+      "sector": "10",
+      "country": "GB",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00246",
+      "weight": 0.0007485671455271666,
+      "adv": 887547.7660338011,
+      "sector": "35",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00171",
+      "weight": 0.0006682666890351928,
+      "adv": 6135741.722317537,
+      "sector": "45",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00224",
+      "weight": 0.000658166637941662,
+      "adv": 3085664.348244549,
+      "sector": "45",
+      "country": "US",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00032",
+      "weight": 0.0006514695225063362,
+      "adv": 3199474.6432284233,
+      "sector": "65",
+      "country": "HK",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00022",
+      "weight": 0.0006342804026156643,
+      "adv": 41598981.8119591,
+      "sector": "15",
+      "country": "DE",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00080",
+      "weight": 0.0005902839187796233,
+      "adv": 12545985.327896345,
+      "sector": "15",
+      "country": "AU",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00017",
+      "weight": 0.0005824398993088264,
+      "adv": 99243747.16768254,
+      "sector": "15",
+      "country": "HK",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00070",
+      "weight": 0.0005042319994492146,
+      "adv": 1966054.6306074052,
+      "sector": "20",
+      "country": "HK",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00035",
+      "weight": 0.0004958857246652263,
+      "adv": 18871329.040127747,
+      "sector": "65",
+      "country": "DE",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00119",
+      "weight": 0.0003226028111280709,
+      "adv": 2691228.206915482,
+      "sector": "65",
+      "country": "DE",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00029",
+      "weight": 0.0003075232042532539,
+      "adv": 4169309.123100891,
+      "sector": "60",
+      "country": "HK",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00180",
+      "weight": 0.00024128576865011097,
+      "adv": 1388040.5224564425,
+      "sector": "30",
+      "country": "CA",
+      "size_band": "SMALL"
+    },
+    {
+      "security_id": "SEC00012",
+      "weight": 4.447762696545825e-05,
+      "adv": 2537891.023788846,
+      "sector": "10",
+      "country": "HK",
+      "size_band": "SMALL"
+    }
+  ],
+  "capacity_params": {
+    "participation": 0.2,
+    "max_days_to_trade": 5.0
+  }
+}

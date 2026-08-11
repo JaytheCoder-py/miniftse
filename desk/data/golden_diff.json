@@ -1,0 +1,38 @@
+{
+  "pinned": true,
+  "master": {
+    "name": "reference",
+    "git_sha": "27502f6d0c391ba5cec02e8c9acd4538c0b7815a",
+    "created_at": "2026-08-11T08:24:12.305555+00:00",
+    "content_hash": "7f0d834899e50a771e2fff1c2ec6e6d4",
+    "tolerance_bps": 0.1,
+    "n_rows": 2311,
+    "metrics": {
+      "n_rows": 2311,
+      "final_price_return": 1247.433214051917,
+      "final_gross_total_return": 1501.237999396893,
+      "final_net_total_return": 1434.988981320357,
+      "final_divisor": 584927050.0648037,
+      "start": "2016-01-04",
+      "end": "2024-12-30"
+    }
+  },
+  "comparison": {
+    "passed": true,
+    "n_compared": 2311,
+    "max_diff_bps": 0.0,
+    "mean_diff_bps": 0.0,
+    "first_divergence": null,
+    "divergent_dates": [],
+    "missing_dates": [],
+    "extra_dates": [],
+    "column_diffs": {
+      "price_return": 0.0,
+      "gross_total_return": 0.0,
+      "net_total_return": 0.0,
+      "divisor": 0.0
+    },
+    "message": "Golden master matched: 2311 dates, largest difference 0.000000bp against a tolerance of 0.1bp."
+  },
+  "report": "Golden master matched: 2311 dates, largest difference 0.000000bp against a tolerance of 0.1bp.\n  Largest difference per column (bp):\n    price_return: 0.0000\n    gross_total_return: 0.0000\n    net_total_return: 0.0000\n    divisor: 0.0000"
+}

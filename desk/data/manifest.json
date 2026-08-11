@@ -1,0 +1,36 @@
+{
+  "git_sha": "c742fb0a9bea848a1ad807c76491dbd1bc325cd7",
+  "git_dirty": true,
+  "created_at": "2026-08-11T10:42:18.863730+00:00",
+  "index_id": "MFTSE-GLOBAL",
+  "build_spec": {
+    "index_id": "MFTSE-GLOBAL",
+    "n_securities": 300,
+    "seed": 20260809,
+    "universe_fingerprint": "b1df464ef4b24e9a",
+    "start": "2016-01-04",
+    "end": "2024-12-31"
+  },
+  "duration_seconds": 28.2,
+  "files": {
+    "capacity.json": "48510741d251144d905bff43f0f63435e79b1857e745f1e0f687ffc286f9c1a0",
+    "chaos_baseline/corp_actions.parquet": "f6eec6e26faef5969f4bd2dba1d072365a567df7337cc6f31f13d71450901f33",
+    "chaos_baseline/divisor_audit.parquet": "fec0c42772e680b72833f89cc910b9745c095ba325589f4e71912873822ff9ee",
+    "chaos_baseline/fx.parquet": "1335abfbd802060f7375ff15fb3e6153c4ada00f9f08fa8a1cbb3eaab238fe76",
+    "chaos_baseline/meta.json": "a1df1c3353bb2ad29d3b4ab0d3698f674ac78276c74968b148d9e71e879b74fc",
+    "chaos_baseline/prices.parquet": "453ebfe2603e6de62e3f97a46cabc07c4b651a69498fe0ba3e82c8ed234942e7",
+    "chaos_baseline/prior_fx.parquet": "d669c0f3715ef48038d2b50b7675ec66eecca4f6e69a0600944df2e1983812fa",
+    "chaos_baseline/prior_prices.parquet": "857fa9c0fc11e9190200e81343dbfe850bed1412d0da1a631b5d36d9070dcb05",
+    "chaos_baseline/shares.parquet": "97da8a3cc5a173f2c239975eef5964b0de3abd5eb35fe8f69d6a4b4418697718",
+    "chaos_baseline/weights.parquet": "eeaefe235371db14f0a3ccc0d473eaf7a9fa0f567340990347da3dd080d6bff0",
+    "chaos_precomputed.json": "0bd8e26e70220dbe8d57ef040cd4281196603c86c54a83751d0ea0e9374d3bdc",
+    "constituents.json": "7afd074d0df38fcbed8a70bcd8de4f0db461c9c9bc2054ab57d76f5103b51c6a",
+    "days.parquet": "8527a6d1e00a730d6d936e3aca4e61090f7259c1f41102fe294fd060e7b98c25",
+    "divisor_audit.parquet": "d6a1dddaa047e283b65959eb37e17d2820f02ded5032221fe1f6a30c4832ffe6",
+    "evals.json": "f694373df6ef43465f3330d310ca07d427f927807c609030c4966550887544e2",
+    "golden_diff.json": "e2a32eed1e42751a2feeb07a1887d2ac0aa1cdd3334be90330e83a755b34b49a",
+    "overview.json": "538c987bc3d3397f905434920660f1cf2f1aaf9e13de6006b80e776c88962a3c",
+    "reviews.parquet": "e6ad18830714a84ed5c7cabaa16815e1ddcfd6dd3f7b92d6d21699db26b7cdbc",
+    "risk_attribution.json": "cb6d2cf6e0051d3cbf7175df6bc81545d4460e8818b9ee1ad7fe32453649c4b6"
+  }
+}

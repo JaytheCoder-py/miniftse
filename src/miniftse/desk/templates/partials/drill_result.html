@@ -1,0 +1,60 @@
+{# Chaos console's live-drill fragment (Task 7). Rendered by POST /chaos/run and
+   swapped by HTMX into #drill-result on chaos.html. Not a full page - it does not
+   extend base.html - because it is only ever loaded as an HTMX swap target, never
+   navigated to directly.
+
+   Two render paths, chosen by the route: `timed_out` set and `precomputed` given, if
+   the live drill blew its `_DRILL_TIMEOUT_SECONDS` budget; otherwise `outcome`, a
+   freshly-run `services.DrillOutcome`. Both repeat chaos.html's expected-vs-actual
+   emphasis: a fault caught by a rule other than its `expected_detector` is a finding,
+   not a pass. #}
+
+{% if timed_out %}
+  <p class="badge-timeout" data-testid="precomputed-badge">
+    showing precomputed result &mdash; the live drill exceeded its time budget
+  </p>
+  {% set is_gap = precomputed.detected and not precomputed.caught_by_expected %}
+  <h3>{{ precomputed.fault_id }} &mdash; {{ precomputed.fault_name }}</h3>
+  <table>
+    <tbody>
+      <tr><th>Detected</th><td>{{ "yes" if precomputed.detected else "no" }}</td></tr>
+      <tr><th>Detected by</th><td>{{ precomputed.detected_by if precomputed.detected_by else "none" }}</td></tr>
+      <tr class="{{ 'finding' if is_gap else '' }}">
+        <th>Expected detector</th>
+        <td>
+          {{ precomputed.expected_detector }}
+          {% if is_gap %}
+            <span class="finding-label">caught by the wrong rule</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr><th>Severity</th><td>{{ precomputed.highest_severity }}</td></tr>
+      <tr><th>Publication blocked</th><td>{{ "yes" if precomputed.blocked_publication else "no" }}</td></tr>
+    </tbody>
+  </table>
+  <p class="realism-note">{{ precomputed.realism }}</p>
+{% else %}
+  {% set is_gap = outcome.detected and outcome.expected_detector not in outcome.detected_by %}
+  <h3>{{ outcome.fault_id }} &mdash; {{ outcome.fault_name }} (seed {{ seed }})</h3>
+  <table>
+    <tbody>
+      <tr><th>Detected</th><td>{{ "yes" if outcome.detected else "no" }}</td></tr>
+      <tr><th>Detected by</th><td>{{ outcome.detected_by|join(", ") if outcome.detected_by else "none" }}</td></tr>
+      <tr class="{{ 'finding' if is_gap else '' }}">
+        <th>Expected detector</th>
+        <td>
+          {{ outcome.expected_detector }}
+          {% if is_gap %}
+            <span class="finding-label">caught by the wrong rule</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr><th>Severity</th><td>{{ outcome.severity }}</td></tr>
+      <tr><th>Publication blocked</th><td>{{ "yes" if outcome.publication_blocked else "no" }}</td></tr>
+    </tbody>
+  </table>
+  <p class="realism-note">{{ outcome.realism }}</p>
+  {% if outcome.coverage_gap %}
+    <p class="coverage-gap-note">{{ outcome.coverage_gap }}</p>
+  {% endif %}
+{% endif %}

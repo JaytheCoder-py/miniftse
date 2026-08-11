@@ -215,15 +215,23 @@ class DrillOutcome:
     one sentence from `run_chaos_drill`'s gap list that concerns this fault, or `None`
     if it was caught by the rule meant to catch it, or if it could not be injected into
     this cross-section at all.
+
+    `fault_name` and `detail` (Task 7 widening): copied straight off the same drill row
+    `detected`/`expected_detector`/etc. already come from - no new computation, just two
+    more fields the `/chaos/run` fragment wants for display (a human-readable name next
+    to the id, and the one-line detail of what the injector actually did) that the
+    original Task 6 shape happened not to need.
     """
 
     fault_id: str
+    fault_name: str
     detected: bool
     detected_by: tuple[str, ...]
     expected_detector: str
     severity: str
     publication_blocked: bool
     realism: str
+    detail: str
     coverage_gap: str | None
 
 
@@ -252,14 +260,54 @@ def run_drill(state: DeskState, fault_id: str, seed: int) -> DrillOutcome:
 
     return DrillOutcome(
         fault_id=str(row["fault_id"]),
+        fault_name=str(row["fault_name"]),
         detected=bool(row["detected"]),
         detected_by=_split_detected_by(row["detected_by"]),
         expected_detector=str(row["expected_detector"]),
         severity=str(row["highest_severity"]),
         publication_blocked=bool(row["blocked_publication"]),
         realism=fault.realism,
+        detail=str(row["detail"]),
         coverage_gap=gaps[0] if gaps else None,
     )
+
+
+def chaos_drill_rows(state: DeskState) -> list[dict[str, Any]]:
+    """The 12 precomputed drill rows (`state.chaos_precomputed["drill"]`), each carrying
+    its fault's `realism` string alongside the fields `desk/snapshot.py` already wrote
+    (`fault_id`, `fault_name`, `detected`, `detected_by`, `expected_detector`,
+    `caught_by_expected`, `highest_severity`, `blocked_publication`, `detail`).
+
+    `chaos_precomputed.json` does not carry `realism` itself - see `DrillOutcome`'s
+    docstring for why (it lives on `Fault`, not `DrillResult`). Joined here, once, so
+    the `/chaos` GET route (Task 7) does not need a `FAULTS` lookup of its own - the
+    module docstring's "no retrieval logic in the route" rule covers the GET handler
+    the same way `run_drill` already covers the POST.
+    """
+    return [
+        {**row, "realism": _FAULTS_BY_ID[str(row["fault_id"])].realism}
+        for row in state.chaos_precomputed["drill"]
+    ]
+
+
+def precomputed_drill_row(state: DeskState, fault_id: str) -> dict[str, Any]:
+    """The one precomputed drill row for `fault_id`, from
+    `state.chaos_precomputed["drill"]`, with `realism` joined in the same way
+    `chaos_drill_rows` does.
+
+    Used by the `/chaos/run` POST route's timeout fallback (Task 7): if the live drill
+    exceeds its time budget, the route falls back to what `desk/snapshot.py` already
+    computed for this fault, rather than leaving the request to hang or return an error
+    for something the desk already has an answer to.
+
+    Raises `KeyError` for a `fault_id` outside the precomputed set - the route validates
+    `fault_id` against `quality.faults.FAULTS` before ever calling this, so that should
+    only happen if the two closed sets ever disagree, not on ordinary bad input.
+    """
+    for row in state.chaos_precomputed["drill"]:
+        if str(row["fault_id"]) == fault_id:
+            return {**row, "realism": _FAULTS_BY_ID[fault_id].realism}
+    raise KeyError(fault_id)
 
 
 # --------------------------------------------------------------------------------------

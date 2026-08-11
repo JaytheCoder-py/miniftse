@@ -627,3 +627,199 @@ def test_run_drill_does_not_mutate_the_shared_baseline(desk_state):
     first = run_drill(desk_state, fault_id, seed)
     second = run_drill(desk_state, fault_id, seed)
     assert first == second
+
+
+# --------------------------------------------------------------------------------------
+# Task 7: Screen 2 - `/chaos` and `/chaos/run` routes
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_chaos_get_lists_all_twelve_fault_names(client):
+    """The GET renders the precomputed drill table - every one of the 12 faults, by
+    name, must appear on the page."""
+    from miniftse.quality.faults import FAULTS
+
+    response = client.get("/chaos")
+
+    assert response.status_code == 200
+    assert len(FAULTS) == 12
+    body = response.text
+    for fault in FAULTS:
+        assert fault.name in body
+
+
+@pytest.mark.slow
+def test_chaos_get_shows_wrong_rule_finding_when_precomputed_disagrees(client, desk_state):
+    """Whichever precomputed rows were caught by a rule other than their
+    `expected_detector` must be visibly labelled a finding, not a pass - that column
+    pair is the reason the screen exists."""
+    rows = desk_state.chaos_precomputed["drill"]
+    gap_rows = [r for r in rows if r["detected"] and not r["caught_by_expected"]]
+    if not gap_rows:
+        pytest.skip("fixture's precomputed drill has no expected != actual row")
+
+    response = client.get("/chaos")
+
+    assert response.status_code == 200
+    assert "caught by the wrong rule" in response.text.lower()
+
+
+@pytest.mark.slow
+def test_chaos_get_marks_wrong_rule_row_deterministically(desk_data_dir, monkeypatch):
+    """Exercises the finding styling directly with a synthetic row (detected, but not
+    by `expected_detector`), independent of whether the fixture's real precomputed
+    drill happens to contain such a case."""
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk import app as app_module
+
+    synthetic_row = {
+        "fault_id": "F01", "fault_name": "price off by 10x", "detected": True,
+        "detected_by": "ohlc_consistency", "expected_detector": "price_outliers",
+        "caught_by_expected": False, "highest_severity": "BLOCK",
+        "blocked_publication": True, "detail": "synthetic row for this test",
+        "realism": "n/a",
+    }
+    monkeypatch.setattr(app_module, "chaos_drill_rows", lambda desk: [synthetic_row])
+
+    with TestClient(app_module.create_app(data_dir=desk_data_dir)) as c:
+        response = c.get("/chaos")
+
+    assert response.status_code == 200
+    assert "caught by the wrong rule" in response.text.lower()
+
+
+@pytest.mark.slow
+def test_chaos_run_valid_returns_html_fragment(client, desk_state):
+    """A valid POST returns 200 and a bare fragment - not a full page (no nav/banner
+    chrome), since it is meant to be swapped into the `/chaos` page by HTMX."""
+    fault_id = desk_state.chaos_precomputed["drill"][0]["fault_id"]
+
+    response = client.post("/chaos/run", data={"fault_id": fault_id, "seed": "1"})
+
+    assert response.status_code == 200
+    assert fault_id in response.text
+    assert "site-header" not in response.text
+    assert "<!doctype" not in response.text.lower()
+
+
+@pytest.mark.slow
+def test_chaos_run_unknown_fault_id_is_400(client):
+    response = client.post("/chaos/run", data={"fault_id": "F99-nonsense", "seed": "1"})
+
+    assert response.status_code == 400
+    assert "Traceback" not in response.text
+
+
+@pytest.mark.slow
+def test_chaos_run_negative_seed_is_400(client, desk_state):
+    fault_id = desk_state.chaos_precomputed["drill"][0]["fault_id"]
+
+    response = client.post("/chaos/run", data={"fault_id": fault_id, "seed": "-1"})
+
+    assert response.status_code == 400
+
+
+@pytest.mark.slow
+def test_chaos_run_seed_above_range_is_400(client, desk_state):
+    fault_id = desk_state.chaos_precomputed["drill"][0]["fault_id"]
+
+    response = client.post("/chaos/run", data={"fault_id": fault_id, "seed": "1000000"})
+
+    assert response.status_code == 400
+
+
+@pytest.mark.slow
+def test_chaos_run_non_integer_seed_is_400_not_422(client, desk_state):
+    """The plan requires 400 for every bad input on this route - FastAPI's default 422
+    for a non-int form field is not acceptable, so the route must validate the raw
+    string itself rather than declaring `seed: int = Form(...)`."""
+    fault_id = desk_state.chaos_precomputed["drill"][0]["fault_id"]
+
+    response = client.post("/chaos/run", data={"fault_id": fault_id, "seed": "abc"})
+
+    assert response.status_code == 400
+
+
+@pytest.mark.slow
+def test_chaos_run_marks_wrong_rule_deterministically(desk_data_dir, monkeypatch):
+    """Exercises the fragment's finding styling directly with a synthetic
+    `DrillOutcome` (detected, but not by `expected_detector`), independent of whether
+    any real fault in the fixture happens to be caught by the wrong rule."""
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk import app as app_module
+    from miniftse.desk.services import DrillOutcome
+
+    synthetic_outcome = DrillOutcome(
+        fault_id="F01", fault_name="price off by 10x", detected=True,
+        detected_by=("ohlc_consistency",), expected_detector="price_outliers",
+        severity="BLOCK", publication_blocked=True, realism="n/a",
+        detail="synthetic outcome for this test", coverage_gap=None,
+    )
+    monkeypatch.setattr(
+        app_module, "run_drill", lambda state, fault_id, seed: synthetic_outcome
+    )
+
+    with TestClient(app_module.create_app(data_dir=desk_data_dir)) as c:
+        response = c.post("/chaos/run", data={"fault_id": "F01", "seed": "1"})
+
+    assert response.status_code == 200
+    assert "caught by the wrong rule" in response.text.lower()
+
+
+@pytest.mark.slow
+def test_chaos_run_shows_wrong_rule_finding_for_a_live_mismatch(client, desk_state):
+    """If any fault's live outcome at the precomputed seed was caught by a rule other
+    than its `expected_detector`, the fragment must carry the same visible finding
+    label the table does."""
+    from miniftse.desk.services import run_drill
+
+    seed = desk_state.chaos_precomputed["seed"]
+    mismatch = None
+    for row in desk_state.chaos_precomputed["drill"]:
+        outcome = run_drill(desk_state, row["fault_id"], seed)
+        if outcome.detected and outcome.expected_detector not in outcome.detected_by:
+            mismatch = outcome
+            break
+    if mismatch is None:
+        pytest.skip("no fault in this fixture is caught by the wrong rule at this seed")
+
+    response = client.post(
+        "/chaos/run", data={"fault_id": mismatch.fault_id, "seed": str(seed)}
+    )
+
+    assert response.status_code == 200
+    assert "caught by the wrong rule" in response.text.lower()
+
+
+@pytest.mark.slow
+def test_chaos_run_timeout_falls_back_to_precomputed_with_badge(
+    desk_data_dir, desk_state, monkeypatch
+):
+    """A live drill that blows its time budget must still answer with a 200: the
+    precomputed row for the same fault, with a visible "showing precomputed result"
+    badge - never a hang and never an error page."""
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from miniftse.desk import app as app_module
+
+    real_run_drill = app_module.run_drill
+
+    def _slow_run_drill(state, fault_id, seed):
+        time.sleep(0.2)
+        return real_run_drill(state, fault_id, seed)
+
+    monkeypatch.setattr(app_module, "run_drill", _slow_run_drill)
+    monkeypatch.setattr(app_module, "_DRILL_TIMEOUT_SECONDS", 0.01)
+
+    fault_id = desk_state.chaos_precomputed["drill"][0]["fault_id"]
+    with TestClient(app_module.create_app(data_dir=desk_data_dir)) as c:
+        response = c.post("/chaos/run", data={"fault_id": fault_id, "seed": "1"})
+
+    assert response.status_code == 200
+    assert "showing precomputed result" in response.text.lower()
+    assert fault_id in response.text

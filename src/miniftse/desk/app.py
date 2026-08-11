@@ -16,24 +16,53 @@ itself, and uvicorn is run in factory mode: `uvicorn miniftse.desk.app:create_ap
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, Response
+import anyio.to_thread
+from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from miniftse.desk.services import available_dates, explain_day, notable_days
+from miniftse.desk.services import (
+    available_dates,
+    chaos_drill_rows,
+    explain_day,
+    notable_days,
+    precomputed_drill_row,
+    run_drill,
+)
 from miniftse.desk.state import DeskState, load_desk_state
+from miniftse.quality.faults import FAULTS
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates"
 STATIC_DIR = PACKAGE_DIR / "static"
+
+_VALID_FAULT_IDS = frozenset(fault.fault_id for fault in FAULTS)
+"""The closed set `/chaos/run` validates a requested `fault_id` against, mirroring how
+`/day` validates `date` against `available_dates` before calling a service function at
+all - see that route's docstring for why this lives in the route rather than being
+discovered via `run_drill`'s `KeyError` (a bad id should never even reach the
+semaphore/thread/timeout machinery below it)."""
+
+_DRILL_CONCURRENCY = 2
+"""How many live chaos drills may run at once, across every request this process is
+serving. `services.run_drill` re-runs the full validation engine against a fresh copy
+of the baseline - not free - so an unbounded fan-out of concurrent POSTs could starve
+the process; a small fixed pool is the plan's answer, not a queue or a rate limiter."""
+
+_DRILL_TIMEOUT_SECONDS = 10.0
+"""How long `/chaos/run` waits for a live drill before falling back to the precomputed
+row for the same fault (see `chaos_run` below). A module-level name, not a literal
+inline at the call site, so a test can shrink it (`monkeypatch.setattr`) to exercise the
+timeout path without an actually-slow drill."""
 
 
 def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
@@ -62,6 +91,11 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
     app = FastAPI(title="miniftse ops desk", lifespan=lifespan)
     app.state.templates = templates
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    # Bounds how many live chaos drills (`/chaos/run`, below) may run at once across
+    # every request this app instance serves. Built once, here - not inside the route
+    # handler, which would hand every request its own fresh semaphore and bound
+    # nothing at all.
+    app.state.drill_semaphore = asyncio.Semaphore(_DRILL_CONCURRENCY)
 
     @app.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:
@@ -114,6 +148,96 @@ def create_app(data_dir: Path = Path("desk/data")) -> FastAPI:
                 "notable": notable,
                 "explanation": explanation,
             },
+        )
+
+    @app.get("/chaos")
+    async def chaos(request: Request) -> Response:
+        """Screen 2: the chaos-drill console.
+
+        Renders `desk/snapshot.py`'s precomputed battery (`services.chaos_drill_rows`)
+        plus its coverage gaps - no drill runs on this GET. The live re-run lives
+        entirely behind the `/chaos/run` POST below; this handler does no more than
+        `/day`'s does: gather what services.py already computed, hand it to the
+        template.
+        """
+        desk: DeskState = request.app.state.desk
+        return templates.TemplateResponse(
+            request,
+            "chaos.html",
+            {
+                "rows": chaos_drill_rows(desk),
+                "gaps": desk.chaos_precomputed["gaps"],
+                "summary": desk.chaos_precomputed["summary"],
+                "seed": desk.chaos_precomputed["seed"],
+            },
+        )
+
+    @app.post("/chaos/run")
+    async def chaos_run(
+        request: Request,
+        fault_id: str = Form(...),
+        seed: str = Form(...),
+    ) -> Response:
+        """Screen 2's live drill: validate the raw form input, run one fault through
+        `services.run_drill` in a worker thread, and render the result fragment.
+
+        `seed` is declared `str`, not `int`: FastAPI would otherwise coerce the form
+        field itself via Pydantic and answer a non-numeric value with 422, but the plan
+        requires 400 for every invalid input on this route with no exceptions - so the
+        raw string is validated by hand below instead.
+
+        The live drill runs behind `app.state.drill_semaphore` (bounds concurrency to
+        `_DRILL_CONCURRENCY`) and `asyncio.wait_for(..., timeout=_DRILL_TIMEOUT_SECONDS)`
+        (bounds latency), via `anyio.to_thread.run_sync` so the synchronous drill -
+        `services.run_drill` reruns the whole validation engine - never blocks the event
+        loop. On timeout, the precomputed row for the same fault is rendered instead,
+        with a visible badge - a 200, never a hang and never an error page.
+
+        No drill logic lives here: validate, call `services.run_drill` (or, on timeout,
+        `services.precomputed_drill_row`), render. Both live entirely in services.py.
+        """
+        desk: DeskState = request.app.state.desk
+
+        if fault_id not in _VALID_FAULT_IDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{fault_id}' is not a known chaos-drill fault id.",
+            )
+        try:
+            seed_value = int(seed)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{seed}' is not a valid seed (expected an integer).",
+            ) from exc
+        if not (0 <= seed_value <= 999_999):
+            raise HTTPException(
+                status_code=400,
+                detail=f"seed must be between 0 and 999999, got {seed_value}.",
+            )
+
+        semaphore: asyncio.Semaphore = request.app.state.drill_semaphore
+        async with semaphore:
+            try:
+                outcome = await asyncio.wait_for(
+                    anyio.to_thread.run_sync(run_drill, desk, fault_id, seed_value),
+                    timeout=_DRILL_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                return templates.TemplateResponse(
+                    request,
+                    "partials/drill_result.html",
+                    {
+                        "timed_out": True,
+                        "precomputed": precomputed_drill_row(desk, fault_id),
+                        "seed": seed_value,
+                    },
+                )
+
+        return templates.TemplateResponse(
+            request,
+            "partials/drill_result.html",
+            {"timed_out": False, "outcome": outcome, "seed": seed_value},
         )
 
     @app.get("/healthz")

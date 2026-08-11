@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{# Screen 2: the chaos-drill console. `rows`, `gaps`, `summary` and `seed` are exactly
+   what `services.chaos_drill_rows` and `state.chaos_precomputed` already computed - no
+   drill logic and no fault-injection logic runs in this template. The live-drill form
+   at the top posts to `/chaos/run` via HTMX and swaps the fragment it returns into
+   `#drill-result`, below the form; see partials/drill_result.html for that fragment,
+   which repeats the same expected-vs-actual emphasis this page's table uses. #}
+
+{% block title %}Chaos console - miniftse ops desk{% endblock %}
+
+{% block content %}
+<style>
+  /* Screen-specific styling lives with the screen that introduces it (see
+     static/style.css's header comment) rather than growing the shared shell. */
+  .chaos-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+  .chaos-form label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 0.25rem;
+  }
+  .chaos-form select,
+  .chaos-form input {
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem;
+  }
+  .chaos-form select {
+    min-width: 20rem;
+    max-width: 100%;
+  }
+  .chaos-form input[type="number"] {
+    width: 8rem;
+  }
+  #drill-result {
+    margin-bottom: 1.5rem;
+  }
+  #drill-result p.placeholder {
+    color: var(--text-dim);
+    font-style: italic;
+    margin: 0;
+  }
+  section.card {
+    margin-bottom: 1.5rem;
+  }
+  .summary-note {
+    color: var(--text-dim);
+  }
+  /* The finding this whole screen exists to surface: a fault the rules caught, but by
+     a different rule than the one meant to catch it. Visually distinct from an
+     ordinary pass, not just labelled differently - shared by the precomputed table
+     below and by partials/drill_result.html's live-drill fragment, so it is not
+     scoped under `.drill-table`. */
+  tr.finding td, tr.finding th {
+    background: rgba(255, 107, 107, 0.1);
+  }
+  .finding-label {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: var(--radius);
+    background: var(--error);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  .drill-table tr.not-injected td {
+    color: var(--text-dim);
+    font-style: italic;
+  }
+  .drill-table details summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 0.85rem;
+  }
+  .drill-table details p {
+    margin: 0.4rem 0 0;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .no-gaps {
+    color: var(--text-dim);
+    font-style: italic;
+  }
+  /* The timeout fallback badge (partials/drill_result.html): loud enough that a
+     visitor cannot mistake a stale precomputed row for a fresh live result. */
+  .badge-timeout {
+    display: inline-block;
+    margin: 0 0 0.75rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: var(--radius);
+    background: var(--warn-bg);
+    color: var(--warn-text);
+    border: 1px solid var(--warn-border);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .realism-note, .coverage-gap-note {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin: 0.75rem 0 0;
+  }
+</style>
+
+<h1>Chaos console</h1>
+
+<form class="chaos-form card" hx-post="/chaos/run" hx-target="#drill-result" hx-swap="innerHTML">
+  <div>
+    <label for="fault-select">Fault</label>
+    <select id="fault-select" name="fault_id">
+      {% for row in rows %}
+        <option value="{{ row.fault_id }}">{{ row.fault_id }} - {{ row.fault_name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label for="seed-input">Seed</label>
+    <input id="seed-input" type="number" name="seed" min="0" max="999999" value="{{ seed }}">
+  </div>
+  <button type="submit" class="btn">Run live drill</button>
+</form>
+
+<section id="drill-result" class="card" aria-live="polite">
+  <p class="placeholder">Run a live drill above to see a fresh result here.</p>
+</section>
+
+<section class="card">
+  <h2>Precomputed battery</h2>
+  <p class="summary-note">{{ summary }} (seed {{ seed }})</p>
+  <table class="drill-table">
+    <thead>
+      <tr>
+        <th>Fault</th>
+        <th>Detected</th>
+        <th>Detected by</th>
+        <th>Expected detector</th>
+        <th>Severity</th>
+        <th>Publication blocked</th>
+        <th>Realism</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        {% set is_gap = row.detected and not row.caught_by_expected %}
+        {% set not_injected = row.detail.startswith("NOT INJECTED") %}
+        <tr class="{{ 'finding' if is_gap else '' }} {{ 'not-injected' if not_injected else '' }}">
+          <td>{{ row.fault_id }} &mdash; {{ row.fault_name }}</td>
+          <td>{{ "yes" if row.detected else "no" }}</td>
+          <td>{{ row.detected_by if row.detected_by else "-" }}</td>
+          <td>
+            {{ row.expected_detector }}
+            {% if is_gap %}
+              <span class="finding-label">caught by the wrong rule</span>
+            {% endif %}
+          </td>
+          <td>{{ row.highest_severity }}</td>
+          <td>{{ "yes" if row.blocked_publication else "no" }}</td>
+          <td>
+            <details>
+              <summary>Why this fault</summary>
+              <p>{{ row.realism }}</p>
+            </details>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Coverage gaps</h2>
+  {% if gaps %}
+    <ul>
+      {% for gap in gaps %}
+        <li>{{ gap }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="no-gaps">No coverage gaps in this precomputed run.</p>
+  {% endif %}
+</section>
+{% endblock %}

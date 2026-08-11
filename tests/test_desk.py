@@ -2024,6 +2024,29 @@ _INDEX_ARITHMETIC = re.compile(
 _ALLOWLIST_MARKER = "desk-arithmetic-allowlist:"
 
 
+def _arithmetic_violations(source: str, path: str = "<memory>") -> list[str]:
+    """Every line of `source` that trips `_INDEX_ARITHMETIC` and is not properly
+    allowlisted. A line is only exempt when it carries `_ALLOWLIST_MARKER` *with*
+    non-whitespace text after the colon: a bare marker exempts nothing, so typing the
+    token without writing down why leaves the line a violation. Factored out of the
+    tree-wide test so the reason rule can be pinned against fixed snippets the same
+    way `_INDEX_ARITHMETIC` itself is."""
+    violations = []
+    for lineno, line in enumerate(source.splitlines(), start=1):
+        if not _INDEX_ARITHMETIC.search(line):
+            continue
+        if _ALLOWLIST_MARKER in line:
+            reason = line.split(_ALLOWLIST_MARKER, 1)[1].strip()
+            if reason:
+                continue
+            violations.append(
+                f"{path}:{lineno}: allowlist marker carries no reason: {line.strip()}"
+            )
+            continue
+        violations.append(f"{path}:{lineno}: {line.strip()}")
+    return violations
+
+
 def test_desk_contains_no_index_arithmetic():
     """`desk/` is a surface over the library. Every number comes from a library call.
 
@@ -2041,14 +2064,15 @@ def test_desk_contains_no_index_arithmetic():
     (`services.py`'s module docstring explains why). It carries its own
     `# desk-arithmetic-allowlist: <reason>` marker rather than being carved out of the
     pattern here - an allowlist that lives on the line it exempts is one a future
-    violation elsewhere in the file cannot hide behind.
+    violation elsewhere in the file cannot hide behind. The reason is not decoration:
+    a marker with nothing after the colon exempts nothing (see
+    `_arithmetic_violations`), so every allowlisted line - current and future - has to
+    say *why*, not merely opt out.
     """
     violations = []
     root = pathlib.Path("src/miniftse/desk")
     for path in sorted(root.rglob("*.py")):
-        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
-            if _INDEX_ARITHMETIC.search(line) and _ALLOWLIST_MARKER not in line:
-                violations.append(f"{path}:{lineno}: {line.strip()}")
+        violations += _arithmetic_violations(path.read_text(), str(path))
 
     assert not violations, (
         "desk/ looks like it recomputed an index figure instead of reading one off "
@@ -2056,6 +2080,22 @@ def test_desk_contains_no_index_arithmetic():
         "legitimate case, mark it `# desk-arithmetic-allowlist: <reason>`:\n"
         + "\n".join(violations)
     )
+
+
+def test_allowlist_marker_without_a_reason_does_not_exempt_a_line():
+    """The tree-wide scan enforces the reason-required rule itself: a line that trips
+    `_INDEX_ARITHMETIC` and carries only the bare marker is still a violation. Before
+    this, any line containing the token was exempt and only the `_to_bps`-specific
+    test below demanded a reason - so a *second* allowlisted line anywhere under
+    `desk/` could have slipped through with a bare colon and nothing would have asked
+    why."""
+    bare = "x = ratio * 10_000  # desk-arithmetic-allowlist:"
+    reasoned = "x = ratio * 10_000  # desk-arithmetic-allowlist: sanctioned, see docstring"
+    clean = "x = read_column(frame)"
+
+    assert _arithmetic_violations(bare), "a bare marker must not exempt the line"
+    assert not _arithmetic_violations(reasoned)
+    assert not _arithmetic_violations(clean)
 
 
 def test_desk_arithmetic_allowlist_marker_is_actually_present_on_to_bps():

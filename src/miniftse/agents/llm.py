@@ -187,6 +187,79 @@ def _most_relevant(body: str, query_terms: set[str], budget: int = 520) -> str:
     return " ".join(s for _, s in chosen) or body[:budget]
 
 
+# --------------------------------------------------------------------------------------
+# The fact-pack drafting handler
+# --------------------------------------------------------------------------------------
+
+FACT_PACK_PROMPT = r"FACTS \(the only numbers you may use\)"
+"""The marker `drafter.FactPack.render()` opens every drafting prompt with. An
+`OfflineLlm` that should draft from a fact pack binds `restate_fact_pack` to this
+pattern; `_default` only recognises the `<context>...</context>` shape `agents/rag.py`'s
+retrieval prompts build, so without the handler the offline backend answers every
+drafting prompt with the retrieval refusal - a fact table on screen next to prose that
+ignores it entirely."""
+
+
+def restate_fact_pack(prompt: str, system: str | None) -> str:
+    """Draft by restating the prompt's own FACTS block - a template in the same spirit
+    as `_default`'s "restate the supplied evidence rather than inventing anything". It
+    rearranges values the caller already computed into prose and invents nothing; no
+    number is computed or verified here, both stay in `NumberGuard` and the fact-pack
+    builders, and `ClientResponseDrafter.draft` runs the guard on this output
+    unconditionally, exactly as it would on a real model's.
+
+    Deliberately quotes each fact's `key` and `formatted` value only - never the full
+    `Fact.line()` (which carries `description`/`source`) and never the CONTEXT block.
+    Two reasons, both the same shape: `FactPack.allowed_numbers()` only ever scans a
+    fact's *value* (in several roundings) and the raw context text, never a fact's
+    free-text `description` - `performance_facts` writes descriptions like "price
+    return over the last 21 sessions", and 21 (`period_days`) is not a fact value
+    anywhere in the pack, so echoing descriptions verbatim would have `NumberGuard`
+    block its own draft on a number that was only ever English, not a claim. And
+    `performance_facts`'s `as_of` context is an ISO-style date string ("2019-12-30
+    00:00:00"): `allowed_numbers()`'s naive regex reads "-12-30" as the *negative*
+    numbers -12 and -30, while `NumberGuard.check` strips leading signs from the draft
+    side - so a draft quoting that string back would compare a stripped "30" against
+    an allowed set that only ever recorded "-30", and lose. Both are pre-existing
+    properties of `agents/drafter.py`; the fix on this side is simply not to write a
+    draft that walks into either edge case.
+    """
+    del system
+    facts_block = re.search(FACT_PACK_PROMPT + r":\n(.*?)(?:\n\n|\Z)", prompt, re.DOTALL)
+    fact_lines = facts_block.group(1).splitlines() if facts_block else []
+    # Each line is `Fact.line()` behind a two-space indent:
+    # `  {key} = {formatted}  ({description}; source: {source})`.
+    facts = [
+        (match.group("key"), match.group("formatted"))
+        for line in fact_lines
+        if (match := re.match(r"\s*(?P<key>\S+) = (?P<formatted>.*?)\s{2}\(", line))
+    ]
+
+    question_match = re.search(r"CLIENT QUESTION:\n(.*?)(?:\n\n|\Z)", prompt, re.DOTALL)
+    question = question_match.group(1).strip() if question_match else ""
+
+    lines = [f'In response to your question, "{question}":', ""]
+    lines += [f"- {key.replace('_', ' ')}: {formatted}" for key, formatted in facts]
+    lines += [
+        "",
+        "Every figure above comes from the index's computed history; nothing has been "
+        "estimated, projected, or supplied by a model.",
+    ]
+    return "\n".join(lines)
+
+
+def offline_drafting_client() -> OfflineLlm:
+    """An `OfflineLlm` that can actually draft from a fact-pack prompt.
+
+    `OfflineLlm.handlers` is itself the extension point for exactly this kind of
+    composition - the handler is registered on the fact-pack prompt shape, not on
+    `.*`, so a client built here still answers retrieval prompts through `_default`
+    and its abstention behaviour, unchanged. A bare `OfflineLlm()` keeps refusing
+    drafting prompts; opting into drafting is this one function call.
+    """
+    return OfflineLlm(handlers={FACT_PACK_PROMPT: restate_fact_pack})
+
+
 @dataclass
 class AnthropicLlm(LlmClient):
     """Anthropic Claude via the Messages API.

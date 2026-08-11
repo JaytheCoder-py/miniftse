@@ -32,7 +32,7 @@ from miniftse.agents.drafter import (
     NumberGuard,
     performance_facts,
 )
-from miniftse.agents.llm import OfflineLlm
+from miniftse.agents.llm import offline_drafting_client
 from miniftse.agents.rag import RetrievedAnswer
 from miniftse.corpactions.events import apply_order
 from miniftse.desk.state import DeskState
@@ -247,9 +247,9 @@ class DraftQuestion:
     `period_days` varies the horizon `performance_facts` reports over, which is what
     gives the three questions genuinely different fact packs rather than three copies of
     the same one. `guidance` is passed straight to `ClientResponseDrafter.draft` -
-    inert under the offline template `_offline_fact_restatement` below (it ignores the
-    prompt entirely), kept for when a real backend (`MINIFTSE_LLM=anthropic`) drafts
-    instead.
+    inert under the offline template (`agents.llm.restate_fact_pack` reads only the
+    FACTS and CLIENT QUESTION blocks of the prompt), kept for when a real backend
+    (`MINIFTSE_LLM=anthropic`) drafts instead.
     """
 
     question_id: int
@@ -330,6 +330,14 @@ def render_draft(state: DeskState, question_id: int, inject_bad_number: bool) ->
     `_fabricate_unverified_sentence`, which only accepts a candidate number once it has
     confirmed the guard does not already recognise it); this function does not decide
     that outcome itself.
+
+    The offline client comes from `agents.llm.offline_drafting_client` - the handler
+    that restates a fact pack's key/formatted values (and deliberately nothing else;
+    its docstring explains the two `NumberGuard` edge cases that rule out echoing
+    descriptions or context) lives beside `OfflineLlm`, not here. The full fact table -
+    description, source and context included - is still shown separately in
+    `partials/draft_result.html`, straight from `outcome.response.fact_pack`; that
+    render path never goes through the guard.
     """
     if not (0 <= question_id < len(DRAFT_QUESTIONS)):
         raise IndexError(
@@ -339,7 +347,7 @@ def render_draft(state: DeskState, question_id: int, inject_bad_number: bool) ->
     question = DRAFT_QUESTIONS[question_id]
     pack = performance_facts(_history_adapter(state), period_days=question.period_days)
 
-    drafter = ClientResponseDrafter(client=_offline_drafting_client(pack, question.text))
+    drafter = ClientResponseDrafter(client=offline_drafting_client())
     response = drafter.draft(question.text, pack, guidance=question.guidance)
     base_draft = response.draft
 
@@ -379,63 +387,6 @@ def _history_adapter(state: DeskState) -> Any:
         annualised_vol=lambda: float(stats["annualised_vol"]),
         max_drawdown=lambda: float(stats["max_drawdown"]),
     )
-
-
-def _offline_drafting_client(pack: FactPack, question: str) -> OfflineLlm:
-    """An `OfflineLlm` that can actually draft from a fact-pack prompt.
-
-    `OfflineLlm._default` (`agents/llm.py`) only recognises the `<context>...</context>`
-    shape `agents/rag.py`'s retrieval prompts build; `ClientResponseDrafter.draft`'s
-    prompt (`FactPack.render()` plus the question) has no such tag, so without a handler
-    here the deployed offline default would draft the same generic refusal
-    ("I cannot answer that from the methodology documents available...") for every
-    canned question, whatever the fact pack held - a demo that shows a real fact table
-    next to prose that ignores it entirely.
-
-    The handler below is a template only, in the same spirit as `_default`'s own
-    "restate the supplied evidence rather than inventing anything": it rearranges
-    `Fact` values the caller already computed into prose and invents nothing - no number
-    is computed or verified here, both stay in `NumberGuard` and the fact-pack builders.
-    `OfflineLlm.handlers` is itself the extension point for exactly this kind of
-    composition, not a new one introduced by the desk.
-
-    Deliberately quotes each `Fact`'s `key`/`formatted` value only - never
-    `fact.line()` (which also carries `description`/`source`), and never
-    `pack.context`. Two reasons, both the same shape: `FactPack.allowed_numbers()`
-    only ever scans a fact's *value* (in several roundings, signed and unsigned) and
-    `pack.context`'s raw text, never a fact's free-text `description` -
-    `performance_facts` writes descriptions like "price return over the last 21
-    sessions", and 21 (`period_days`) is not a fact value anywhere in the pack, so
-    echoing descriptions verbatim would have `NumberGuard` block its own draft on a
-    number that was only ever English, not a claim. And `performance_facts`'s
-    `as_of` context text is an ISO-style date string ("2019-12-30 00:00:00"): the same
-    naive `_NUMBER` regex `allowed_numbers()` scans it with reads "-12-30" as containing
-    the *negative* numbers -12 and -30 (a dash read as a minus sign), while
-    `NumberGuard.check` strips leading signs when extracting numbers from the draft
-    itself - so a draft that quoted this string back would compare a stripped "30"
-    against an allowed set that only ever recorded the signed "-30", and lose. Both are
-    pre-existing properties of `agents/drafter.py`, not bugs introduced here; the fix on
-    this side is simply not to build a demo draft that walks into either edge case. The
-    full fact table (description, source and context included) is still shown
-    separately in `partials/draft_result.html`, straight from `outcome.response.
-    fact_pack` - that render path never goes through the guard.
-    """
-
-    def _restate_facts(prompt: str, system: str | None) -> str:
-        del prompt, system
-        lines = [f'In response to your question, "{question}":', ""]
-        lines += [
-            f"- {fact.key.replace('_', ' ')}: {fact.formatted}"
-            for fact in pack.facts.values()
-        ]
-        lines += [
-            "",
-            "Every figure above comes from the index's computed history; nothing has "
-            "been estimated, projected, or supplied by a model.",
-        ]
-        return "\n".join(lines)
-
-    return OfflineLlm(handlers={".*": _restate_facts})
 
 
 def _fabricate_unverified_sentence(pack: FactPack) -> str:

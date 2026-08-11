@@ -442,3 +442,43 @@ class TestAiLayer:
                                    pack)
         assert not result.passed
         assert "0.42" in result.unverified_numbers
+
+    def test_offline_drafting_client_restates_only_fact_values(self) -> None:
+        """The drafting handler quotes each fact's key and formatted value and nothing
+        else. The pack below carries both known guard traps on purpose: a description
+        whose "21 sessions" holds a number that is English rather than a fact, and an
+        `as_of` context string whose date fragments `allowed_numbers()` records signed
+        but `NumberGuard.check` extracts stripped. Echoing either would block the
+        draft; the handler must walk into neither."""
+        from miniftse.agents.drafter import ClientResponseDrafter, FactPack
+        from miniftse.agents.llm import offline_drafting_client
+
+        pack = FactPack()
+        pack.add("price_return_period", 0.0234,
+                 "price return over the last 21 sessions", "IndexHistory.levels")
+        pack.add_text("as_of", "2019-12-30 00:00:00")
+        question = "How has the index performed over the past month?"
+
+        drafter = ClientResponseDrafter(client=offline_drafting_client())
+        response = drafter.draft(question, pack)
+
+        assert response.guard.passed, response.guard.message
+        assert question in response.draft
+        assert "2.34%" in response.draft            # the formatted value, restated
+        assert "price return period" in response.draft  # the key, underscores spaced
+        assert "21 sessions" not in response.draft  # never the free-text description
+        assert "2019-12-30" not in response.draft   # never the raw context string
+
+    def test_plain_offline_llm_still_refuses_the_fact_pack_prompt(self) -> None:
+        """The drafting handler is opt-in composition, not new default behaviour: a
+        bare `OfflineLlm` - the RAG default, and what `ClientResponseDrafter()` gets
+        without a client - must keep refusing a prompt that carries no `<context>`
+        block, exactly as before the handler moved into `agents/llm.py`."""
+        from miniftse.agents.drafter import ClientResponseDrafter, FactPack
+
+        pack = FactPack()
+        pack.add("index_return", 0.082, "index return", "IndexHistory")
+
+        response = ClientResponseDrafter().draft("How did the index perform?", pack)
+
+        assert "cannot answer" in response.draft

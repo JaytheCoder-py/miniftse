@@ -58,6 +58,13 @@ addopts = "-q --strict-markers"
 markers = [
     "slow: integration tests that build a full history or run an orchestrator",
 ]
+filterwarnings = [
+    # Importing starlette's TestClient warns that its httpx transport is deprecated in
+    # favour of httpx2. That migration is a dependency decision to take once, in
+    # pyproject, not a banner to reprint on every test run - and a suite whose output
+    # is routinely noisy trains people to stop reading it. Everything else stays loud.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+]
 
 [tool.mypy]
 # Strict by default. The relaxations below are per-module and each has a reason;

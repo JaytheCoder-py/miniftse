@@ -147,13 +147,46 @@ jobs:
         # `--target runtime`: the Dockerfile's last stage is now `desk` (Task 14), so a
         # plain `docker build .` would build the ops-desk image instead of the index
         # builder this job has always smoke-tested. Pinning the target keeps this job
-        # testing what it always tested; the desk image has no docker-based CI check of
-        # its own; the `desk-snapshot` job above is the check for its build step.
+        # testing what it always tested; the desk image gets its own build-and-serve
+        # smoke test in the `desk-image` job below.
         run: docker build --target runtime -t miniftse:${{ github.sha }} .
       - name: smoke test the image
         run: |
           docker run --rm miniftse:${{ github.sha }} \
             miniftse build-index --securities 60 --start 2016-01-04 --end 2017-12-29
+
+  desk-image:
+    name: desk container smoke test
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker build the deployable desk image
+        # `--target desk` is the stage a Hugging Face Space actually deploys - a plain
+        # `docker build .` lands on it, being last in the Dockerfile - and it was the
+        # one deployable artefact CI never built: the `build` job pins `--target
+        # runtime`, and the `desk-snapshot` job exercises snapshot *generation*, not
+        # the image that serves the committed snapshot.
+        run: docker build --target desk -t miniftse-desk:${{ github.sha }} .
+      - name: serve the committed snapshot and hit /healthz
+        # The same startup contract desk/README.md's deploy runbook checks by hand:
+        # uvicorn up within a bounded wait, /healthz answering 200 over the committed
+        # desk/data/ snapshot. Logs are printed either way - a failed start with no
+        # logs is undiagnosable from CI output alone - and the container is created
+        # without --rm so a crashed one still has logs to print.
+        run: |
+          docker run --detach --name desk -p 7860:7860 miniftse-desk:${{ github.sha }}
+          ok=""
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:7860/healthz; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          docker logs desk
+          docker rm --force desk
+          test -n "$ok"
 
   nightly-alert:
     name: open an issue if the nightly run fails

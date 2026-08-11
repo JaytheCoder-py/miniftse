@@ -473,6 +473,16 @@ def _constituents(weights: pd.DataFrame, state: dict[str, Any]) -> list[dict[str
             "size_band": meta.get("size_band", ""),
         })
     rows.sort(key=lambda r: r["weight"], reverse=True)
+    if rows and all(row["adv"] == 0.0 for row in rows):
+        # One unmatched security id is a data wrinkle (that row shows adv 0.0); every
+        # id unmatched means the weights frame and the state file disagree about what
+        # the index holds, and the capacity.json built from this list would render a
+        # capacity screen on which nothing can trade. Fail fast, or write nothing.
+        raise SnapshotError(
+            "every constituent's adv is zero - the weight snapshot's security ids "
+            "match nothing in the final state file, so capacity.json would be "
+            "plausible-looking and useless"
+        )
     return rows
 
 

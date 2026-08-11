@@ -166,6 +166,42 @@ def test_build_snapshot_writes_every_expected_file(tmp_path):
         assert (tmp_path / name).exists(), f"snapshot did not write {name}"
 
 
+def test_constituents_raises_when_every_adv_is_zero():
+    """A weights frame whose security ids share nothing with the state dict yields a
+    constituents list where every adv is `meta.get`'s 0.0 default - and the
+    capacity.json built from that renders a capacity screen on which nothing can
+    trade. One missing key is a data wrinkle; a total key mismatch is a build defect,
+    so it must raise rather than emit a plausible-looking useless file."""
+    from miniftse.desk.snapshot import SnapshotError, _constituents
+
+    weights = pd.DataFrame({
+        "date": [dt.date(2020, 6, 30)] * 2,
+        "security_id": ["S1", "S2"],
+        "weight": [0.6, 0.4],
+    })
+
+    with pytest.raises(SnapshotError, match="adv"):
+        _constituents(weights, {"WRONG-KEY": {"adv": 1_000.0}})
+
+
+def test_constituents_tolerates_a_partial_state_mismatch():
+    """The inverse bound: one unmatched security id is not the defect the guard
+    exists for - that constituent carries adv 0.0 and the build proceeds."""
+    from miniftse.desk.snapshot import _constituents
+
+    weights = pd.DataFrame({
+        "date": [dt.date(2020, 6, 30)] * 2,
+        "security_id": ["S1", "S2"],
+        "weight": [0.6, 0.4],
+    })
+
+    rows = _constituents(weights, {"S1": {"adv": 1_000.0}})
+
+    assert [row["security_id"] for row in rows] == ["S1", "S2"]
+    assert rows[0]["adv"] == 1_000.0
+    assert rows[1]["adv"] == 0.0
+
+
 def test_build_snapshot_fails_loudly_on_missing_artefact(tmp_path, monkeypatch):
     """A partial snapshot must never be written."""
     from miniftse.desk import snapshot as snap

@@ -38,6 +38,15 @@ def git_sha(repo: Path | None = None) -> tuple[str, bool]:
     A dirty tree means the manifest cannot fully identify the code, so it is recorded
     explicitly rather than silently ignored. A production run from a dirty tree is a
     finding in itself.
+
+    "Dirty" here means a tracked file has local modifications (`--untracked-files=no`),
+    not merely that untracked files exist. An untracked file cannot have changed a
+    tracked build input - by definition nothing in the committed tree references it -
+    so counting it toward "dirty" would only ever produce false positives: a build
+    directory the caller writes its own output into (this module's `desk/snapshot.py`
+    caller is exactly such a case) would otherwise make every run from an
+    otherwise-clean commit report dirty, permanently, for a reason that has nothing to
+    do with what code produced the output.
     """
     cwd = str(repo) if repo else None
     try:
@@ -46,7 +55,8 @@ def git_sha(repo: Path | None = None) -> tuple[str, bool]:
             cwd=cwd, timeout=10, check=True,
         ).stdout.strip()
         status = subprocess.run(
-            ["git", "status", "--porcelain"], capture_output=True, text=True,
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True, text=True,
             cwd=cwd, timeout=10, check=True,
         ).stdout.strip()
         return sha, bool(status)

@@ -262,6 +262,28 @@ def test_missing_snapshot_refuses_to_start(tmp_path):
 
 
 @pytest.mark.slow
+def test_corrupt_snapshot_file_names_the_file_and_the_fix(desk_data_dir, tmp_path):
+    """A present-but-corrupt snapshot file - unlike a missing one - must still fail
+    loudly and by name: a bare `json.JSONDecodeError` names a line and column, not
+    which of a dozen files in the snapshot was the problem. `_load` wraps every file
+    read for exactly this, chaining the original error rather than hiding it.
+    """
+    import json
+    import shutil
+
+    from miniftse.desk.state import load_desk_state
+
+    corrupt = tmp_path / "corrupt-snapshot"
+    shutil.copytree(desk_data_dir, corrupt)
+    (corrupt / "overview.json").write_text("{not valid json", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match=r"overview\.json.*make desk-data") as exc_info:
+        load_desk_state(corrupt)
+
+    assert isinstance(exc_info.value.__cause__, json.JSONDecodeError)
+
+
+@pytest.mark.slow
 def test_404_renders_inside_the_site_layout(client):
     """The design spec's rule: a visitor never sees a raw traceback, 404 included. A
     missing route must come back as the styled site shell - banner and nav - not

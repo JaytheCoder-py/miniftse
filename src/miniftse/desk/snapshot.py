@@ -140,6 +140,14 @@ def build_snapshot(out_dir: Path, spec: BuildSpec | None = None) -> SnapshotMani
     spec = spec or reference_spec()
     out_dir = Path(out_dir)
 
+    # Captured now, before this function writes a single byte under `out_dir` - not at
+    # the end, after `desk/data` (a tracked path inside this same repository) has
+    # already been rewritten. `git_sha(REPO_ROOT)` at the end would see this build's own
+    # not-yet-committed output and report the tree dirty on every run, even a build
+    # whose *inputs* were a perfectly clean commit - which is exactly what happened
+    # before this fix: every committed snapshot self-reported dirty, permanently.
+    git_sha_value, git_dirty_value = git_sha(REPO_ROOT)
+
     # Read every out-of-build input first. A missing one-pager should cost a second,
     # not a build.
     onepagers = _read_onepagers()
@@ -196,7 +204,10 @@ def build_snapshot(out_dir: Path, spec: BuildSpec | None = None) -> SnapshotMani
         "attribution": _parse_onepager(onepagers["attribution"]),
     })
 
-    manifest = _manifest(out_dir, spec, index_id, time.perf_counter() - started)
+    manifest = _manifest(
+        out_dir, spec, index_id, time.perf_counter() - started,
+        git_sha_value, git_dirty_value,
+    )
     _write_json(out_dir / "manifest.json", manifest.to_dict())
     _assert_complete(out_dir)
     return manifest
@@ -280,6 +291,12 @@ def _days_frame(levels: pd.DataFrame, audit: pd.DataFrame,
         divisor_before=("divisor_before", "first"),
         divisor_after=("divisor_after", "last"),
         worst_continuity_error_bps=("abs_continuity_error_bps", "max"),
+        # Summing per-event bps across a day is itself an approximation, the same
+        # kind this docstring's `divisor_before` paragraph refuses to make for divisor
+        # moves: several compounding returns in bps do not add to their true compound
+        # total exactly, only to within a cross-term on the order of 1e-4bp - immaterial
+        # at the precision this column is displayed at, but a deliberate choice, not an
+        # oversight, and kept to the same standard the paragraph above already states.
         realised_return_bps=("realised_return_bps", "sum"),
         event_types=("event_type", lambda s: ", ".join(sorted(set(s.astype(str))))),
     )
@@ -533,11 +550,11 @@ def _final_state_file(result: BuildResult, index_id: str) -> IndexStateFile:
 
 
 def _manifest(out_dir: Path, spec: BuildSpec, index_id: str,
-              duration: float) -> SnapshotManifest:
-    sha, dirty = git_sha(REPO_ROOT)
+              duration: float, git_sha_value: str, git_dirty_value: bool,
+              ) -> SnapshotManifest:
     return SnapshotManifest(
-        git_sha=sha,
-        git_dirty=dirty,
+        git_sha=git_sha_value,
+        git_dirty=git_dirty_value,
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         index_id=index_id,
         build_spec={

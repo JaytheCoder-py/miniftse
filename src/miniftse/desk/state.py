@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,29 @@ def _read_json(path: Path) -> dict[str, Any]:
     return dict(json.loads(path.read_text(encoding="utf-8")))
 
 
+def _load[T](data_dir: Path, name: str, loader: Callable[[Path], T]) -> T:
+    """Load one snapshot file (or, for `chaos_baseline`, directory) with `loader`,
+    turning any failure into a `RuntimeError` that names the file and the fix.
+
+    A present-but-corrupt file - truncated parquet, hand-edited JSON with a stray
+    comma - would otherwise fail startup with whatever bare exception
+    `json.loads`/`pandas.read_parquet`/`ValidationContext.load` happens to raise:
+    `json.JSONDecodeError: Expecting value: line 1 column 1` names a line and column in
+    no file in particular, and a Space's boot log is not somewhere anyone goes hunting
+    through a dozen candidate files to find the one that broke. `raise ... from exc`
+    keeps the original exception attached as `__cause__` - nothing here hides the real
+    error, this only adds the context a bare re-raise would leave out.
+    """
+    path = data_dir / name
+    try:
+        return loader(path)
+    except Exception as exc:
+        raise RuntimeError(
+            f"{name} in {data_dir} is corrupt or unreadable ({exc!r}). "
+            "Rebuild the snapshot with `make desk-data`."
+        ) from exc
+
+
 def load_desk_state(data_dir: Path) -> DeskState:
     """Load every artefact `desk/snapshot.py` writes into a `DeskState`.
 
@@ -97,7 +121,9 @@ def load_desk_state(data_dir: Path) -> DeskState:
     snapshot writer checks its own output against in `_assert_complete` - so the two
     ends of the pipeline can never define "a complete snapshot" differently. Missing
     anything raises `FileNotFoundError` naming the file and the fix, rather than
-    starting the server to serve four screens and 404 the fifth.
+    starting the server to serve four screens and 404 the fifth. A file that exists but
+    fails to parse raises through `_load` instead, for the same reason - see its
+    docstring.
     """
     data_dir = Path(data_dir)
     for name in EXPECTED_FILES:
@@ -105,18 +131,18 @@ def load_desk_state(data_dir: Path) -> DeskState:
             raise FileNotFoundError(f"{name} missing from {data_dir} — run `make desk-data`")
 
     return DeskState(
-        overview=_read_json(data_dir / "overview.json"),
-        days=pd.read_parquet(data_dir / "days.parquet"),
-        divisor_audit=pd.read_parquet(data_dir / "divisor_audit.parquet"),
-        reviews=pd.read_parquet(data_dir / "reviews.parquet"),
-        chaos_baseline=ValidationContext.load(data_dir / "chaos_baseline"),
-        chaos_precomputed=_read_json(data_dir / "chaos_precomputed.json"),
-        golden_diff=_read_json(data_dir / "golden_diff.json"),
-        evals=_read_json(data_dir / "evals.json"),
-        constituents=_read_json(data_dir / "constituents.json"),
-        capacity=_read_json(data_dir / "capacity.json"),
-        risk_attribution=_read_json(data_dir / "risk_attribution.json"),
-        manifest=_read_json(data_dir / "manifest.json"),
+        overview=_load(data_dir, "overview.json", _read_json),
+        days=_load(data_dir, "days.parquet", pd.read_parquet),
+        divisor_audit=_load(data_dir, "divisor_audit.parquet", pd.read_parquet),
+        reviews=_load(data_dir, "reviews.parquet", pd.read_parquet),
+        chaos_baseline=_load(data_dir, "chaos_baseline", ValidationContext.load),
+        chaos_precomputed=_load(data_dir, "chaos_precomputed.json", _read_json),
+        golden_diff=_load(data_dir, "golden_diff.json", _read_json),
+        evals=_load(data_dir, "evals.json", _read_json),
+        constituents=_load(data_dir, "constituents.json", _read_json),
+        capacity=_load(data_dir, "capacity.json", _read_json),
+        risk_attribution=_load(data_dir, "risk_attribution.json", _read_json),
+        manifest=_load(data_dir, "manifest.json", _read_json),
         assistant=_build_assistant(),
         loaded_at=dt.datetime.now(dt.UTC),
     )

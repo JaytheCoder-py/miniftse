@@ -220,17 +220,35 @@ class TokenBucketLimiter:
             del self._buckets[key]
 
 
-def enforce_rate_limit(request: Request) -> None:
+async def enforce_rate_limit(request: Request) -> None:
     """FastAPI dependency wired onto `/chaos/run`, `/ask/query` and `/draft/render`
     only - never a `GET`. Reads the one `TokenBucketLimiter` `create_app`'s lifespan put
     on `app.state.limiter` (all three routes share it, not one bucket set each) and
     raises **429** the moment a key's bucket is empty.
 
-    Client identity is `request.client.host` - the peer address the ASGI server itself
-    observed - not `X-Forwarded-For` or any other client-supplied header. This app has
-    no reverse-proxy configuration in front of it, so there is no trusted hop that could
-    have set that header; trusting it here would let any client claim to be any IP and
-    spend someone else's bucket, or dodge its own, for free.
+    Declared `async def`, not a plain `def`. FastAPI runs a plain-`def` dependency in
+    the threadpool, and `TokenBucketLimiter._buckets` is an unlocked dict read-modified-
+    written by `allow()` - concurrent requests would race on it for real. An `async def`
+    dependency instead runs straight on the event loop; since this function contains no
+    `await` (every line here is dict lookups and float arithmetic - see `allow()`'s own
+    docstring on why nothing here blocks), it cannot be interleaved with another call to
+    itself, so the race is gone with no lock needed.
+
+    Client identity is `request.client.host` - the peer address the ASGI server reports
+    for the connection. Whether that address is the actual visitor depends on what sits
+    in front of the server: with nothing in front (a direct connection - `make
+    desk-serve`'s local run), it already is the visitor's address and needs no further
+    configuration. Behind a reverse proxy, every request instead arrives from the
+    proxy's own address unless the ASGI server is explicitly told to trust that proxy's
+    `X-Forwarded-For` header and substitute it for `request.client` - which is exactly
+    what uvicorn's `--proxy-headers`/`--forwarded-allow-ips` flags do, and exactly what
+    the Dockerfile's `desk` stage CMD now passes for its Hugging Face Spaces deployment
+    (see that CMD's comment for why trusting every hop is safe there specifically).
+    Without that configured trust, per-IP limiting behind a proxy would bucket every
+    visitor together under the proxy's one address; blindly trusting a client-supplied
+    header with no proxy in front would let any visitor claim to be any IP for free -
+    this dependency does neither, it relies entirely on the ASGI server's own trust
+    configuration to make `request.client.host` mean the right thing in each setting.
     """
     limiter: TokenBucketLimiter = request.app.state.limiter
     host = request.client.host if request.client is not None else "unknown"

@@ -107,4 +107,17 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Factory mode, not a module-level `app` - `desk/app.py`'s own module docstring
 # records why the module-level app the plan sketched was deliberately removed in
 # Task 3; every entry point, uvicorn included, calls `create_app()` itself.
-CMD ["uvicorn", "miniftse.desk.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "7860"]
+#
+# --proxy-headers --forwarded-allow-ips=*: a Hugging Face Space's router sits in front
+# of this container, so every request uvicorn sees would otherwise arrive from that
+# router's own address - and `desk/limits.py`'s per-IP rate limiter (`request.client.
+# host`) would bucket every visitor together under it instead of limiting per visitor.
+# These flags tell uvicorn to trust the router's `X-Forwarded-For` and substitute it
+# for `request.client`. Trusting *every* forwarding hop (`*`) is safe ONLY because nothing
+# but the Space's own router can reach this container - there is no public ingress that
+# lets an outside client set that header directly and have uvicorn believe it, unlike a
+# general-purpose deployment where `--forwarded-allow-ips=*` would let any visitor claim
+# to be any IP. Running locally (`make desk-serve`) needs neither flag: there is no
+# proxy in front, so `request.client.host` is already the real peer address.
+CMD ["uvicorn", "miniftse.desk.app:create_app", "--factory", "--host", "0.0.0.0", \
+     "--port", "7860", "--proxy-headers", "--forwarded-allow-ips=*"]

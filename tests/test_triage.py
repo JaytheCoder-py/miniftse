@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import json as _json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from miniftse.calc.state import Constituent, IndexState
@@ -23,6 +25,7 @@ from miniftse.triage.corpus import (
     read_jsonl,
     write_jsonl,
 )
+from miniftse.triage.labels import LabelledEvent, harvest_labels
 from miniftse.triage.taxonomy import TAXONOMY, build_event
 from miniftse.triage.verify import impact_error
 
@@ -287,3 +290,62 @@ class TestCorpus:
         assert isinstance(loaded[0].label, CashDividend)
         assert loaded[0].label.is_special is True
         assert loaded[0].label.event_type is EventType.SPECIAL_DIVIDEND
+
+
+class FakeActionsProvider:
+    """Returns the exact frame shape YFinanceProvider.get_corp_actions produces."""
+
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self.rows = rows
+
+    def get_corp_actions(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
+        return pd.DataFrame(self.rows)
+
+
+def _row(event_type: str, payload: dict[str, object], ticker: str = "AAPL") -> dict[str, object]:
+    return {
+        "event_id": f"YF-{event_type}-{ticker}",
+        "security_id": ticker,
+        "event_type": event_type,
+        "announcement_date": D,
+        "ex_date": D,
+        "pay_date": D,
+        "payload": _json.dumps(payload),
+    }
+
+
+class TestFreeLabels:
+    def test_harvests_a_dividend_and_a_split(self) -> None:
+        provider = FakeActionsProvider(
+            [
+                _row("CASH_DIVIDEND", {"amount": 0.24}),
+                _row("SPLIT", {"ratio": 4.0}),
+            ]
+        )
+
+        labels = harvest_labels(provider, ["AAPL"], D, D)
+
+        assert len(labels) == 2
+        assert {label.event.event_type for label in labels} == {
+            EventType.CASH_DIVIDEND,
+            EventType.SPLIT,
+        }
+        assert all(isinstance(label, LabelledEvent) for label in labels)
+
+    def test_skips_a_row_it_cannot_build_rather_than_guessing(self) -> None:
+        provider = FakeActionsProvider(
+            [
+                _row("CASH_DIVIDEND", {}),  # no amount
+                _row("CASH_DIVIDEND", {"amount": 0.24}),
+            ]
+        )
+
+        labels = harvest_labels(provider, ["AAPL"], D, D)
+
+        assert len(labels) == 1
+        assert labels[0].event.amount == 0.24
+
+    def test_empty_frame_yields_nothing(self) -> None:
+        assert harvest_labels(FakeActionsProvider([]), ["AAPL"], D, D) == []

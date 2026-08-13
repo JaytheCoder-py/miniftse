@@ -711,3 +711,73 @@ keep the import alive.
 **Consequences.** None beyond the one-token diff; `Provenance`/`Announcement` behave
 identically. Confirmed by `uv run ruff check src tests` and `uv run mypy src/miniftse`,
 both clean after the change.
+
+---
+
+## D-024 — The corpus round-trips a label's whole dataclass, not `spec.required`
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** Code review of Task 3 caught a latent defect the tests did not exercise:
+`Announcement.to_dict` serialised only `TAXONOMY[event_type].required` plus the five
+`COMMON_FIELDS`, so any other field on a `CorporateAction` subclass was dropped on
+write and silently replaced by its dataclass default on read. Confirmed against
+`corpactions/events.py` as three concrete cases, two of them not metadata but inputs
+to the grading engine's arithmetic: `Spinoff.spinco_enters_index` (default `True`)
+directly flips `is_divisor_event`, so a labelled spin-off that does *not* enter the
+index reads back as one that does. `Delisting.required` is `()`, so `final_price`
+(default `0.0`) and `reason` (default `"DELISTED"`) were dropped on *every* delisting
+label regardless of what was written — a real final price silently became a total
+wipeout, feeding straight into `price_effect`. `CashDividend.currency` and
+`withholding_rate` revert the same way, lower-stakes but still wrong. A stored label
+could become a materially different event than the one a human or a vendor feed
+actually labelled, with nothing raised — the round trip succeeded, it just returned
+the wrong answer. `test_round_trips_a_labelled_announcement` did not catch this
+because the only label it built (`CashDividend(amount=2.0)`) left every optional
+field at its default, so dropping and re-defaulting them was indistinguishable from
+preserving them.
+
+**Decision.** `Announcement.to_dict` now serialises every field `dataclasses.fields()`
+reports on the label instance, minus `COMMON_FIELDS` (captured separately, as before).
+`build_event` (`taxonomy.py`) changes from `kwargs.update({f: payload[f] for f in
+spec.required})` to `kwargs.update(payload)`, accepting whatever the caller supplies
+beyond the required set, then applies `kwargs.update(spec.defaults)` last so
+type-discriminating fields — `is_special` for `SPECIAL_DIVIDEND` — still come from the
+event type rather than from `payload`, even though `payload` now happens to carry the
+same value. `spec.required`'s missing-field check is untouched: a payload short a
+required field still raises `TaxonomyError` before construction, exactly as
+`test_rejects_a_missing_required_field` already pinned. Since `CorporateAction` is an
+ABC and not itself `@dataclass`-decorated, `fields()` needed one explicit, commented
+`cast(..., DataclassInstance)` in `corpus.py` to satisfy `mypy --strict` — every
+concrete handler *is* a dataclass at runtime, the base class just doesn't say so
+statically. Four new `TestCorpus` tests each build a label with a non-default optional
+field (`currency`/`withholding_rate` on a `CashDividend`, `spinco_enters_index=False`
+on a `Spinoff`, a non-zero `final_price`/non-default `reason` on a `Delisting`, and an
+explicit `is_special=True` `SPECIAL_DIVIDEND`) and assert full dataclass equality after
+the round trip, which the existing all-defaults test structurally could not do.
+
+**Alternatives rejected.** *Keep serialising `spec.required` and add every currently-
+known optional field to each `EventSpec` by hand* — fixes today's three cases but is
+the same defect shape one field away: the next optional field anyone adds to a
+`CorporateAction` subclass silently repeats this bug unless someone remembers to also
+update the taxonomy entry, and nothing would catch the omission. *Pickle the label
+instead of round-tripping through the taxonomy* — the fastest fix, and rejected for
+the reason Task 3's brief gives for not doing this in the first place: the corpus is
+meant to be diffable in `git diff`, and a labelling disagreement should show up as one
+changed line of JSON, not an opaque binary blob. *Widen `spec.required` itself to mean
+"every field"* — required is a real, load-bearing distinction (`build_event` must
+still refuse to construct an event silently missing `amount`); conflating "must be
+supplied" with "may be supplied" would have broken the missing-field validation this
+task was explicitly told not to weaken.
+
+**Consequences.** A `CorporateAction` label now round-trips through `write_jsonl`/
+`read_jsonl` with full equality, verified for every event class this task could reach
+without touching `corpactions/`. The corpus JSON payload is correspondingly wider —
+every optional field appears on every row, not only the ones the taxonomy calls
+required — which is a larger diff per label but the honest one: a labelling
+disagreement on `currency` alone now actually shows up as a one-line diff, which is
+what D-023's sibling design rationale already promised and this fix makes true.
+`build_event` is very slightly more permissive about what `payload` may contain (extra
+keys beyond `required` are no longer rejected or ignored, they are used), which is
+exactly the behaviour the corpus needs and does not weaken any existing caller: every
+current caller either passes exactly `required` (unaffected) or, after this fix, the
+full field set of a real event (now handled correctly instead of silently truncated).

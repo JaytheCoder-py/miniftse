@@ -179,6 +179,15 @@ def build_event(
 ) -> CorporateAction:
     """Construct a `CorporateAction` from a type and a flat payload.
 
+    `payload` must supply every field in `spec.required`, and may additionally supply
+    any other field the handler dataclass declares - a round-tripped corpus label
+    passes every field it was built with, not just the required ones, which is what
+    lets `Spinoff.spinco_enters_index` or `Delisting.final_price` survive a
+    write/read cycle instead of silently reverting to a default. `spec.defaults` is
+    applied last and always wins over `payload`: those fields are type-discriminating
+    (`is_special` for a special dividend) rather than data, and the type itself - not
+    whatever a caller happened to pass - decides them.
+
     Raises rather than guessing. A silently-defaulted amount produces an event that
     applies cleanly and grades wrong, which is the worst possible failure here.
     """
@@ -195,6 +204,6 @@ def build_event(
         raise TaxonomyError(f"{event_type} requires {', '.join(missing)}")
 
     kwargs: dict[str, Any] = dict(common)
-    kwargs.update({f: payload[f] for f in spec.required})
+    kwargs.update(payload)
     kwargs.update(spec.defaults)
     return spec.handler(**kwargs)

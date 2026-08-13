@@ -8,7 +8,14 @@ from pathlib import Path
 import pytest
 
 from miniftse.calc.state import Constituent, IndexState
-from miniftse.corpactions.events import CashDividend, EventType, ReturnOfCapital, Split
+from miniftse.corpactions.events import (
+    CashDividend,
+    Delisting,
+    EventType,
+    ReturnOfCapital,
+    Spinoff,
+    Split,
+)
 from miniftse.triage.corpus import (
     Announcement,
     LabelSource,
@@ -179,3 +186,104 @@ class TestCorpus:
     def test_text_is_never_empty(self) -> None:
         with pytest.raises(ValueError, match="text"):
             Announcement(announcement_id="A3", security_id="S0", text="  ", provenance=PROV)
+
+    def test_round_trips_a_cash_dividend_with_non_default_optional_fields(
+        self, tmp_path: Path
+    ) -> None:
+        """`currency` and `withholding_rate` are optional dataclass fields, not in
+        `TAXONOMY[CASH_DIVIDEND].required`. A round trip must not silently revert
+        them to their defaults ("USD", 0.0)."""
+        label = CashDividend(**COMMON, amount=2.0, currency="EUR", withholding_rate=0.15)
+        announcement = Announcement(
+            announcement_id="A4",
+            security_id="S0",
+            text="A EUR cash dividend of 2.00 per share, withheld at 15%.",
+            provenance=PROV,
+            label=label,
+            label_source=LabelSource.AUTO,
+        )
+        path = tmp_path / "corpus.jsonl"
+
+        write_jsonl(path, [announcement])
+        loaded = read_jsonl(path)
+
+        assert loaded[0].label == label
+        assert isinstance(loaded[0].label, CashDividend)
+        assert loaded[0].label.currency == "EUR"
+        assert loaded[0].label.withholding_rate == 0.15
+
+    def test_round_trips_a_spinoff_that_does_not_enter_the_index(self, tmp_path: Path) -> None:
+        """`spinco_enters_index=False` is not in `TAXONOMY[SPINOFF].required` and
+        directly flips `is_divisor_event`. Losing it on read would change what the
+        grading engine computes, not just what the label displays."""
+        label = Spinoff(
+            **COMMON,
+            spinco_security_id="S1",
+            shares_per_parent_share=0.5,
+            value_per_parent_share=10.0,
+            parent_cum_price=100.0,
+            spinco_enters_index=False,
+        )
+        announcement = Announcement(
+            announcement_id="A5",
+            security_id="S0",
+            text="Spin-off of S1; the new shares will not join the index.",
+            provenance=PROV,
+            label=label,
+            label_source=LabelSource.MANUAL,
+        )
+        path = tmp_path / "corpus.jsonl"
+
+        write_jsonl(path, [announcement])
+        loaded = read_jsonl(path)
+
+        assert loaded[0].label == label
+        assert isinstance(loaded[0].label, Spinoff)
+        assert loaded[0].label.spinco_enters_index is False
+        assert loaded[0].label.is_divisor_event is True
+
+    def test_round_trips_a_delisting_with_a_nonzero_final_price(self, tmp_path: Path) -> None:
+        """`Delisting`'s `required` is empty, so before this fix `final_price` and
+        `reason` were the two fields dropped on every single delisting label,
+        regardless of what was recorded. A real final price must survive."""
+        label = Delisting(**COMMON, final_price=3.5, reason="SCHEME_OF_ARRANGEMENT")
+        announcement = Announcement(
+            announcement_id="A6",
+            security_id="S0",
+            text="Delisted under a scheme of arrangement at 3.50 per share.",
+            provenance=PROV,
+            label=label,
+            label_source=LabelSource.MANUAL,
+        )
+        path = tmp_path / "corpus.jsonl"
+
+        write_jsonl(path, [announcement])
+        loaded = read_jsonl(path)
+
+        assert loaded[0].label == label
+        assert isinstance(loaded[0].label, Delisting)
+        assert loaded[0].label.final_price == 3.5
+        assert loaded[0].label.reason == "SCHEME_OF_ARRANGEMENT"
+
+    def test_round_trips_a_special_dividend_preserving_is_special(self, tmp_path: Path) -> None:
+        """`is_special` is a type-discriminating field restored via `spec.defaults`,
+        not carried as ordinary payload - confirm that still holds now that payload
+        carries every other optional field too."""
+        label = CashDividend(**COMMON, amount=9.0, is_special=True)
+        announcement = Announcement(
+            announcement_id="A7",
+            security_id="S0",
+            text="A special dividend of $9.00 per share.",
+            provenance=PROV,
+            label=label,
+            label_source=LabelSource.AUTO,
+        )
+        path = tmp_path / "corpus.jsonl"
+
+        write_jsonl(path, [announcement])
+        loaded = read_jsonl(path)
+
+        assert loaded[0].label == label
+        assert isinstance(loaded[0].label, CashDividend)
+        assert loaded[0].label.is_special is True
+        assert loaded[0].label.event_type is EventType.SPECIAL_DIVIDEND

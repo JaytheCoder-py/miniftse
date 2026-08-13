@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from miniftse.corpactions.events import CorporateAction, EventType
-from miniftse.triage.taxonomy import COMMON_FIELDS, TAXONOMY, build_event
+from miniftse.triage.taxonomy import COMMON_FIELDS, build_event
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
 
 class LabelSource(StrEnum):
@@ -79,14 +82,27 @@ class Announcement:
             row["label"] = None
             return row
 
-        spec = TAXONOMY[self.label.event_type]
         common = {f: getattr(self.label, f) for f in COMMON_FIELDS}
+        # Every declared field beyond COMMON_FIELDS, not just `spec.required` - an
+        # optional field left at a non-default value (Spinoff.spinco_enters_index,
+        # Delisting.final_price, CashDividend.withholding_rate) must survive the
+        # round trip too, or the stored label silently becomes a different event.
+        # `CorporateAction` is an ABC, not itself a dataclass, so it does not statically
+        # satisfy `fields()`'s `DataclassInstance` protocol even though every concrete
+        # subclass is `@dataclass`-decorated and satisfies it at runtime.
+        payload = {
+            f.name: getattr(self.label, f.name)
+            for f in fields(cast("DataclassInstance", self.label))
+            if f.name not in COMMON_FIELDS
+        }
         row["label"] = {
             "event_type": str(self.label.event_type),
             "common": {
                 k: v.isoformat() if isinstance(v, dt.date) else v for k, v in common.items()
             },
-            "payload": {f: getattr(self.label, f) for f in spec.required},
+            "payload": {
+                k: v.isoformat() if isinstance(v, dt.date) else v for k, v in payload.items()
+            },
         }
         return row
 

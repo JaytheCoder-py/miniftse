@@ -6,8 +6,10 @@ import datetime as dt
 
 import pytest
 
-from miniftse.corpactions.events import CashDividend, EventType, Split
+from miniftse.calc.state import Constituent, IndexState
+from miniftse.corpactions.events import CashDividend, EventType, ReturnOfCapital, Split
 from miniftse.triage.taxonomy import TAXONOMY, build_event
+from miniftse.triage.verify import impact_error
 
 D = dt.date(2024, 6, 10)
 
@@ -56,3 +58,64 @@ class TestTaxonomy:
             pytest.skip("every event type has a handler")
         with pytest.raises(ValueError, match="no handler"):
             build_event(unmapped[0], COMMON, {})
+
+
+def make_state(n: int = 3, price: float = 100.0, shares: float = 1000.0) -> IndexState:
+    constituents = {f"S{i}": Constituent(f"S{i}", price=price, shares=shares) for i in range(n)}
+    return IndexState.initialise(D, constituents, base_level=1000.0)
+
+
+class TestImpactError:
+    def test_return_of_capital_booked_as_a_dividend(self) -> None:
+        """The canonical misclassification, hand-computed.
+
+        Three constituents at 100.00 x 1,000 shares -> market value 300,000.
+        Base level 1,000 -> divisor 300.
+
+        A 2.00 distribution on S0 takes its price to 98.00, so market value becomes
+        98,000 + 100,000 + 100,000 = 298,000 either way. The classification decides
+        what the divisor does:
+
+        * CashDividend      is_divisor_event False -> divisor stays 300
+                            level = 298,000 / 300         = 993.333333
+        * ReturnOfCapital   is_divisor_event True  -> divisor rebases to preserve the
+                            level implied by 300,000: 298,000 / (300,000/300) = 298
+                            level = 298,000 / 298         = 1,000.000000
+
+        error = |1,000.000000 - 993.333333| / 993.333333 x 10,000 = 67.114 bps
+
+        Same amount, same price effect, same date. 67bp of published index level,
+        purely from the label.
+        """
+        state = make_state()
+        truth = CashDividend(**COMMON, amount=2.0)
+        predicted = ReturnOfCapital(**COMMON, amount=2.0)
+
+        result = impact_error(predicted, truth, state)
+
+        assert result.truth_level == pytest.approx(993.333333, abs=1e-5)
+        assert result.predicted_level == pytest.approx(1000.0, abs=1e-5)
+        assert result.error_bps == pytest.approx(67.114, abs=0.01)
+        assert result.same_type is False
+
+    def test_identical_events_score_zero(self) -> None:
+        state = make_state()
+        truth = CashDividend(**COMMON, amount=2.0)
+        predicted = CashDividend(**COMMON, amount=2.0)
+
+        result = impact_error(predicted, truth, state)
+
+        assert result.error_bps == pytest.approx(0.0, abs=1e-9)
+        assert result.same_type is True
+
+    def test_a_wrong_amount_on_the_right_type_is_small(self) -> None:
+        """2.00 vs 2.10 on one of three names. Right type, wrong number: the error is
+        real but two orders of magnitude below a misclassification."""
+        state = make_state()
+        truth = CashDividend(**COMMON, amount=2.0)
+        predicted = CashDividend(**COMMON, amount=2.1)
+
+        result = impact_error(predicted, truth, state)
+
+        assert result.same_type is True
+        assert 0.0 < result.error_bps < 5.0

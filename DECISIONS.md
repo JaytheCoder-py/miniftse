@@ -671,3 +671,17 @@ either needs a dedicated formatting-cleanup commit across the 63 files or a chan
 what CI checks; either is a call for whoever owns that decision, not a byproduct of
 Task 1. The file count (63 unformatted, 26 already formatted, 89 total under
 `src tests`) was confirmed by two independent `ruff format --check src tests` runs.
+
+---
+
+## D-022: Triage is graded in basis points, not classification accuracy
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+Accuracy weights a misread dividend amount the same as a return of capital booked as
+an ordinary dividend. On a three-name fixture the second costs 67bp of index level and
+the first costs under 5bp. Reporting one number that cannot tell them apart would make
+the eval actively misleading.
+
+**Rejected:** F1 over event types, which is the default for a classification task and
+is what a reviewer will expect. It is retained as a secondary diagnostic (`same_type`)
+because it localises *where* the error is, but it is not the headline.

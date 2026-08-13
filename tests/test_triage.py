@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 
 import pytest
 
 from miniftse.calc.state import Constituent, IndexState
 from miniftse.corpactions.events import CashDividend, EventType, ReturnOfCapital, Split
+from miniftse.triage.corpus import (
+    Announcement,
+    LabelSource,
+    Provenance,
+    read_jsonl,
+    write_jsonl,
+)
 from miniftse.triage.taxonomy import TAXONOMY, build_event
 from miniftse.triage.verify import impact_error
 
@@ -119,3 +127,55 @@ class TestImpactError:
 
         assert result.same_type is True
         assert 0.0 < result.error_bps < 5.0
+
+
+PROV = Provenance(
+    source="yfinance",
+    url="https://example.invalid/actions/S0",
+    retrieved=dt.date(2026, 8, 13),
+    sha256="0" * 64,
+)
+
+
+class TestCorpus:
+    def test_round_trips_a_labelled_announcement(self, tmp_path: Path) -> None:
+        announcement = Announcement(
+            announcement_id="A1",
+            security_id="S0",
+            text="The Board declared a quarterly cash dividend of $2.00 per share.",
+            provenance=PROV,
+            label=CashDividend(**COMMON, amount=2.0),
+            label_source=LabelSource.AUTO,
+        )
+        path = tmp_path / "corpus.jsonl"
+
+        write_jsonl(path, [announcement])
+        loaded = read_jsonl(path)
+
+        assert len(loaded) == 1
+        assert loaded[0].announcement_id == "A1"
+        assert loaded[0].text == announcement.text
+        assert loaded[0].provenance == PROV
+        assert loaded[0].label_source is LabelSource.AUTO
+        assert isinstance(loaded[0].label, CashDividend)
+        assert loaded[0].label.amount == 2.0
+        assert loaded[0].label.ex_date == D
+
+    def test_round_trips_an_unlabelled_announcement(self, tmp_path: Path) -> None:
+        announcement = Announcement(
+            announcement_id="A2",
+            security_id="S1",
+            text="Some announcement nobody has labelled yet.",
+            provenance=PROV,
+        )
+        path = tmp_path / "corpus.jsonl"
+
+        write_jsonl(path, [announcement])
+        loaded = read_jsonl(path)
+
+        assert loaded[0].label is None
+        assert loaded[0].label_source is LabelSource.UNLABELLED
+
+    def test_text_is_never_empty(self) -> None:
+        with pytest.raises(ValueError, match="text"):
+            Announcement(announcement_id="A3", security_id="S0", text="  ", provenance=PROV)

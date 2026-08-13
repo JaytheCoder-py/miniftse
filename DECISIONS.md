@@ -685,3 +685,29 @@ the eval actively misleading.
 **Rejected:** F1 over event types, which is the default for a classification task and
 is what a reviewer will expect. It is retained as a secondary diagnostic (`same_type`)
 because it localises *where* the error is, but it is not the headline.
+
+---
+
+## D-023 — `corpus.py` drops the brief's unused `field` import
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** Task 3's brief gives the complete text of `src/miniftse/triage/corpus.py`
+verbatim, including `from dataclasses import dataclass, field`. Nothing in the module
+uses `field` — every dataclass field is a plain annotation or a literal default, and
+`Announcement`/`Provenance` need no `default_factory`. `uv run ruff check src tests`
+flags it as F401 (imported but unused), and "`uv run ruff check src tests` must pass"
+is one of this task's own global constraints.
+
+**Decision.** Drop `field` from the import, keeping `dataclass`. The rest of the
+brief's code is unchanged.
+
+**Alternatives rejected.** *Keep the import as written, matching the brief exactly* —
+would leave `ruff check` red on a file this task owns, and "follow the brief verbatim"
+cannot mean shipping a known lint failure when the brief itself also states the lint
+constraint. *Add a `# noqa: F401`* — suppresses a correct finding instead of fixing it,
+and there is no forward-looking reason (no planned `field(default_factory=...)`) to
+keep the import alive.
+
+**Consequences.** None beyond the one-token diff; `Provenance`/`Announcement` behave
+identically. Confirmed by `uv run ruff check src tests` and `uv run mypy src/miniftse`,
+both clean after the change.

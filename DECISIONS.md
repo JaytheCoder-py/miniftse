@@ -781,3 +781,54 @@ keys beyond `required` are no longer rejected or ignored, they are used), which 
 exactly the behaviour the corpus needs and does not weaken any existing caller: every
 current caller either passes exactly `required` (unaffected) or, after this fix, the
 full field set of a real event (now handled correctly instead of silently truncated).
+
+---
+
+## D-025 — Unjoinable labels are dropped and counted, not matched approximately
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** Vendor corporate-action data (Task 4) carries no announcement text, only a
+structured event and a date. SEC filings (`text.py`) carry text but no structured event.
+Nothing links a label to a filing except the issuer and a date, so `join_labels_to_text`
+must pair them heuristically: nearest filing by `filed` date, same `security_id`, within
+`window_days`. A wrong join is worse than a missing one — it puts a correct label on the
+wrong text, and every metric computed from that announcement (`verify.impact_error`
+included) inherits the error silently, with no signal anywhere that it happened. A
+missing join, by contrast, is visible: the label lands in `unjoined` and the corpus's
+unjoined count goes up by one, where it can be inspected, reported, and reasoned about.
+
+**Decision.** `join_labels_to_text` fails closed. A label with no `FilingDocument` of
+the same `security_id` within `window_days` of its `announcement_date` is appended to
+`unjoined` and never paired with the nearest available filing regardless of distance.
+Candidates are filtered to the security first, then to the window, before the nearest
+one is chosen — a same-day filing for a different issuer is never eligible, however
+close the date. `unjoined` is returned alongside `joined`, not swallowed, so the count
+is a published property of the corpus rather than an internal detail a caller has to
+choose to expose. `TestTextJoin.test_drops_a_label_with_no_filing_in_the_window` and
+`test_does_not_join_across_securities` each construct a case with exactly one plausible-
+looking neighbour (a document 139 days away; a document on the exact date but the wrong
+security) and assert it lands in `unjoined`, not `joined` — a regression that widened
+the window or dropped the security filter would fail one of these visibly.
+
+**Alternatives rejected.** *Widen the window until everything joins* — trades a visible
+gap (the unjoined count) for an invisible error rate (mislabelled announcements with no
+flag anywhere), which is the wrong trade in an eval set whose entire purpose is scoring
+a model against ground truth. *Fall back to the nearest filing for the security when
+none is inside the window* — same defect under a different name; "nearest, unbounded"
+is still a guess dressed up as a match. *Silently drop unjoined labels instead of
+returning them* — would hide exactly the number a reviewer most needs: how much of the
+labelled ground truth the corpus could not attach text to, and therefore how biased the
+resulting corpus is toward issuers/events with easy-to-find filings.
+
+**Consequences.** The corpus is smaller than the label set whenever filings are sparse,
+incomplete, or outside the fetch window, and that gap is a number callers must look at
+rather than a coverage detail they can ignore. Downstream code that builds a corpus from
+`join_labels_to_text` needs to decide what to do with `unjoined` — report it, retry with
+a wider fetch, or accept the loss — rather than assuming every label became an
+`Announcement`. The window itself (`window_days=5`, tunable by the caller) remains a
+judgement call with no single correct value; too narrow drops real matches, too wide
+raises the odds within the window that a wrong-but-plausible filing gets picked over the
+true one. Splitting the join this way also kept `join_labels_to_text` pure and fully
+testable with hand-built `FilingDocument`s — no network, no mocking `requests` to fake
+one — while `fetch_filings`, the only network-touching function in `text.py`, stays
+thin and untested by design, per this task's global constraint against network in tests.

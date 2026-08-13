@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json as _json
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from miniftse.triage.corpus import (
 )
 from miniftse.triage.labels import LabelledEvent, harvest_labels
 from miniftse.triage.taxonomy import TAXONOMY, build_event
+from miniftse.triage.text import FilingDocument, _strip_html, join_labels_to_text
 from miniftse.triage.verify import impact_error
 
 D = dt.date(2024, 6, 10)
@@ -349,3 +351,211 @@ class TestFreeLabels:
 
     def test_empty_frame_yields_nothing(self) -> None:
         assert harvest_labels(FakeActionsProvider([]), ["AAPL"], D, D) == []
+
+
+def _doc(filed: dt.date, text: str = "Board declares dividend.") -> FilingDocument:
+    return FilingDocument(
+        accession=f"0000-{filed.isoformat()}",
+        filed=filed,
+        url=f"https://www.sec.gov/Archives/{filed.isoformat()}",
+        text=text,
+        security_id="AAPL",
+    )
+
+
+class TestTextJoin:
+    def test_joins_a_filing_inside_the_window(self) -> None:
+        label = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        document = _doc(dt.date(2024, 5, 19))  # announcement_date is 2024-05-20
+
+        joined, unjoined = join_labels_to_text([label], [document], window_days=5)
+
+        assert len(joined) == 1
+        assert unjoined == []
+        assert joined[0].label_source is LabelSource.AUTO
+        assert joined[0].text == "Board declares dividend."
+        assert joined[0].provenance.source == "sec-edgar"
+
+    def test_drops_a_label_with_no_filing_in_the_window(self) -> None:
+        """The load-bearing behaviour: a label 139 days from the only filing must be
+        dropped and counted, never paired with the nearest-anyway document. A join
+        that silently widened to "nearest regardless of window" would pass every
+        other test in this class while corrupting the corpus invisibly - this is the
+        test that would catch it."""
+        label = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        document = _doc(dt.date(2024, 1, 2))  # far outside the window
+
+        joined, unjoined = join_labels_to_text([label], [document], window_days=5)
+
+        assert joined == []
+        assert len(unjoined) == 1
+        assert unjoined[0] is label
+
+    def test_picks_the_nearest_filing_when_several_qualify(self) -> None:
+        label = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        near = _doc(dt.date(2024, 5, 20), text="NEAR")
+        far = _doc(dt.date(2024, 5, 17), text="FAR")
+
+        joined, _ = join_labels_to_text([label], [far, near], window_days=5)
+
+        assert joined[0].text == "NEAR"
+
+    def test_does_not_join_across_securities(self) -> None:
+        """Same date, same window, wrong issuer. If security were not filtered on,
+        this MSFT filing would be the nearest-by-date candidate for an AAPL label and
+        would join - exactly the wrong-issuer mistake the module's docstring warns
+        about."""
+        label = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        other = FilingDocument(
+            accession="X",
+            filed=dt.date(2024, 5, 20),
+            url="https://www.sec.gov/Archives/X",
+            text="MSFT news",
+            security_id="MSFT",
+        )
+
+        joined, unjoined = join_labels_to_text([label], [other], window_days=5)
+
+        assert joined == []
+        assert len(unjoined) == 1
+
+    def test_a_filing_exactly_on_the_window_boundary_still_joins(self) -> None:
+        """`abs(delta) <= window_days` - the boundary itself is inclusive, not a
+        fencepost the brief left ambiguous."""
+        label = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        document = _doc(dt.date(2024, 5, 25))  # exactly 5 days after 2024-05-20
+
+        joined, unjoined = join_labels_to_text([label], [document], window_days=5)
+
+        assert len(joined) == 1
+        assert unjoined == []
+
+    def test_one_day_past_the_window_boundary_is_dropped(self) -> None:
+        label = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        document = _doc(dt.date(2024, 5, 26))  # 6 days after 2024-05-20
+
+        joined, unjoined = join_labels_to_text([label], [document], window_days=5)
+
+        assert joined == []
+        assert len(unjoined) == 1
+
+    def test_provenance_sha256_matches_the_joined_text(self) -> None:
+        label = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        document = _doc(dt.date(2024, 5, 20), text="Board declares dividend.")
+
+        joined, _ = join_labels_to_text(
+            [label], [document], window_days=5, retrieved=dt.date(2026, 8, 14)
+        )
+
+        expected = hashlib.sha256(document.text.encode("utf-8")).hexdigest()
+        assert joined[0].provenance.sha256 == expected
+        assert joined[0].provenance.retrieved == dt.date(2026, 8, 14)
+        assert joined[0].provenance.url == document.url
+
+    def test_two_labels_can_join_to_the_same_filing(self) -> None:
+        """Two vendor events for the same security within one filing's window (e.g. a
+        dividend declaration bundled with other 8-K items) both join to it. The
+        `announcement_id` disambiguates them because it embeds `raw_event_id`."""
+        first = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        second = LabelledEvent(
+            event=Split(**{**COMMON, "security_id": "AAPL"}, ratio=2.0),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-2",
+        )
+        document = _doc(dt.date(2024, 5, 20))
+
+        joined, unjoined = join_labels_to_text([first, second], [document], window_days=5)
+
+        assert unjoined == []
+        assert len(joined) == 2
+        assert {a.announcement_id for a in joined} == {
+            "YF-1::0000-2024-05-20",
+            "YF-2::0000-2024-05-20",
+        }
+
+
+class TestStripHtml:
+    def test_removes_tags(self) -> None:
+        assert _strip_html("<p>Hello <b>World</b></p>") == "Hello World"
+
+    def test_drops_script_and_style_contents(self) -> None:
+        raw = "<style>.a{color:red}</style><script>var x=1;</script><p>Keep me</p>"
+
+        result = _strip_html(raw)
+
+        assert result == "Keep me"
+        assert "color" not in result
+        assert "var x" not in result
+
+    def test_unescapes_entities(self) -> None:
+        assert _strip_html("<p>Fish &amp; Chips&nbsp;Shop</p>") == "Fish & Chips Shop"
+
+    def test_collapses_whitespace(self) -> None:
+        assert _strip_html("<p>Too    much\n\n\twhitespace</p>") == "Too much whitespace"
+
+    def test_empty_input_yields_empty_text(self) -> None:
+        assert _strip_html("") == ""
+
+    def test_a_tag_with_no_text_content_yields_empty_text(self) -> None:
+        assert _strip_html("<div><span></span></div>") == ""
+
+    def test_on_an_8k_like_fragment(self) -> None:
+        """A small hand-written fragment shaped like a real 8-K body: a `<style>`
+        block, a `<script>` block, nested inline tags, and both an `&amp;` and an
+        `&nbsp;` entity, all in one pass."""
+        raw = (
+            "<html><body>\n"
+            "<style>.a { color: red; }</style>\n"
+            "<script>var x = 1;</script>\n"
+            "<p>Item 5.02 &amp; Departure of Directors.</p>\n"
+            "<p>The Board of Directors of <b>Example&nbsp;Corp</b> approved a dividend.</p>\n"
+            "</body></html>"
+        )
+
+        result = _strip_html(raw)
+
+        assert result == (
+            "Item 5.02 & Departure of Directors. "
+            "The Board of Directors of Example Corp approved a dividend."
+        )

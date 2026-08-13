@@ -20,6 +20,7 @@ Schema conventions, applied everywhere:
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import pandas as pd
@@ -207,6 +208,76 @@ class MarketDataProvider(
     def name(self) -> str: ...
 
 
+@runtime_checkable
+class UniverseData(MarketDataProvider, Protocol):
+    """A complete, self-consistent universe an index can be built from.
+
+    `MarketDataProvider` says what you can *ask* - as-of queries, one security at a
+    time. This says what you can *hold*: the whole panel, the calendar it spans, and an
+    identity you can pin a regression test to.
+
+    The distinction is not academic. `IndexCalculator.run` walks a full price panel day
+    by day; asking a provider for one date at a time would be both wrong (the calculator
+    needs to see delistings coming) and unusably slow. Before this Protocol existed the
+    pipeline got that panel by reaching into `SyntheticUniverse._generated`, which meant
+    the swappability documented at the top of this module was not real.
+
+    Implementations: `data.synthetic.SyntheticUniverse` (generates), and
+    `data.materialised.MaterialisedUniverse` (loads a parquet snapshot, whether that
+    snapshot came from the generator or from `data.real`).
+    """
+
+    @property
+    def prices(self) -> pd.DataFrame:
+        """Full price panel, `PRICE_SCHEMA`, every security including delisted ones."""
+        ...
+
+    @property
+    def shares(self) -> pd.DataFrame:
+        """Full bitemporal shares history, `SHARES_SCHEMA`."""
+        ...
+
+    @property
+    def corp_actions(self) -> pd.DataFrame:
+        """Every event, `CORP_ACTION_SCHEMA`."""
+        ...
+
+    @property
+    def fundamentals(self) -> pd.DataFrame:
+        """Full filing history, `FUNDAMENTAL_SCHEMA`, carrying `filed_date`."""
+        ...
+
+    @property
+    def fx_rates(self) -> pd.DataFrame:
+        """Full FX panel, `FX_SCHEMA` plus `deposit_rate`."""
+        ...
+
+    @property
+    def fingerprint(self) -> str:
+        """Stable identity of the data, recorded in the run manifest.
+
+        A generator hashes its config; a snapshot hashes its files. Either way, two
+        builds carrying the same fingerprint were built from the same numbers - which
+        is the property an audit years later actually needs.
+        """
+        ...
+
+    @property
+    def calendar(self) -> pd.DatetimeIndex: ...
+
+    @property
+    def start(self) -> dt.date: ...
+
+    @property
+    def end(self) -> dt.date: ...
+
+    def summary(self) -> dict[str, object]: ...
+
+    def materialise(self, path: Path) -> dict[str, Path]:
+        """Write every table to parquet, in the layout `MaterialisedUniverse` reads."""
+        ...
+
+
 __all__ = [
     "CLASSIFICATION_SCHEMA",
     "CORP_ACTION_SCHEMA",
@@ -222,4 +293,5 @@ __all__ = [
     "PriceProvider",
     "ReferenceProvider",
     "SharesProvider",
+    "UniverseData",
 ]

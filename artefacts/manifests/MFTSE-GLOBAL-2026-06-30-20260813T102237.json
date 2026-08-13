@@ -1,0 +1,134 @@
+{
+  "run_id": "MFTSE-GLOBAL-2026-06-30-20260813T102237",
+  "created_at": "2026-08-13T10:22:37.157892+00:00",
+  "index_id": "MFTSE-GLOBAL",
+  "as_of": "2026-06-30",
+  "git_sha": "d2fab4a154907ac360836605a38cc3bed77e31cd",
+  "git_dirty": true,
+  "config_hash": "70336e3c6a5cca15cf18d89b9c984ffb",
+  "config": {
+    "index_id": "MFTSE-GLOBAL",
+    "name": "miniFTSE Global All Cap",
+    "base_currency": "USD",
+    "base_date": "2016-01-04",
+    "base_level": 1000.0,
+    "eligibility": {
+      "min_free_float_developed": 0.05,
+      "min_free_float_emerging": 0.15,
+      "min_liquidity_turnover": 0.0005,
+      "liquidity_window_days": 250,
+      "min_price_observations": 200,
+      "min_free_float_market_cap": 100000000.0,
+      "excluded_security_types": [
+        "ADR",
+        "CONVERTIBLE",
+        "GDR",
+        "UNIT_TRUST",
+        "WARRANT"
+      ],
+      "allow_preferred": false
+    },
+    "banding": {
+      "large_cutoff": 0.7,
+      "mid_cutoff": 0.85,
+      "small_cutoff": 0.98,
+      "buffer_width": 0.02,
+      "apply_buffers": true
+    },
+    "capping": {
+      "max_single_weight": 0.1,
+      "aggregate_threshold": 0.05,
+      "aggregate_limit": 0.4,
+      "max_iterations": 100,
+      "tolerance": 1e-10,
+      "enabled": true
+    },
+    "review": {
+      "months": [
+        3,
+        6,
+        9,
+        12
+      ],
+      "cutoff_lag_days": 21,
+      "announcement_lag_days": 14,
+      "fast_entry_enabled": true,
+      "fast_entry_min_percentile": 0.85,
+      "fast_entry_lag_days": 5,
+      "fast_entry_max_listing_age_days": 365,
+      "intra_review_float_threshold": 0.05,
+      "intra_review_shares_threshold": 0.1
+    },
+    "costs": {
+      "linear_bps": 5.0,
+      "impact_coefficient": 0.1,
+      "use_impact": true
+    },
+    "withholding_tax": {
+      "AU": 0.3,
+      "BM": 0.0,
+      "CA": 0.25,
+      "CH": 0.35,
+      "DE": 0.26375,
+      "FR": 0.25,
+      "GB": 0.0,
+      "HK": 0.0,
+      "IE": 0.25,
+      "JP": 0.15315,
+      "KR": 0.22,
+      "KY": 0.0,
+      "NL": 0.15,
+      "SE": 0.3,
+      "US": 0.3
+    },
+    "size_bands": [
+      "LARGE",
+      "MID",
+      "SMALL"
+    ]
+  },
+  "input_hashes": {
+    "universe": "92c7b639ba9afc0a654e1147ea119d46",
+    "prices": "d91479d7a39e2c88c9bb29d8f2e4ccc2",
+    "shares": "9be658dd4c7cad3a87479671fe4369ba",
+    "corp_actions": "4cbefbbd9616561633aadde5496f24df",
+    "securities": "64c2875053ef634ffd60bff12fe8b359"
+  },
+  "output_hashes": {
+    "levels": "583f7aaaf454479bdfa5a5ea0e41c93c",
+    "weights": "8ff3155ae2c4b3b8b191e2f96e931b18"
+  },
+  "environment": {
+    "python": "3.12.9",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "pandas": "3.0.5",
+    "numpy": "2.5.1"
+  },
+  "metrics": {
+    "index_id": "MFTSE-GLOBAL",
+    "start": "2017-01-03",
+    "end": "2026-06-29",
+    "days": 2384,
+    "final_pr": 3470.960440969769,
+    "final_gtr": 4280.953658711221,
+    "final_ntr": 4019.971501634647,
+    "ann_return_gtr": 0.16571047182880028,
+    "ann_vol": 0.19334514967227023,
+    "max_drawdown": -0.33481606518963614,
+    "mean_constituents": 121.30411073825503,
+    "divisor_events": 4022,
+    "reviews": 37,
+    "validation_counts": {
+      "total": 27,
+      "passed": 26,
+      "warnings": 1,
+      "blocking": 0,
+      "escalating": 0
+    }
+  },
+  "duration_seconds": 12.63958950000233,
+  "status": "success",
+  "notes": [
+    "WARNING: run from a dirty working tree - the git SHA does not fully identify the code that produced this output"
+  ]
+}

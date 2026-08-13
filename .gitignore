@@ -10,6 +10,13 @@ wheels/
 .venv
 
 data/raw/
+
+# Materialised universe snapshots. Content-addressed and re-fetchable
+# (`miniftse fetch-real`), and a real one is ~10 MB of parquet that git would
+# carry forever. The fingerprint in the run manifest is what pins a build to its
+# data, not the bytes being in the repository. See D-018.
+data/snapshots/
+
 memos/figures/*.png
 !.gitkeep
 

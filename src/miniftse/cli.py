@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from pathlib import Path
 
 import typer
@@ -37,12 +38,23 @@ CONFIGS = {
 ARTEFACTS = Path("artefacts")
 
 
-def _spec(index: str, securities: int, start: str, end: str, seed: int) -> BuildSpec:
+def _spec(index: str, securities: int, start: str, end: str, seed: int,
+          snapshot: Path | None = None) -> BuildSpec:
     if index not in CONFIGS:
         raise typer.BadParameter(f"unknown index {index!r}; choose from {list(CONFIGS)}")
+
+    universe = None
+    if snapshot is not None:
+        from miniftse.data.materialised import MaterialisedUniverse, SnapshotError
+        try:
+            universe = MaterialisedUniverse(snapshot)
+        except SnapshotError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
     return BuildSpec(
         index_config=CONFIGS[index](),
         universe_config=SyntheticConfig(n_securities=securities, seed=seed),
+        universe=universe,
         start=dt.date.fromisoformat(start),
         end=dt.date.fromisoformat(end),
         manifest_dir=ARTEFACTS / "manifests",
@@ -57,6 +69,9 @@ def build_index_cmd(
     end: str = typer.Option("2026-06-30"),
     seed: int = typer.Option(20260809),
     out: Path = typer.Option(ARTEFACTS, help="output directory"),
+    universe: Path | None = typer.Option(
+        None, help="build from a materialised snapshot instead of the synthetic "
+                   "generator (see `miniftse fetch-real`)"),
     strict: bool = typer.Option(
         False, help="exit non-zero if the publication gate blocks"),
 ) -> None:
@@ -66,8 +81,11 @@ def build_index_cmd(
     computed and written, it simply must not be published without a human looking at
     it. So the command exits 0 by default and reports the block. Use `--strict` in a
     production scheduler, where a block genuinely should fail the job.
+
+    With `--universe`, the build runs on a snapshot rather than the generator. On a real
+    snapshot the gate is expected to have more to say - that is the data, not a bug.
     """
-    result = build_and_report(_spec(index, securities, start, end, seed))
+    result = build_and_report(_spec(index, securities, start, end, seed, universe))
 
     out.mkdir(parents=True, exist_ok=True)
     levels = out / f"{result.manifest.index_id}_levels.parquet"
@@ -342,6 +360,58 @@ def methodology_cmd(out: Path = typer.Option(Path("ground_rules/factor_methodolo
         encoding="utf-8",
     )
     console.print(f"[green]wrote[/green] {out}")
+
+
+@app.command("fetch-real")
+def fetch_real_cmd(
+    out: Path = typer.Option(Path("data/snapshots/real-clean"), help="snapshot directory"),
+    securities: int = typer.Option(200, help="candidate pool size"),
+    start: str = typer.Option("2016-01-04"),
+    end: str = typer.Option("2026-06-30"),
+    tier: str = typer.Option("clean", help="clean | raw - labelling only, see data.real"),
+    contact: str = typer.Option(
+        "", help="contact details for the SEC user agent; required by the SEC"),
+) -> None:
+    """Fetch real market data and write a snapshot `build-index --universe` can load.
+
+    Hits the network - the SEC for reference, share counts and fundamentals, Yahoo for
+    prices and actions, FRED for the short rate. Fetching is separated from building on
+    purpose: the snapshot is the reproducible artefact, so a build reads files and never
+    the network, and re-fetching changes the fingerprint rather than silently changing
+    an answer.
+
+    The resulting index is wrong in known ways. `data.real.DEFECTS` lists them, and every
+    snapshot carries them in its `config.json` under `provenance`.
+    """
+    from miniftse.data.real import RealUniverseBuilder, RealUniverseConfig
+
+    if not contact:
+        contact = os.environ.get("MINIFTSE_CONTACT", "")
+    if not contact:
+        raise typer.BadParameter(
+            "the SEC requires a declared contact on every request and blocks IPs that "
+            "omit it. Pass --contact 'you@example.com' or set MINIFTSE_CONTACT."
+        )
+
+    config = RealUniverseConfig(
+        n_securities=securities,
+        start=dt.date.fromisoformat(start),
+        end=dt.date.fromisoformat(end),
+        tier=tier,
+        contact=f"miniftse-research/0.1 (contact: {contact})",
+    )
+    destination = RealUniverseBuilder(config=config).build(out)
+
+    meta = json.loads((destination / "config.json").read_text())
+    console.print(f"\n[green]snapshot[/green] {destination}")
+    console.print(
+        f"build it with: [cyan]miniftse build-index --universe {destination}[/cyan]")
+    observed = meta["provenance"]["observed"]
+    if observed:
+        console.print("\n[yellow]observed defects[/yellow]")
+        for key, value in observed.items():
+            count = len(value) if isinstance(value, list) else value
+            console.print(f"  {key}: {count}")
 
 
 @app.command("summary")

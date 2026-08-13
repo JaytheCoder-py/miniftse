@@ -75,8 +75,9 @@ CMD ["miniftse", "build-index"]
 
 # The ops desk. Built from `runtime` rather than from scratch - same venv, same
 # non-root user, same reasoning about a slim, compiler-free image. This is the last
-# stage in the file, so a plain `docker build .` (what a Hugging Face Docker Space
-# runs; there is no way to hand it a `--target`) builds the desk, not the index
+# stage in the file, so a plain `docker build .` (what Cloud Build runs for `gcloud run
+# deploy --source .`; there is no way to hand it a `--target`, and the same was true of
+# the Hugging Face Space this deployment used to target) builds the desk, not the index
 # builder above. CI's own `docker build` (`.github/workflows/ci.yml`, `build` job)
 # passes `--target runtime` explicitly so it keeps smoke-testing the CLI image, not
 # this one.
@@ -96,7 +97,10 @@ COPY --chown=miniftse:miniftse desk/data/ /app/desk/data/
 # desk-only, so it is copied here rather than promoted into the shared stage.
 COPY --chown=miniftse:miniftse memos/ /app/memos/
 
-# 7860 is the Hugging Face Spaces convention for a Docker Space's exposed port.
+# 7860 by convention (it is what a Hugging Face Docker Space expects, and this image
+# stays portable to one). Cloud Run injects its own `PORT` and routes to 8080 unless
+# told otherwise, so its deploy passes `--port 7860` rather than this image growing a
+# shell-form CMD just to expand `$PORT` - see `desk/README.md`.
 EXPOSE 7860
 
 # Hits the app's own /healthz rather than re-checking the import - that already ran
@@ -108,16 +112,27 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # records why the module-level app the plan sketched was deliberately removed in
 # Task 3; every entry point, uvicorn included, calls `create_app()` itself.
 #
-# --proxy-headers --forwarded-allow-ips=*: a Hugging Face Space's router sits in front
-# of this container, so every request uvicorn sees would otherwise arrive from that
+# --proxy-headers --forwarded-allow-ips=*: a managed platform's router sits in front of
+# this container, so every request uvicorn sees would otherwise arrive from that
 # router's own address - and `desk/limits.py`'s per-IP rate limiter (`request.client.
 # host`) would bucket every visitor together under it instead of limiting per visitor.
 # These flags tell uvicorn to trust the router's `X-Forwarded-For` and substitute it
-# for `request.client`. Trusting *every* forwarding hop (`*`) is safe ONLY because nothing
-# but the Space's own router can reach this container - there is no public ingress that
-# lets an outside client set that header directly and have uvicorn believe it, unlike a
-# general-purpose deployment where `--forwarded-allow-ips=*` would let any visitor claim
-# to be any IP. Running locally (`make desk-serve`) needs neither flag: there is no
-# proxy in front, so `request.client.host` is already the real peer address.
+# for `request.client`.
+#
+# Trusting *every* hop (`*`) is NOT safe here, contrary to what this comment used to
+# assert (DECISIONS.md D-017). The old claim - that no public ingress can set that header
+# and have uvicorn believe it - holds only for a router that *replaces* `X-Forwarded-For`.
+# Routers generally append, and Google Cloud appends the caller's address to whatever the
+# caller already sent, while uvicorn's `_TrustedHosts.get_trusted_client_address` returns
+# the *leftmost* entry once `always_trust` is set - the caller-supplied one. Measured on
+# uvicorn 0.52.1: 65 requests under one forged header gave 60 served then 5 x 429, and 65
+# rotating the forged header gave zero 429s. The desk is read-only, so the exposure is
+# spend rather than data, and `--max-instances` on the deployment is what bounds it.
+# `desk/README.md` carries the probe to run against the live service, plus the fix -
+# trust the specific peer address instead of `*`, so uvicorn walks the header from the
+# right and returns the first untrusted entry.
+#
+# Running locally (`make desk-serve`) needs neither flag: there is no proxy in front, so
+# `request.client.host` is already the real peer address.
 CMD ["uvicorn", "miniftse.desk.app:create_app", "--factory", "--host", "0.0.0.0", \
      "--port", "7860", "--proxy-headers", "--forwarded-allow-ips=*"]

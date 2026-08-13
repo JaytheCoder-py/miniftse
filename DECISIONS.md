@@ -422,3 +422,169 @@ silently downgrades every config-aware check in the drill to a skip.
 default spec, which resolves to `global_all_cap()` as before. A non-default named build
 now resolves to its own config instead of being mislabelled; an inline config fails loudly
 at baseline assembly, the same boundary `ValidationContext.save` already enforces.
+
+---
+
+## D-016 — The ops desk deploys to Google Cloud Run, not Hugging Face Spaces
+**Date:** 2026-08-12 · **Module:** M12 (ops desk) · **Status:** accepted, supersedes the
+Deployment section of `docs/superpowers/specs/2026-08-11-ops-desk-design.md`
+
+**Context.** The design spec chose Hugging Face Spaces on the Docker SDK, free CPU-basic
+tier. Hugging Face has since moved Docker and Gradio Spaces behind PRO —
+<https://huggingface.co/pricing> lists "Host ZeroGPU, Gradio & Docker Spaces" as a $9/month
+feature, and the new-Space form offers Static as the only free SDK. The written runbook
+described a path that no longer exists.
+
+**Decision.** Deploy the same `desk` image stage to Google Cloud Run, scaled to zero,
+from a local source deploy (`gcloud run deploy --source .`). `desk/README.md` is the
+rewritten runbook.
+
+**Alternatives rejected.** *Hugging Face PRO ($9/month)* — the runbook works verbatim and
+there is no cold-start penalty, but paying a subscription to host a read-only 140 MB
+container that serves a 852 KB snapshot is the wrong shape of answer. *A free Static
+Space* — free on the SDK that is actually available, but the desk does not survive the
+translation: ten of the desk's twelve routes are pure snapshot reads and would export to
+files (`/draft/render` among them — its input space is a closed question set crossed with
+one boolean), while `/ask/query` runs live retrieval over `ground_rules/`+`memos/` in
+Python and `/chaos/run` re-runs the validation engine against a fresh baseline. Losing
+both leaves a screenshot of an ops desk rather than an ops desk. *Render's free tier* — the design spec had already
+rejected Render because "Render sleeps and a cold start loses the visitor", and that
+reasoning survives: Render's free tier spins down after 15 minutes and takes roughly a
+minute to wake, against a Cloud Run cold start of an image pull plus a snapshot load the
+suite already pins under two seconds. Cloud Run is the option that honours the spec's own
+criterion at zero cost, which is why it wins over the platform the spec named.
+
+**Consequences.** A billing account must be attached to the project even though the
+service is expected to stay inside the always-free tier, so `--max-instances` and a
+billing budget alert are part of the runbook rather than optional hygiene. Deployment no
+longer requires a git remote at all — a source deploy uploads the working directory —
+which decouples shipping the desk from the still-unresolved question of where this
+repository's origin lives. The port is configured at deploy time (`--port 7860`) instead
+of in the image, so the container stays portable to any host that reads `EXPOSE`. Cloud
+Build, like a Hugging Face Space, cannot be handed a `--target`, so the property that
+made the HF plan work — `desk` being the last stage in the Dockerfile — is still load-
+bearing and must not be disturbed.
+
+---
+
+## D-017 — `--forwarded-allow-ips=*` is not safe on an appending proxy, and Cloud Run appends
+**Date:** 2026-08-12 · **Module:** M12 (ops desk) · **Status:** accepted
+
+**Context.** The `desk` stage's `CMD` passes `--proxy-headers --forwarded-allow-ips=*`, and
+its comment justified trusting every hop on the grounds that "there is no public ingress
+that lets an outside client set that header directly and have uvicorn believe it". That
+claim only holds if the fronting router *replaces* `X-Forwarded-For`. Routers generally
+append, and Google Cloud specifically appends the caller's address to whatever the caller
+already sent. uvicorn's `_TrustedHosts.get_trusted_client_address` returns
+`x_forwarded_for_hosts[0]` — the leftmost, caller-supplied entry — whenever `always_trust`
+is set, so `request.client.host` becomes attacker-chosen and `limits.py`'s per-IP token
+bucket keys on it.
+
+Measured against a real uvicorn (0.52.1) running the deployed flags, not reasoned from the
+source alone: 65 requests under one fixed forged header gave 60 × 400 then 5 × 429, the
+bucket working as designed; 65 requests rotating the forged header gave 65 × 400 and *zero*
+429s; and a forged value with a real peer appended after it — the shape an appending proxy
+actually produces — resolved to the forged one.
+
+**Decision.** Correct the claim wherever it is written down (the `CMD` comment,
+`limits.py`'s `enforce_rate_limit` docstring), treat `--max-instances` as the real spend
+guard on a per-request-billed platform, and put a reproduction of the probe in
+`desk/README.md` so the deployed service is measured rather than assumed. The flag itself
+is left as-is pending that measurement.
+
+**Alternatives rejected.** *Changing `--forwarded-allow-ips` to a guessed peer address now*
+— it is the right shape of fix (uvicorn walks the header from the right and returns the
+first untrusted entry once it is trusting a specific host rather than everything), but the
+correct value and the hop count depend on what Cloud Run actually presents to the
+container, and guessing the hop count is precisely how this class of bug is reintroduced.
+*Dropping `--proxy-headers` entirely* — restores a trustworthy key, but it is the proxy's
+address for every visitor, so the limiter degrades from "no limit" to "one shared 60/minute
+budget", letting a single caller lock everyone else out. *Leaving it undocumented on the
+grounds that the desk is read-only* — the exposure is real even if the blast radius is
+money rather than data, and a comment asserting a safety property the code does not have is
+worse than no comment.
+
+**Consequences.** The per-IP rate limiter is documented as best-effort until the deployed
+hop shape is measured; `--max-instances 2` and a billing alert are what actually bound the
+cost. The probe in `desk/README.md` is the acceptance test for any future change to the
+forwarded-headers configuration.
+
+---
+
+## D-018 — The materialised snapshot is the universe interface, not the generator
+**Date:** 2026-08-13 · **Module:** M1 (data) · **Status:** accepted
+
+**Context.** `data/providers.py` claimed the index engine binds to Protocols and never to
+a vendor, so the synthetic generator could be swapped for real data without touching
+anything upstream of `data/`. That was true of `calc/`, `factors/` and `risk/` and false
+of `production/`: six call sites read `SyntheticUniverse._generated[...]` — a private dict
+— and four modules annotated against the concrete class. `variants` and `daily` also
+constructed their own universe internally, which additionally assumes construction is free
+and deterministic. A real provider could satisfy every documented method and still not be
+substitutable.
+
+**Decision.** Promote the layout `SyntheticUniverse.materialise()` already wrote — nine
+parquet tables plus a fingerprint — from an output format to *the* interface. `UniverseData`
+extends `MarketDataProvider` with the whole-panel accessors, calendar, span and identity
+that `production/` actually needs; `MaterialisedUniverse` loads a snapshot; `data/real.py`
+writes one from SEC, Yahoo and FRED. `BuildSpec.universe` defaults to `None`, which
+generates a synthetic universe exactly as before.
+
+**Alternatives rejected.** *An adapter mimicking `SyntheticUniverse`, `_generated`
+included* — smallest diff, but it makes a private attribute part of the permanent contract
+and would force `_generated` into the Protocol, which contradicts D-002's premise that
+types exist to make the domain explicit. *A research-only real-data study* — zero risk to
+the 217 tests, but the engine never actually runs on real data, which was the point.
+*Replacing the synthetic universe outright* — loses clean-clone builds, the golden-master
+hash, and deliberately-placed corporate-action pathologies, all three of which
+`synthetic.py` exists to provide.
+
+**Consequences.** Real builds are reproducible because fetching is separated from
+building: `data/real.py` touches the network and emits files, and a build only ever reads
+files. Snapshot identity is content-addressed, so re-fetching revised data changes the
+fingerprint rather than silently changing an answer — and a frozen real snapshot can now
+be golden-mastered like the synthetic one. The cost is that `UniverseData` is a wider
+Protocol than `MarketDataProvider`, so a thin vendor adapter is no longer sufficient to
+drive a build; it must be materialised first. That is the correct trade: the engine
+genuinely needs the panel, and pretending otherwise is what produced the private-attribute
+coupling in the first place.
+
+
+---
+
+## D-019 — A real snapshot needs a coverage floor and an atomic write
+**Date:** 2026-08-13 · **Module:** M1 (data) · **Status:** accepted
+
+**Context.** The first real snapshot built cleanly: 199 securities, 494k price rows, an
+index history that passed the publication gate. A later re-run of the same command was
+rate-limited by Yahoo, which does not report throttling as throttling — it answers with
+`possibly delisted; no price data found`, for AAPL, MSFT and NVDA alike. One ticker of
+two hundred survived. `prices_and_actions` raised only when *nothing* came back, so a
+single survivor was enough to proceed, and `build()` wrote parquet directly into the
+destination — overwriting a known-good snapshot with a one-security one. The resulting
+snapshot would have built an index that looked entirely plausible.
+
+Two failures, and the second is the worse one. A pipeline that loses today's data is
+annoying; a pipeline that destroys yesterday's while doing so is dangerous.
+
+**Decision.** A coverage floor (`min_price_coverage`, default 0.80) that refuses to write
+below it, and staging-plus-rename so the destination is only touched once a complete
+snapshot exists. Prices are cached per ticker, so a throttled run resumes instead of
+restarting, and the error message says what the failure actually is rather than repeating
+the vendor's claim that the S&P 500 has been delisted.
+
+**Alternatives rejected.** *Trusting the vendor's error* — "possibly delisted" is
+indistinguishable from a genuine delisting, which is precisely the ambiguity
+`ProviderUnavailableError` was written to reject in `data/vendors.py`; accepting it here
+would have contradicted the module's own rule. *Retry alone, with no floor* — retries help
+a transient blip and do nothing for a sustained rate limit, and the run still ends by
+writing whatever it managed to get. *Warning loudly and writing anyway* — the whole
+argument for a publication gate is that plausible-looking wrong output is the expensive
+failure; a warning in a log is not a control.
+
+**Consequences.** A cold fetch is slower: per-ticker requests replace batches of forty,
+because a batch that trips the limiter loses all forty results and caches none. The second
+run is far cheaper, since every success is on disk. The floor is a judgement — 80% admits
+the handful of names that legitimately have no history while rejecting a throttled run —
+and it is in the config so a caller who genuinely wants a sparse universe can say so
+explicitly rather than by accident.

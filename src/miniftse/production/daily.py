@@ -36,6 +36,7 @@ from miniftse.calc.state import Constituent, IndexState
 from miniftse.config import IndexConfig, global_all_cap
 from miniftse.corpactions.engine import CorporateActionEngine
 from miniftse.corpactions.events import parse_events
+from miniftse.data.providers import UniverseData
 from miniftse.data.synthetic import SyntheticConfig, SyntheticUniverse
 from miniftse.production.manifest import ManifestStore, RunManifest
 from miniftse.production.pipeline import (
@@ -123,24 +124,28 @@ class DailyJob:
     simulate: str | None = None
     """Failure injection: 'late_data' | 'outlier' | 'missing_corp_action' | None."""
 
-    _universe: SyntheticUniverse | None = field(default=None, repr=False)
+    universe_data: UniverseData | None = None
+    """Roll the index forward on this universe instead of a generated one. See
+    `production.build.BuildSpec.universe`."""
+
+    _universe: UniverseData | None = field(default=None, repr=False)
     _fx: FxTable | None = field(default=None, repr=False)
     _attempts: int = field(default=0, repr=False)
 
     @property
-    def universe(self) -> SyntheticUniverse:
+    def universe(self) -> UniverseData:
         if self._universe is None:
-            self._universe = SyntheticUniverse(self.universe_config)
+            self._universe = self.universe_data or SyntheticUniverse(self.universe_config)
         return self._universe
 
     @property
     def fx(self) -> FxTable:
         if self._fx is None:
             u = self.universe
-            quotes = list(u._fx["quote"].unique())
+            quotes = list(u.fx_rates["quote"].unique())
             self._fx = FxTable.from_frame(
-                u.get_fx("USD", quotes, u.config.start, u.config.end),
-                u.get_deposit_rates(quotes, u.config.start, u.config.end),
+                u.get_fx("USD", quotes, u.start, u.end),
+                u.get_deposit_rates(quotes, u.start, u.end),
                 base=str(self.config.base_currency),
             )
         return self._fx
@@ -165,7 +170,7 @@ class DailyJob:
             raise DataNotReadyError(f"no prices for {run_date} - not a trading day?")
 
         prior_dates = sorted(
-            d for d in self.universe._generated["prices"]["date"].unique()
+            d for d in self.universe.prices["date"].unique()
             if d < run_date
         )
         if not prior_dates:
@@ -178,7 +183,7 @@ class DailyJob:
             # that dividend, silently, unless a check catches it.
             corp_actions = corp_actions.iloc[1:]
 
-        quotes = list(self.universe._fx["quote"].unique())
+        quotes = list(self.universe.fx_rates["quote"].unique())
         return {
             "prices": prices,
             "prior_prices": prior,

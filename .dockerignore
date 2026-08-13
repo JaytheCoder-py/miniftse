@@ -1,0 +1,30 @@
+# Keep the build context to what the Dockerfile actually COPYs. Without this, `docker
+# build .` ships the whole working tree - including `.venv/` and `.git/` - to the
+# daemon before the first layer runs, which on a synced-folder checkout dominates the
+# build time. Cloud Build's `--source .` upload falls back to `.gitignore` semantics
+# and so already skipped `.venv/`, but a local `docker build` had no such fallback.
+#
+# Every path COPYd by the Dockerfile must stay OUT of this file: pyproject.toml,
+# uv.lock, README.md, src/, ground_rules/, tests/golden/, desk/data/, memos/.
+
+.venv/
+.git/
+.github/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Working and output trees the image never reads. `desk/data/` is the snapshot the desk
+# serves and is deliberately not listed here; `data/` and `artefacts/` are the index
+# builder's local inputs and outputs, which the container regenerates or does without.
+data/
+artefacts/
+notebooks/
+docs/
+communications/
+.superpowers/

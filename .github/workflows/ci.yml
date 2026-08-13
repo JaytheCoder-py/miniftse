@@ -162,11 +162,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: docker build the deployable desk image
-        # `--target desk` is the stage a Hugging Face Space actually deploys - a plain
-        # `docker build .` lands on it, being last in the Dockerfile - and it was the
-        # one deployable artefact CI never built: the `build` job pins `--target
-        # runtime`, and the `desk-snapshot` job exercises snapshot *generation*, not
-        # the image that serves the committed snapshot.
+        # `--target desk` is the stage the deployment actually ships - Cloud Build, like
+        # the Hugging Face Space this used to target, runs a plain `docker build .` and
+        # lands on it, being last in the Dockerfile - and it was the one deployable
+        # artefact CI never built: the `build` job pins `--target runtime`, and the
+        # `desk-snapshot` job exercises snapshot *generation*, not the image that serves
+        # the committed snapshot.
         run: docker build --target desk -t miniftse-desk:${{ github.sha }} .
       - name: serve the committed snapshot and hit /healthz
         # The same startup contract desk/README.md's deploy runbook checks by hand:

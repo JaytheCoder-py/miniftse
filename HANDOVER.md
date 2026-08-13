@@ -31,13 +31,24 @@ make desk-serve                  # the ops desk on :8000, from the committed sna
 uv run miniftse documents        # regenerate every document from the code
 uv run miniftse reconcile        # constituent-level reconciliation study
 uv sync --extra orchestration    # then: uv run dagster dev -m miniftse.production.dagster_defs
+
+# real data (network; SEC requires a contact address)
+uv run miniftse fetch-real --contact you@example.com --securities 200
+uv run miniftse build-index --universe data/snapshots/real-clean
 ```
 
-- **77 source files, ~24,000 lines.** `mypy --strict` clean, `ruff` clean, **217 tests**
-  (198 in a clean clone; the 19 Dagster/orchestration tests skip without the extra).
-- The golden master pins a 10-year index history to a hash; CI fails on any drift.
-- Everything runs against a deterministic synthetic universe. No API keys, no network.
-- Verified from a fresh `git clone` + `uv sync` in this session.
+- **79 source files.** `ruff` clean, **217 tests** (2 skipped here; the Dagster tests skip
+  without the orchestration extra).
+- The golden master pins a 10-year *synthetic* index history to a hash; CI fails on drift.
+- The **default** build is still the deterministic synthetic universe — no API keys, no
+  network. Real data is opt-in via `--universe`, and is a separate path with its own
+  provenance (see D-018 and `docs/superpowers/specs/2026-08-13-real-universe-design.md`).
+- ⚠️ **`make ci` currently fails at `typecheck`.** `mypy --strict` reports 18
+  `unused-ignore` errors across 9 files. This is **pre-existing** — confirmed identical on
+  a pristine `git stash` of HEAD — and comes from the installed pandas-stubs/mypy being
+  newer than when the `# type: ignore` comments were written. Deleting the comments fixes
+  it today but breaks against the locked older stubs; pinning the stubs in `uv.lock` is
+  probably the right fix. Not yet decided.
 
 ---
 
@@ -111,9 +122,11 @@ What remains is bounded by **access, not effort**:
   precisely so they are testable against a recorded fixture without one.
 - **No cloud deployment of the production DAG.** The Dagster job runs locally; nothing
   is deployed to AWS or Azure. The ops desk is further along: its container is
-  deployable to a Hugging Face Space as-is and `desk/README.md` is the step-by-step
-  runbook, but pushing it live needs the repository owner's own account, so it has not
-  been done from here.
+  deployable to Google Cloud Run as-is and `desk/README.md` is the step-by-step runbook,
+  but pushing it live needs the repository owner's own account, so it has not been done
+  from here. The runbook targeted Hugging Face Spaces until 2026-08-12, when Hugging Face
+  moved Docker Spaces behind a paid plan; `DECISIONS.md` D-016 records the switch and
+  D-017 the forwarded-headers defect it surfaced.
 - **Free-data gaps are structural.** Free float, corporate action detail, analyst
   estimates and delisted securities have no free source. `docs/lseg_vocabulary_map.md`
   names each and what supplies it.
@@ -145,9 +158,11 @@ The build is complete against the plan. Natural next steps, none of them blockin
    today. `ISharesProvider.archive_all()` is a one-line scheduled job.
 3. **Golden-master the factor variant**, not just the parent — the capping incident
    would have been caught immediately by one.
-4. **Deploy something.** The ops desk has a written Hugging Face Spaces runbook
-   (`desk/README.md`) waiting on the owner's account; the Dagster job still needs a
-   real scheduler somewhere if the cloud module matters for interview purposes.
+4. **Deploy something.** The ops desk has a written Google Cloud Run runbook
+   (`desk/README.md`) waiting on the owner's account — a source deploy, so it needs no
+   git remote, which is the one prerequisite this repository still lacks. The Dagster job
+   still needs a real scheduler somewhere if the cloud module matters for interview
+   purposes.
 
 ---
 

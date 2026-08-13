@@ -242,13 +242,23 @@ async def enforce_rate_limit(request: Request) -> None:
     proxy's own address unless the ASGI server is explicitly told to trust that proxy's
     `X-Forwarded-For` header and substitute it for `request.client` - which is exactly
     what uvicorn's `--proxy-headers`/`--forwarded-allow-ips` flags do, and exactly what
-    the Dockerfile's `desk` stage CMD now passes for its Hugging Face Spaces deployment
-    (see that CMD's comment for why trusting every hop is safe there specifically).
+    the Dockerfile's `desk` stage CMD passes for the deployed service.
     Without that configured trust, per-IP limiting behind a proxy would bucket every
     visitor together under the proxy's one address; blindly trusting a client-supplied
     header with no proxy in front would let any visitor claim to be any IP for free -
     this dependency does neither, it relies entirely on the ASGI server's own trust
     configuration to make `request.client.host` mean the right thing in each setting.
+
+    **That trust is currently mis-configured on the deployed service, and this limiter is
+    best-effort until it is fixed** (DECISIONS.md D-017, reproduction in
+    `desk/README.md`). The CMD passes `--forwarded-allow-ips=*`, and uvicorn resolves a
+    fully-trusted `X-Forwarded-For` to its *leftmost* entry - which is whatever the caller
+    sent, because proxies append to that header rather than replacing it. A caller
+    rotating the header therefore gets a fresh bucket per request; measured on uvicorn
+    0.52.1, 65 requests under a rotating forged header drew zero 429s. Nothing about this
+    module is wrong - `request.client.host` is the right key, and it is the ASGI server's
+    job to make that mean the visitor - but a reader should not take the presence of this
+    dependency as proof that per-IP limiting is actually in force in production.
     """
     limiter: TokenBucketLimiter = request.app.state.limiter
     host = request.client.host if request.client is not None else "unknown"

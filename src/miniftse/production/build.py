@@ -20,6 +20,7 @@ from miniftse.calc.fx import FxTable
 from miniftse.calc.index import IndexCalculator, IndexHistory, annual_income_check
 from miniftse.config import IndexConfig, global_all_cap
 from miniftse.corpactions.engine import CorporateActionEngine
+from miniftse.data.providers import UniverseData
 from miniftse.data.synthetic import SyntheticConfig, SyntheticUniverse
 from miniftse.production.manifest import RunManifest
 from miniftse.quality.rules import PublicationGate, ValidationContext, ValidationReport
@@ -35,7 +36,7 @@ class BuildResult:
     validation: ValidationReport | None
     may_publish: bool
     gate_message: str
-    universe: SyntheticUniverse
+    universe: UniverseData
     reconstitution: ReconstitutionEngine
     calculator: IndexCalculator
     duration: float
@@ -65,6 +66,15 @@ class BuildSpec:
     validate: bool = True
     manifest_dir: Path | None = None
 
+    universe: UniverseData | None = None
+    """The universe to build from. `None` generates a synthetic one from
+    `universe_config`, which is what every existing caller wants and gets unchanged.
+
+    Passing one instead is how a real-data build happens: `data.real` writes a snapshot,
+    `MaterialisedUniverse` loads it, and the rest of this function cannot tell the
+    difference. `universe_config` is ignored when this is set, and the manifest records
+    the universe's own fingerprint rather than the config's."""
+
 
 def build_index(spec: BuildSpec | None = None, verbose: bool = True) -> BuildResult:
     """Build one index history end to end.
@@ -86,17 +96,28 @@ def build_index(spec: BuildSpec | None = None, verbose: bool = True) -> BuildRes
     manifest = RunManifest.start(
         index_id=spec.index_config.index_id, as_of=spec.end, config=spec.index_config
     )
-    manifest.record_input("universe_config", {
-        "seed": spec.universe_config.seed,
-        "n_securities": spec.universe_config.n_securities,
-        "fingerprint": spec.universe_config.fingerprint(),
-    })
 
-    log(f"[1/5] generating universe ({spec.universe_config.n_securities} securities)")
-    universe = SyntheticUniverse(spec.universe_config)
-    prices = universe._generated["prices"]
-    shares = universe._generated["shares"]
-    corp_actions = universe._generated["corp_actions"]
+    if spec.universe is None:
+        log(f"[1/5] generating universe ({spec.universe_config.n_securities} securities)")
+        universe: UniverseData = SyntheticUniverse(spec.universe_config)
+        manifest.record_input("universe_config", {
+            "seed": spec.universe_config.seed,
+            "n_securities": spec.universe_config.n_securities,
+            "fingerprint": spec.universe_config.fingerprint(),
+        })
+    else:
+        universe = spec.universe
+        log(f"[1/5] loading universe ({universe.name})")
+        manifest.record_input("universe", {
+            "name": universe.name,
+            "fingerprint": universe.fingerprint,
+            "start": universe.start.isoformat(),
+            "end": universe.end.isoformat(),
+        })
+
+    prices = universe.prices
+    shares = universe.shares
+    corp_actions = universe.corp_actions
     securities = universe.get_securities()
 
     manifest.record_input("prices", prices)
@@ -105,10 +126,10 @@ def build_index(spec: BuildSpec | None = None, verbose: bool = True) -> BuildRes
     manifest.record_input("securities", securities)
 
     log("[2/5] building FX table")
-    quotes = list(universe._fx["quote"].unique())
+    quotes = list(universe.fx_rates["quote"].unique())
     fx = FxTable.from_frame(
-        universe.get_fx("USD", quotes, universe.config.start, universe.config.end),
-        universe.get_deposit_rates(quotes, universe.config.start, universe.config.end),
+        universe.get_fx("USD", quotes, universe.start, universe.end),
+        universe.get_deposit_rates(quotes, universe.start, universe.end),
         base=str(spec.index_config.base_currency),
     )
     # Spot rates as at the base date, used to put every security's market cap on a
@@ -165,7 +186,7 @@ def _validate(
     history: IndexHistory,
     prices: pd.DataFrame,
     shares: pd.DataFrame,
-    universe: SyntheticUniverse,
+    universe: UniverseData,
     calculator: IndexCalculator,
     spec: BuildSpec,
     fx: FxTable,

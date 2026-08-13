@@ -24,6 +24,7 @@ from miniftse.calc.fx import FxTable, HedgedIndexCalculator, currency_exposures
 from miniftse.calc.index import IndexCalculator, IndexHistory
 from miniftse.config import IndexConfig, global_all_cap
 from miniftse.corpactions.engine import CorporateActionEngine
+from miniftse.data.providers import UniverseData
 from miniftse.data.synthetic import SyntheticConfig, SyntheticUniverse
 from miniftse.factors.build import FactorInputBuilder
 from miniftse.factors.scores import FactorScoreProvider
@@ -129,25 +130,32 @@ class VariantBuilder:
     end: dt.date = dt.date(2026, 6, 30)
     base_config: IndexConfig = field(default_factory=global_all_cap)
 
-    _universe: SyntheticUniverse | None = field(default=None, repr=False)
+    universe_data: UniverseData | None = None
+    """Build every variant from this universe instead of generating one.
+
+    All variants must share one universe - that is the whole point of the comparison,
+    since active share and factor exposure are only meaningful against a parent built
+    from the same securities. See `production.build.BuildSpec.universe`."""
+
+    _universe: UniverseData | None = field(default=None, repr=False)
     _fx: FxTable | None = field(default=None, repr=False)
     _spot: dict[str, float] = field(default_factory=dict, repr=False)
     _builder: FactorInputBuilder | None = field(default=None, repr=False)
 
     @property
-    def universe(self) -> SyntheticUniverse:
+    def universe(self) -> UniverseData:
         if self._universe is None:
-            self._universe = SyntheticUniverse(self.universe_config)
+            self._universe = self.universe_data or SyntheticUniverse(self.universe_config)
         return self._universe
 
     @property
     def fx(self) -> FxTable:
         if self._fx is None:
             u = self.universe
-            quotes = list(u._fx["quote"].unique())
+            quotes = list(u.fx_rates["quote"].unique())
             self._fx = FxTable.from_frame(
-                u.get_fx("USD", quotes, u.config.start, u.config.end),
-                u.get_deposit_rates(quotes, u.config.start, u.config.end),
+                u.get_fx("USD", quotes, u.start, u.end),
+                u.get_deposit_rates(quotes, u.start, u.end),
                 base=str(self.base_config.base_currency),
             )
         return self._fx
@@ -173,12 +181,13 @@ class VariantBuilder:
             self.base_config, index_id=spec.variant_id, name=spec.name)
 
         universe = self.universe
-        prices = universe._generated["prices"]
+        prices = universe.prices
 
         manifest = RunManifest.start(config.index_id, self.end, config)
         manifest.record_input("prices", prices)
-        manifest.record_input("universe_config",
-                              {"fingerprint": self.universe_config.fingerprint()})
+        manifest.record_input("universe",
+                              {"name": universe.name,
+                               "fingerprint": universe.fingerprint})
         manifest.record_input("variant", spec.describe())
 
         score_provider: FactorScoreProvider | None = None
@@ -195,7 +204,7 @@ class VariantBuilder:
         log(f"  building {spec.variant_id}: {spec.describe()}")
 
         reconstitution = ReconstitutionEngine(
-            config=config, prices=prices, shares=universe._generated["shares"],
+            config=config, prices=prices, shares=universe.shares,
             securities=universe.get_securities(), fx_rates=self.spot,
             score_provider=score_provider, weighter=weighter,
             fund_size=spec.fund_size,
@@ -205,7 +214,7 @@ class VariantBuilder:
         )
         calculator = IndexCalculator(config=config, fx=self.fx, engine=engine)
         history = calculator.run(
-            prices, universe._generated["corp_actions"], reconstitution,
+            prices, universe.corp_actions, reconstitution,
             self.start, self.end,
         )
 

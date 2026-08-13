@@ -38,13 +38,14 @@ make desk-data    # precompute the snapshot every screen serves (~30s)
 make desk-serve   # run the desk locally at http://localhost:8000
 ```
 
-Deploys as a Docker container — `docker build --target desk .`, serving on port 7860
-(the Hugging Face Spaces convention). `desk/data/` is committed to the repo like
-`artefacts/`, so the image needs no build-time index calculation, just a `COPY`. See
-[`desk/README.md`](desk/README.md) for the Hugging Face Spaces deployment steps.
+Deploys as a Docker container — `docker build --target desk .`, serving on port 7860.
+`desk/data/` is committed to the repo like `artefacts/`, so the image needs no
+build-time index calculation, just a `COPY`; the whole thing measures 140 MB resident
+serving a 852 KB snapshot. See [`desk/README.md`](desk/README.md) for the Google Cloud
+Run deployment steps, and `DECISIONS.md` D-016 for why not Hugging Face Spaces.
 
 **Deployed URL:** _TODO — not yet deployed. Deployment requires the repo owner's own
-Hugging Face account; see `desk/README.md` for the steps to run it._
+Google Cloud account; see `desk/README.md` for the steps to run it._
 
 ---
 
@@ -116,6 +117,19 @@ make evals             # methodology assistant evaluation suite
 make ci                # lint, typecheck, test, golden master
 ```
 
+Building on real market data instead of the generator — network, no keys, but the SEC
+requires a contact address on every request and blocks IPs that omit it:
+
+```bash
+uv run miniftse fetch-real --contact you@example.com --securities 200
+uv run miniftse build-index --universe data/snapshots/real-clean
+```
+
+`fetch-real` writes a snapshot; `build-index --universe` reads it. Fetching and building
+are separate on purpose — the snapshot is the reproducible artefact, so a build never
+touches the network, and re-fetching revised data changes the snapshot's fingerprint
+rather than silently changing an answer.
+
 ---
 
 ## Design decisions worth knowing
@@ -125,6 +139,15 @@ so a golden master pinned to it is meaningless; and a clean clone must build a f
 with no licence. The universe has a genuine factor structure, all sixteen corporate
 action types, delistings, late listings and restatements. Real adapters — yfinance,
 SEC EDGAR, iShares, PermID, and an `lseg.data` stub — live behind the same Protocols.
+
+**Real data is a second path, not a replacement.** `miniftse fetch-real` writes a snapshot
+that `MaterialisedUniverse` loads and the engine builds from unchanged — the substitution
+the Protocols in `data/providers.py` promise. The resulting index is wrong in known ways,
+and the ways are enumerated in `data.real.DEFECTS` and written into every snapshot's
+`config.json`. The three that move numbers: the universe is current SEC registrants so it
+is survivorship-biased; no free source publishes free float, so float-cap weighting
+degenerates to full-cap; and Yahoo's closes are split-adjusted, so historical market
+capitalisation cannot be reconstructed. See D-018.
 
 **Nothing computed on the synthetic universe is evidence about real markets.** Value and
 quality predict returns in it because they were built to. It exercises machinery; it does

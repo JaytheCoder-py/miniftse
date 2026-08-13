@@ -446,7 +446,7 @@ def baseline_from_build(result: BuildResult) -> ValidationContext:
     """The clean context for a drill, taken from the final day of a completed build.
 
     This assembly used to sit inline in `cli.chaos_drill_cmd`. It lives here because it
-    reaches into `SyntheticUniverse._generated` and stitches together nine separate
+    reads the universe's price panel and stitches together nine separate
     pieces of a `BuildResult` - library knowledge with no business being duplicated in a
     CLI command and again in a web-facing precompute step. `cli.chaos_drill_cmd` and
     `desk.snapshot.build_snapshot` are both callers, and there is one definition of what
@@ -457,7 +457,7 @@ def baseline_from_build(result: BuildResult) -> ValidationContext:
     prior = history.levels.iloc[-2]
     as_of = last["date"]
 
-    prices = universe._generated["prices"]
+    prices = universe.prices
     today = prices[prices["date"] == as_of]
     prior_dates = sorted(d for d in prices["date"].unique() if d < as_of)
     yesterday = prices[prices["date"] == prior_dates[-1]]
@@ -465,7 +465,7 @@ def baseline_from_build(result: BuildResult) -> ValidationContext:
     snapshot = history.weights[history.weights["date"] == history.weights["date"].max()]
     weights = snapshot.set_index("security_id")["weight"]
 
-    quotes = list(universe._fx["quote"].unique())
+    quotes = list(universe.fx_rates["quote"].unique())
     return build_baseline_context(
         prices=today, prior_prices=yesterday, weights=weights,
         shares=universe.get_shares(None, as_of),

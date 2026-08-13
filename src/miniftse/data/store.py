@@ -25,7 +25,7 @@ from typing import Any, Final
 import duckdb
 import pandas as pd
 
-from miniftse.data.synthetic import SyntheticUniverse
+from miniftse.data.providers import UniverseData
 
 # --------------------------------------------------------------------------------------
 # The cookbook
@@ -289,17 +289,17 @@ class PitStore:
 
     # ---------------------------------------------------------------- loading
 
-    def load_universe(self, universe: SyntheticUniverse) -> None:
-        """Register every table from a generated universe."""
+    def load_universe(self, universe: UniverseData) -> None:
+        """Register every table from a universe, generated or materialised."""
         tables = {
-            "prices": universe._generated["prices"],
-            "shares": universe._generated["shares"],
-            "corp_actions": universe._generated["corp_actions"],
-            "fundamentals": universe._fundamentals,
-            "fx": universe._fx,
+            "prices": universe.prices,
+            "shares": universe.shares,
+            "corp_actions": universe.corp_actions,
+            "fundamentals": universe.fundamentals,
+            "fx": universe.fx_rates,
             "securities": universe.get_securities(),
             "listings": universe.get_listings(),
-            "classifications": universe.get_classifications(None, universe.config.end),
+            "classifications": universe.get_classifications(None, universe.end),
         }
         for name, df in tables.items():
             self.register(name, df)
@@ -311,7 +311,7 @@ class PitStore:
         self.con.execute(f"CREATE OR REPLACE TABLE {name} AS SELECT * FROM _tmp_{name}")
         self.con.unregister(f"_tmp_{name}")
 
-    def _build_identifier_map(self, universe: SyntheticUniverse) -> None:
+    def _build_identifier_map(self, universe: UniverseData) -> None:
         """Unpivot the wide identifier frame into the long, bitemporal shape a real
         master uses: one row per (security, identifier type, validity interval)."""
         wide = universe.get_identifier_map()

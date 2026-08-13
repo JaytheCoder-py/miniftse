@@ -992,6 +992,56 @@ class SyntheticUniverse:
                 del j
         return pd.DataFrame(rows)
 
+    # ---------------------------------------------------------------- table accessors
+
+    # The pipeline needs the whole table, not an as-of slice: `production.build` hands
+    # the full price panel to `IndexCalculator.run`, which walks it day by day. These
+    # five properties are that access path. They exist so nothing outside this module
+    # has to name `_generated`, which was the coupling that made the provider Protocol
+    # in `data.providers` decorative - a real universe could satisfy every documented
+    # method and still not be substitutable here.
+
+    @property
+    def prices(self) -> pd.DataFrame:
+        return self._generated["prices"]
+
+    @property
+    def shares(self) -> pd.DataFrame:
+        return self._generated["shares"]
+
+    @property
+    def corp_actions(self) -> pd.DataFrame:
+        return self._generated["corp_actions"]
+
+    @property
+    def fundamentals(self) -> pd.DataFrame:
+        return self._fundamentals
+
+    @property
+    def fx_rates(self) -> pd.DataFrame:
+        return self._fx
+
+    # ------------------------------------------------------------------ identity
+
+    @property
+    def fingerprint(self) -> str:
+        """Identity of the data, for the run manifest.
+
+        For a generator this is a hash of the configuration, because the config plus
+        the seed fully determines the tables. A materialised universe hashes the files
+        instead. Both answer the same question - "which data was this built from" - and
+        that is what the manifest records.
+        """
+        return self.config.fingerprint()
+
+    @property
+    def start(self) -> dt.date:
+        return self.config.start
+
+    @property
+    def end(self) -> dt.date:
+        return self.config.end
+
     # ---------------------------------------------------------------- provider API
 
     def get_prices(self, listing_ids: list[str] | None, start: dt.date, end: dt.date

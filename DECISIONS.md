@@ -632,3 +632,42 @@ a real build cannot overwrite the committed synthetic factsheet by omission. Rel
 the "review selected nothing" error now names the failing screen and its rejection
 counts — the base-date trap above cost an afternoon to diagnose from the bare message,
 and `test_a_review_that_selects_nothing_names_the_failing_rule` keeps it named.
+
+---
+
+## D-021 — The triage taxonomy's format check is scoped to its own files, not the whole tree
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** Task 1's brief (Step 7) specifies `uv run ruff format src tests` — unscoped
+and mutating — as part of the lint/format verification for `src/miniftse/triage/` and
+`tests/test_triage.py`. Running it as written touches every file under both trees, but
+the task's own instructions permit creating exactly three new files and forbid modifying
+anything under `src/miniftse/corpactions/`, `src/miniftse/calc/`, or any existing test
+file. Running the unscoped command found 63 pre-existing files that `ruff format` would
+reformat, none of which this task touched or has any reason to touch — formatting debt
+that predates this task, confirmed by a clean `git status` on the branch before any of
+this task's edits landed.
+
+**Decision.** Run `ruff format` / `ruff format --check` scoped to the files this task
+owns — `src/miniftse/triage/` and `tests/test_triage.py` — instead of the brief's
+literal unscoped invocation. Both are clean under the scoped check. The repo's CI lint
+job runs `uv run ruff format --check src tests` unscoped, so CI is red at HEAD on this
+step independently of this task; that debt is real, pre-existing, and deliberately left
+alone here rather than folded into a taxonomy-pinning commit.
+
+**Alternatives rejected.** *Run the brief's literal unscoped command* — would have
+silently reformatted 63 unrelated files as a side effect of a task scoped to three new
+files, burying the actual diff for this change under whitespace noise in files this task
+has no mandate to touch. *Reformat the whole tree deliberately, as a bonus cleanup* —
+rejected because a repo-wide formatting pass is a real, reviewable change that belongs
+in its own commit and its own task, not a side effect of pinning a label space.
+*Skip the format check entirely* — rejected because "`ruff format --check src tests`
+must pass" is one of this task's own global constraints, and the three new files still
+needed verifying against it.
+
+**Consequences.** CI's unscoped `ruff format --check src tests` remains red at HEAD,
+unrelated to and unresolved by this task. A later task that wants a green CI lint step
+either needs a dedicated formatting-cleanup commit across the 63 files or a change to
+what CI checks; either is a call for whoever owns that decision, not a byproduct of
+Task 1. The file count (63 unformatted, 26 already formatted, 89 total under
+`src tests`) was confirmed by two independent `ruff format --check src tests` runs.

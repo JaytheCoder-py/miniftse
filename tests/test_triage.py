@@ -514,6 +514,92 @@ class TestTextJoin:
             "YF-2::0000-2024-05-20",
         }
 
+    def test_a_blank_only_candidate_is_treated_as_no_filing_at_all(self) -> None:
+        """A document that strips down to whitespace-only text (e.g. an all-
+        script/style redirect page) is not a plausible match either.
+        `Announcement.__post_init__` would reject it, so it must never become `best`
+        in the first place - the label lands in `unjoined`, exactly as if no filing
+        existed in the window."""
+        label = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        blank = _doc(dt.date(2024, 5, 20), text="   ")  # whitespace-only
+
+        joined, unjoined = join_labels_to_text([label], [blank], window_days=5)
+
+        assert joined == []
+        assert len(unjoined) == 1
+        assert unjoined[0] is label
+
+    def test_a_nearer_blank_candidate_loses_to_a_farther_real_one(self) -> None:
+        """The blank document is the exact-date match and would win the nearest-filing
+        tie-break outright - it must be excluded from candidacy entirely, not merely
+        lose on distance, or a same-day empty exhibit would still beat a real filing a
+        few days off."""
+        label = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        blank = _doc(dt.date(2024, 5, 20), text="")  # exact-date match, but empty
+        real = _doc(dt.date(2024, 5, 17), text="Board declares dividend.")
+
+        joined, unjoined = join_labels_to_text([label], [blank, real], window_days=5)
+
+        assert unjoined == []
+        assert len(joined) == 1
+        assert joined[0].text == "Board declares dividend."
+
+    def test_one_blank_candidate_does_not_abort_the_rest_of_the_batch(self) -> None:
+        """The regression this pins: before the guard, a blank `best` candidate for
+        any one label raised inside `Announcement.__post_init__`, uncaught by
+        `join_labels_to_text`. That exception would propagate out of the whole call,
+        discarding `joined`/`unjoined` results already computed for every other label
+        in the batch - a far worse failure than the "wrong join" this module exists to
+        prevent. One blocked label (its only candidate is blank) sits alongside one
+        that joins cleanly and one with no candidate at all; the call must return
+        complete, correct results for all three and never raise."""
+        blocked = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
+            security_id="AAPL",
+            source="vendor-actions",
+            raw_event_id="YF-1",
+        )
+        fine = LabelledEvent(
+            event=Split(**{**COMMON, "security_id": "MSFT"}, ratio=2.0),
+            security_id="MSFT",
+            source="vendor-actions",
+            raw_event_id="YF-2",
+        )
+        missing = LabelledEvent(
+            event=CashDividend(**{**COMMON, "security_id": "GOOG"}, amount=1.0),
+            security_id="GOOG",
+            source="vendor-actions",
+            raw_event_id="YF-3",
+        )
+        blank_doc = _doc(dt.date(2024, 5, 20), text="")
+        good_doc = FilingDocument(
+            accession="MSFT-1",
+            filed=dt.date(2024, 5, 20),
+            url="https://www.sec.gov/Archives/MSFT-1",
+            text="Board approves a two-for-one split.",
+            security_id="MSFT",
+        )
+
+        joined, unjoined = join_labels_to_text(
+            [blocked, fine, missing], [blank_doc, good_doc], window_days=5
+        )
+
+        assert len(joined) == 1
+        assert joined[0].security_id == "MSFT"
+        assert joined[0].text == "Board approves a two-for-one split."
+        assert len(unjoined) == 2
+        assert {label.raw_event_id for label in unjoined} == {"YF-1", "YF-3"}
+
 
 class TestStripHtml:
     def test_removes_tags(self) -> None:

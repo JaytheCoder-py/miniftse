@@ -43,6 +43,13 @@ def join_labels_to_text(
     Returns `(joined, unjoined)`. The second element is not a failure to hide - the
     unjoined count is a reported property of the corpus, because a corpus that silently
     kept only the easy-to-join announcements would be biased in a way no metric reveals.
+
+    A document whose text is blank or whitespace-only is never offered as a candidate.
+    `Announcement.__post_init__` rejects empty text, and a blank filing (an all-
+    markup redirect/viewer page, an exhibit with no prose, `_strip_html` reducing a
+    script-only body to nothing) is not a plausible match either - fail-closed means
+    the label it would have "won" lands in `unjoined` instead, exactly as if no filing
+    existed, not an uncaught `ValueError` that aborts every other label in the batch.
     """
     retrieved = retrieved or dt.date.today()
     by_security: dict[str, list[FilingDocument]] = {}
@@ -57,7 +64,7 @@ def join_labels_to_text(
         candidates = [
             document
             for document in by_security.get(label.security_id, [])
-            if abs((document.filed - target).days) <= window_days
+            if abs((document.filed - target).days) <= window_days and document.text.strip()
         ]
         if not candidates:
             unjoined.append(label)
@@ -161,12 +168,19 @@ def fetch_filings(
         url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{bare}/{primary}"
         body = requests.get(url, headers=headers, timeout=30)
         body.raise_for_status()
+        stripped = _strip_html(body.text)
+        if not stripped.strip():
+            # An all-markup body (redirect page, exhibit with no prose) strips down to
+            # nothing. Skip it here too - `join_labels_to_text` also guards against a
+            # blank document reaching `Announcement`, but a guard that lived only in
+            # this untested network path would be a guard nobody could verify.
+            continue
         documents.append(
             FilingDocument(
                 accession=accession,
                 filed=filed,
                 url=url,
-                text=_strip_html(body.text),
+                text=stripped,
                 security_id=security_id,
             )
         )

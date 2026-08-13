@@ -832,3 +832,75 @@ true one. Splitting the join this way also kept `join_labels_to_text` pure and f
 testable with hand-built `FilingDocument`s — no network, no mocking `requests` to fake
 one — while `fetch_filings`, the only network-touching function in `text.py`, stays
 thin and untested by design, per this task's global constraint against network in tests.
+
+---
+
+## D-026 — A blank-after-strip filing is excluded from join candidacy, not offered as `best`
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** Code review of Task 5 caught a defect the tests did not exercise, in the
+interaction between two pieces this task shipped together: `_strip_html` and
+`join_labels_to_text`. `_strip_html` can legitimately reduce a filing body to nothing —
+an all-`<script>`/`<style>` redirect or viewer page, an exhibit with no prose —
+`_strip_html("<script>var x = 1;</script>")` returns `""`. `join_labels_to_text`'s
+candidate filter (D-025) only checked security and window; a blank `FilingDocument`
+that was otherwise the nearest match still became `best` and was passed straight into
+`Announcement(text=best.text, ...)`. `Announcement.__post_init__` (`corpus.py`) rejects
+blank text with `raise ValueError("announcement text is empty")` — uncaught anywhere in
+`join_labels_to_text`, so it did not just drop the one label whose candidate was blank.
+It escaped the function entirely, discarding `joined` and `unjoined` results already
+computed for every other label processed in the same call. One malformed filing
+anywhere in a corpus-building run would have destroyed every result computed before it
+— a strictly worse failure than the "wrong join" D-025 already guards against, and one
+that violates this module's own stated contract: a document that cannot plausibly serve
+as an announcement's text should make the label land in `unjoined`, not take down the
+batch.
+
+**Decision.** `join_labels_to_text`'s candidate filter gains a second condition:
+`document.text.strip()`, alongside the existing security and window checks. A blank or
+whitespace-only document is now invisible to the join — never selected as `best`, and
+therefore a label whose only in-window match is blank lands in `unjoined` exactly as if
+no filing existed at all. The guard lives in `join_labels_to_text` itself, the pure and
+tested function, not only in the network-touching `fetch_filings` — a check that lived
+solely in the untested path would be unverifiable by this task's own test suite.
+`fetch_filings` also gained a parallel skip (checking `_strip_html(body.text).strip()`
+before appending a `FilingDocument`) so a blank filing is never even fetched into a
+batch in the first place; this is additive, not a substitute for the
+`join_labels_to_text` guard, since a caller can construct `FilingDocument`s directly
+(as every test in `TestTextJoin` does) without ever going through `fetch_filings`.
+Three new `TestTextJoin` tests pin this: a label whose sole candidate is blank lands in
+`unjoined`; a blank candidate that is nearer by date still loses to a farther non-blank
+one, proving exclusion rather than a mere tie-break loss; and a three-label batch with
+one blank candidate returns complete, correct `joined`/`unjoined` results for the other
+two and does not raise — the test that pins the batch-abort severity specifically. Two
+of the three use whitespace-only text (`"   "`), not just `""`, since
+`Announcement.__post_init__` rejects both via `.strip()` and a fix that checked
+truthiness alone (`if not document.text`) would have passed the empty-string case while
+still crashing on whitespace-only.
+
+**Alternatives rejected.** *Catch the `ValueError` around the `Announcement(...)`
+construction and route that label to `unjoined` on failure* — treats a predictable,
+checkable condition (blank text) as an exceptional one, catches a broader exception
+type than the one specific failure being guarded against, and leaves `best` chosen from
+a candidate pool that never should have included the blank document — the exact
+tie-break scenario in the second new test (a same-day blank filing beating a real one a
+few days off) would still pick the blank filing as nearest and only avoid crashing by
+accident of exception handling, not by correct candidate selection. *Guard only inside
+`fetch_filings`, skipping blank bodies before they become `FilingDocument`s* — the
+brief's own controller amendment already requires `join_labels_to_text` to be the
+locus of judgement because it is the pure, tested function; a guard that lived only in
+the untested network path would leave the pure join function still able to raise on a
+hand-built blank `FilingDocument`, which is precisely how the reviewer reproduced this.
+*Relax `Announcement.__post_init__` to accept blank text* — out of scope (that file is
+explicitly not owned by this task) and wrong regardless: blank text is never a valid
+announcement anywhere in the corpus, not just in this join path.
+
+**Consequences.** `join_labels_to_text` can no longer raise on a blank or
+whitespace-only `FilingDocument.text`, confirmed by re-running the three new tests
+against the pre-fix candidate filter (security-and-window only) and observing all three
+fail with the exact `ValueError` the reviewer described, then pass after restoring the
+`document.text.strip()` condition. A corpus-building run over many labels is now
+resilient to any single malformed filing — the worst case for one bad document is one
+extra `unjoined` label, not a discarded batch. `fetch_filings` fetches marginally fewer
+documents in the rare case of an all-markup body, which is the correct behaviour since
+such a document was never going to survive `Announcement.__post_init__` regardless.

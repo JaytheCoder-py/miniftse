@@ -225,7 +225,21 @@ class ReconstitutionEngine:
             in_scope.setdefault(sid, next(m for m in metrics if m.security_id == sid))
 
         if not in_scope:
-            raise ValueError(f"review at {dates.effective} selected nothing")
+            # Which rule emptied the universe is the whole diagnosis, and recomputing it
+            # from a bare "selected nothing" costs an afternoon. The common cause is a
+            # build whose base date is the first day of its own price history: every
+            # security then fails `price_history`, because there is none behind the
+            # cut-off to measure.
+            rejections = EligibilityScreener.rejection_summary(reports)
+            by_rule = ", ".join(
+                f"{r.rule} {r.n_rejected}" for r in rejections.itertuples(index=False)
+            ) or "none - every security was screened in but fell outside the size bands"
+            raise ValueError(
+                f"review at {dates.effective} selected nothing: {len(metrics)} securities "
+                f"had data at the cut-off {dates.cutoff}, {len(eligible)} passed the "
+                f"screens, {len(in_scope)} landed in bands {sorted(wanted)}. "
+                f"Rejected by rule: {by_rule}."
+            )
 
         # --- weights -----------------------------------------------------------
         inputs = {

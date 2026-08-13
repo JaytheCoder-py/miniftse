@@ -364,6 +364,10 @@ class MaterialisedUniverse:
             "fundamental_rows": int(len(self.fundamentals)),
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
+            # Both are absent from a snapshot the generator materialised, and their
+            # absence is what tells a downstream document it is looking at simulated
+            # data. See `reporting.factsheet._important_information`.
+            **({"source": self._meta["source"]} if "source" in self._meta else {}),
             **({"provenance": self._meta["provenance"]}
                if "provenance" in self._meta else {}),
         }

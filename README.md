@@ -122,13 +122,21 @@ requires a contact address on every request and blocks IPs that omit it:
 
 ```bash
 uv run miniftse fetch-real --contact you@example.com --securities 200
-uv run miniftse build-index --universe data/snapshots/real-clean
+uv run miniftse build-index --universe data/snapshots/real-clean --start 2017-01-03
+uv run miniftse factsheet   --universe data/snapshots/real-clean --start 2017-01-03
 ```
 
 `fetch-real` writes a snapshot; `build-index --universe` reads it. Fetching and building
 are separate on purpose — the snapshot is the reproducible artefact, so a build never
 touches the network, and re-fetching revised data changes the snapshot's fingerprint
 rather than silently changing an answer.
+
+**The build must start a year after the snapshot does**, which is why `--start` is not
+optional here. The eligibility screens measure liquidity over `liquidity_window_days`
+(250 sessions) and require `min_price_observations` (200) of them, so a build whose base
+date is the snapshot's first day screens out every security and the first review raises
+`review at 2016-01-04 selected nothing`. The generator sidesteps this by producing
+history *before* the base date; a fetched snapshot starts where you told it to.
 
 ---
 

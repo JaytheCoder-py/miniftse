@@ -15,6 +15,7 @@ generated one, and that test fails rather than the seam quietly rotting.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -186,3 +187,66 @@ def test_manifest_identifies_a_snapshot_build_by_its_data(
         BuildSpec(universe=snapshot, **common), verbose=False)  # type: ignore[arg-type]
     assert (again.manifest.input_hashes["universe"]
             == from_snapshot.manifest.input_hashes["universe"])
+
+
+# ------------------------------------------------------------------------- disclosure
+
+
+def _build(universe: UniverseData) -> object:
+    return build_index(
+        BuildSpec(universe=universe, index_config=global_all_cap(), start=BUILD_START,
+                  end=dt.date(2016, 6, 30), validate=False),
+        verbose=False,
+    )
+
+
+def test_a_generated_build_still_declares_itself_simulated(tmp_path: Path) -> None:
+    from miniftse.reporting.factsheet import write_factsheet
+
+    text = write_factsheet(_build(SyntheticUniverse(CONFIG)),  # type: ignore[arg-type]
+                           tmp_path / "factsheet.md").read_text(encoding="utf-8")
+    assert "simulated market data" in text
+
+
+def test_a_real_snapshot_discloses_its_defects_instead(
+        generated: SyntheticUniverse, tmp_path: Path) -> None:
+    """The disclosure has to follow the data, not the template.
+
+    `factsheet --universe` made it possible to publish a page of real-data numbers under
+    a sentence saying they were simulated. Two of the defects listed here change figures
+    that appear above the disclosure - no free float makes the weighting full-cap, and a
+    survivorship-biased universe overstates every return - so naming them is not
+    boilerplate.
+    """
+    from miniftse.data.real import DEFECTS
+    from miniftse.reporting.factsheet import write_factsheet
+
+    path = tmp_path / "snapshot"
+    generated.materialise(path)
+    meta = json.loads((path / "config.json").read_text())
+    meta["source"] = "SEC EDGAR + Yahoo + FRED"
+    meta["provenance"] = {"defects": DEFECTS, "observed": {"no_price_history": ["SKHY"]}}
+    (path / "config.json").write_text(json.dumps(meta, indent=2, default=str))
+
+    text = write_factsheet(_build(MaterialisedUniverse(path)),  # type: ignore[arg-type]
+                           tmp_path / "factsheet.md").read_text(encoding="utf-8")
+
+    assert "simulated market data" not in text
+    assert "real market data" in text
+    assert "SEC EDGAR + Yahoo + FRED" in text
+    for key in ("survivorship", "no_free_float", "split_adjusted_prices"):
+        assert key in text, f"{key} is a known defect and must be disclosed"
+    assert "no_price_history" in text
+
+
+def test_a_review_that_selects_nothing_names_the_failing_rule() -> None:
+    """A build whose base date is its universe's first day is the commonest way to hit
+    this, and `selected nothing` alone does not say so. The message must name the rule.
+    """
+    first_session = SyntheticUniverse(CONFIG).calendar[0].date()
+    with pytest.raises(ValueError, match="price_history"):
+        build_index(
+            BuildSpec(universe_config=CONFIG, index_config=global_all_cap(),
+                      start=first_session, end=dt.date(2015, 3, 31), validate=False),
+            verbose=False,
+        )

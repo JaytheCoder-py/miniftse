@@ -588,3 +588,47 @@ run is far cheaper, since every success is on disk. The floor is a judgement —
 the handful of names that legitimately have no history while rejecting a throttled run —
 and it is in the config so a caller who genuinely wants a sparse universe can say so
 explicitly rather than by accident.
+
+
+
+---
+
+## D-020 — The factsheet's disclosure is derived from the universe, not typed into it
+**Date:** 2026-08-13 · **Module:** M13 (reporting) · **Status:** accepted
+
+**Context.** `miniftse factsheet` built from the generator and nothing else, so its
+Important Information section could state flatly that the index was computed on
+**simulated market data**. Adding `--universe` — the obvious companion to
+`build-index --universe`, and the thing that lets a real build produce a client-facing
+document at all — made that sentence capable of being false on the one page in the
+repository written in a client's register. A hardcoded caveat is safe only while the
+input it describes cannot change.
+
+**Decision.** Derive the section from `result.universe.summary()`. Absent a `provenance`
+key the wording is unchanged, which is every existing caller. Present, the factsheet
+names the source, prints the snapshot fingerprint, and reproduces `data.real.DEFECTS`
+in full alongside the counts observed while fetching that particular snapshot.
+`MaterialisedUniverse.summary()` gained `source` to support this; both keys are absent
+from a generator-materialised snapshot, and that absence is the signal. The header
+gained a **Series begins** clause, shown only when the first computed date differs from
+`config.base_date` — on a fetched snapshot the build must start a liquidity window after
+the data does, and quoting a base level on a date the series does not cover is a wrong
+number rather than a presentational quibble.
+
+**Alternatives rejected.** *A `--real` flag on the command* — puts the disclosure in the
+caller's hands, which is precisely where a disclosure must not be; a wrong flag then
+publishes a wrong disclaimer silently. *Summarising the defects in a sentence* — the
+three that move numbers on the page (survivorship, no free float, split-adjusted prices)
+are not interchangeable with each other and a reader cannot recover them from a
+summary. *Refusing to render a factsheet from a real snapshot at all* — defensible, and
+rejected because the document is the natural place to state what is wrong with the data,
+not a reason to avoid producing it.
+
+**Consequences.** The disclosure cannot drift from the data, because there is no copy of
+it to drift. A real-data factsheet is roughly a page longer than the synthetic one and
+most of that page is caveat, which is the honest ratio at this data quality. The default
+output path becomes `artefacts/factsheet-<snapshot>.md` when `--universe` is passed, so
+a real build cannot overwrite the committed synthetic factsheet by omission. Related:
+the "review selected nothing" error now names the failing screen and its rejection
+counts — the base-date trap above cost an afternoon to diagnose from the bare message,
+and `test_a_review_that_selects_nothing_names_the_failing_rule` keeps it named.

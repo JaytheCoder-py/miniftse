@@ -84,6 +84,57 @@ def calendar_year_returns(levels: pd.DataFrame) -> pd.DataFrame:
     return yearly
 
 
+def _important_information(result: BuildResult) -> list[str]:
+    """The disclosure section, which is not the same sentence on every build.
+
+    The factsheet used to state unconditionally that the index was built on simulated
+    data. Once `build-index --universe` could point at a real snapshot that sentence
+    became capable of being false on a client-facing document, which is worse than the
+    caveat being wordy. So the section is derived from the universe rather than typed.
+
+    A real snapshot carries its own known defects - `data.real.DEFECTS`, written into
+    every snapshot's `config.json` - and they are reproduced here in full rather than
+    summarised. Several of them move the numbers on this page: with no free-float source
+    the weighting above is full-capitalisation whatever the methodology section says, and
+    a survivorship-biased universe overstates every return in the performance table.
+    """
+    summary = result.universe.summary()
+    provenance = summary.get("provenance")
+
+    if not isinstance(provenance, dict):
+        return [
+            "This index is a research artefact built on **simulated market data**. The "
+            "levels above are not the performance of any real security, portfolio or "
+            "index, and nothing here is investment advice. Past performance - simulated "
+            "or otherwise - does not indicate future results.",
+        ]
+
+    lines = [
+        "This index is a research artefact. It is not a real, licensable or investable "
+        "benchmark, and nothing here is investment advice. Past performance does not "
+        "indicate future results.",
+        "",
+        f"The levels above were computed on **real market data** from free sources "
+        f"({summary.get('source', 'see the snapshot manifest')}), held as snapshot "
+        f"`{summary.get('name', 'unknown')}` "
+        f"(fingerprint `{str(summary.get('fingerprint', ''))[:12]}`). Free data does not "
+        "support an index of this construction, and the resulting figures are wrong in "
+        "ways that are known, enumerated and unfixed at this price:",
+        "",
+    ]
+    defects = provenance.get("defects")
+    if isinstance(defects, dict):
+        lines += [f"- **{key}** — {value}" for key, value in defects.items()]
+    observed = provenance.get("observed")
+    if isinstance(observed, dict) and observed:
+        lines += ["", "Observed while fetching this particular snapshot:", ""]
+        lines += [
+            f"- `{key}`: {len(value) if isinstance(value, list) else value}"
+            for key, value in observed.items()
+        ]
+    return lines
+
+
 def write_factsheet(result: BuildResult, out: Path) -> Path:
     """Render the factsheet to markdown."""
     history = result.history
@@ -98,12 +149,21 @@ def write_factsheet(result: BuildResult, out: Path) -> Path:
     annual_turnover = mean_turnover * len(config.review.months)
 
     final = levels.iloc[-1]
+    # The config's base date is the methodology's; the series starts where the data
+    # allowed the build to start. On the generator they coincide. On a fetched snapshot
+    # they need not, and a factsheet quoting a base level on a date the series does not
+    # cover is a wrong number on a client document, not a presentational nicety.
+    first = pd.to_datetime(levels.iloc[0]["date"]).date()
+    inception = (
+        "" if first == config.base_date
+        else f" · **Series begins** {first} (rebased to {config.base_level:,.0f})"
+    )
     lines: list[str] = [
         f"# {config.name}",
         "",
         f"**Index code** `{config.index_id}` · **Base currency** "
         f"{config.base_currency} · **Base date** {config.base_date} "
-        f"(= {config.base_level:,.0f})",
+        f"(= {config.base_level:,.0f}){inception}",
         "",
         f"*Data as at {final['date']!s}. Generated {dt.date.today()} from run "
         f"`{result.manifest.run_id}`, code `{result.manifest.git_sha[:12]}`.*",
@@ -189,10 +249,9 @@ def write_factsheet(result: BuildResult, out: Path) -> Path:
         "",
         "## Important information",
         "",
-        "This index is a research artefact built on **simulated market data**. The "
-        "levels above are not the performance of any real security, portfolio or "
-        "index, and nothing here is investment advice. Past performance - simulated or "
-        "otherwise - does not indicate future results.",
+    ]
+    lines += _important_information(result)
+    lines += [
         "",
         f"Full methodology: `ground_rules/miniftse_ground_rules.md`. Run manifest "
         f"`{result.manifest.run_id}` records the code version, input hashes and "

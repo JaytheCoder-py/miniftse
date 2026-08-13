@@ -306,15 +306,35 @@ def daily_cmd(
 
 @app.command("factsheet")
 def factsheet_cmd(
+    index: str = typer.Option("all-cap", help="all-cap | large-mid | developed"),
     securities: int = typer.Option(300),
     start: str = typer.Option("2016-01-04"),
     end: str = typer.Option("2026-06-30"),
-    out: Path = typer.Option(ARTEFACTS / "factsheet.md"),
+    out: Path | None = typer.Option(None, help="default artefacts/factsheet.md, or "
+                                              "artefacts/factsheet-<snapshot>.md"),
+    universe: Path | None = typer.Option(
+        None, help="build the factsheet from a materialised snapshot instead of the "
+                   "synthetic generator (see `miniftse fetch-real`)"),
 ) -> None:
-    """Generate a client-facing factsheet."""
+    """Generate a client-facing factsheet.
+
+    With `--universe` the numbers come from a snapshot rather than the generator, and
+    the disclosure section changes with them: a real snapshot's known defects are
+    reproduced in full instead of the simulated-data caveat. Pass `--start` at least
+    `liquidity_window_days` after the snapshot begins, or the first review screens out
+    every security - a fetched snapshot has no history behind its own first day.
+
+    A real-data factsheet does not overwrite `artefacts/factsheet.md` unless you name it
+    with `--out`. The two documents disclose different things and one is committed.
+    """
     from miniftse.reporting.factsheet import write_factsheet
 
-    result = build_index(_spec("all-cap", securities, start, end, 20260809))
+    if out is None:
+        out = ARTEFACTS / (
+            "factsheet.md" if universe is None else f"factsheet-{universe.name}.md"
+        )
+
+    result = build_index(_spec(index, securities, start, end, 20260809, universe))
     path = write_factsheet(result, out)
     console.print(f"\n[green]wrote[/green] {path}")
 

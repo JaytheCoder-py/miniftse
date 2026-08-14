@@ -2047,39 +2047,66 @@ def _arithmetic_violations(source: str, path: str = "<memory>") -> list[str]:
     return violations
 
 
+_SCANNED_FOR_INDEX_ARITHMETIC: tuple[str, ...] = (
+    "src/miniftse/desk",
+    "src/miniftse/triage",
+)
+"""Trees that consume published index figures without being allowed to derive them.
+
+`desk/` is a surface over the library. `triage/` grades an extracted corporate action by
+applying it through `corpactions.engine` and differencing what came back, and both its
+module docstring (`verify.py:45-46`) and D-029 cite *this* test by name as the constraint
+they honour - which was an assertion and not a check until `triage/` was actually
+scanned. Adding it here found both of `verify.py`'s `x 10_000` bps conversions unmarked;
+they are legitimate presentation, so they now carry the marker, exactly as
+`services._to_bps` has since commit 8d4bfdf. See D-034."""
+
+
 def test_desk_contains_no_index_arithmetic():
-    """`desk/` is a surface over the library. Every number comes from a library call.
+    """`desk/` and `triage/` are surfaces over the library. Every number comes from a
+    library call.
 
     Not a style preference: the moment a percentage or a basis-point figure gets
-    recomputed in a route or a service function, two sources of truth exist for a
-    published figure and they will disagree. Scans every `.py` source under
-    `src/miniftse/desk` (not templates, not `static/capacity.js` - Jinja's `* 100`
-    percent formatting and the browser-side capacity chart are sanctioned house style,
-    and this test only ever greps `*.py`) line by line for the re-derivation patterns
-    a desk route has no business writing: recomputing a percentage, converting between
-    a fraction and basis points, annualising by 252, or taking an nth root.
+    recomputed in a route, a service function or a grader, two sources of truth exist
+    for a published figure and they will disagree. Scans every `.py` source under
+    `_SCANNED_FOR_INDEX_ARITHMETIC` (not templates, not `static/capacity.js` - Jinja's
+    `* 100` percent formatting and the browser-side capacity chart are sanctioned house
+    style, and this test only ever greps `*.py`) line by line for the re-derivation
+    patterns this code has no business writing: recomputing a percentage, converting
+    between a fraction and basis points, annualising by 252, or taking an nth root.
 
-    One line is allowed to trip this: `services._to_bps`, the single sanctioned
+    Three lines are allowed to trip this: `services._to_bps`, the single sanctioned
     presentation helper for the one bps figure with no precomputed column
-    (`services.py`'s module docstring explains why). It carries its own
-    `# desk-arithmetic-allowlist: <reason>` marker rather than being carved out of the
-    pattern here - an allowlist that lives on the line it exempts is one a future
+    (`services.py`'s module docstring explains why), and the two bps conversions at the
+    end of `triage.verify.impact_error`, which scale a difference of two levels the
+    engine published and a ratio of two divisors the engine returned. Each carries its
+    own `# desk-arithmetic-allowlist: <reason>` marker rather than being carved out of
+    the pattern here - an allowlist that lives on the line it exempts is one a future
     violation elsewhere in the file cannot hide behind. The reason is not decoration:
     a marker with nothing after the colon exempts nothing (see
     `_arithmetic_violations`), so every allowlisted line - current and future - has to
     say *why*, not merely opt out.
     """
     violations = []
-    root = pathlib.Path("src/miniftse/desk")
-    for path in sorted(root.rglob("*.py")):
-        violations += _arithmetic_violations(path.read_text(), str(path))
+    for root in _SCANNED_FOR_INDEX_ARITHMETIC:
+        for path in sorted(pathlib.Path(root).rglob("*.py")):
+            violations += _arithmetic_violations(path.read_text(), str(path))
 
     assert not violations, (
-        "desk/ looks like it recomputed an index figure instead of reading one off "
-        "a library call - add the missing library call, or if this really is the one "
+        "a scanned tree looks like it recomputed an index figure instead of reading "
+        "one off a library call - add the missing library call, or if this really is a "
         "legitimate case, mark it `# desk-arithmetic-allowlist: <reason>`:\n"
         + "\n".join(violations)
     )
+
+
+def test_the_arithmetic_scan_covers_the_triage_grader():
+    """The scan is only worth what it covers, and `triage/verify.py` asserted this
+    test's constraint by name for two review rounds while sitting outside its root.
+    Pins the root list itself, so removing `triage/` fails here rather than silently
+    unscanning the one module in the repo whose whole output is a basis-point figure."""
+    assert "src/miniftse/triage" in _SCANNED_FOR_INDEX_ARITHMETIC
+    assert pathlib.Path("src/miniftse/triage/verify.py").exists()
 
 
 def test_allowlist_marker_without_a_reason_does_not_exempt_a_line():

@@ -5,7 +5,9 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json as _json
+from dataclasses import fields
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 import pytest
@@ -23,6 +25,7 @@ from miniftse.corpactions.events import (
     Spinoff,
     Split,
 )
+from miniftse.data.synthetic import SyntheticConfig, SyntheticUniverse
 from miniftse.triage.corpus import (
     Announcement,
     LabelSource,
@@ -32,7 +35,7 @@ from miniftse.triage.corpus import (
 )
 from miniftse.triage.extract import extract_event
 from miniftse.triage.labels import LabelledEvent, harvest_labels, skip_counts
-from miniftse.triage.taxonomy import TAXONOMY, build_event
+from miniftse.triage.taxonomy import COMMON_FIELDS, TAXONOMY, build_event
 from miniftse.triage.text import FilingDocument, _strip_html, join_labels_to_text
 from miniftse.triage.verify import ImpactError, Ungraded, impact_error
 
@@ -145,6 +148,37 @@ class TestTaxonomy:
         assert isinstance(event, CashDividend)
         assert event.currency == "EUR"
         assert event.withholding_rate == 0.15
+
+    def test_a_payload_cannot_override_a_common_field(self) -> None:
+        """`common` is the caller's statement of *which* event on *which* security is
+        being built; `payload` is a description of the event's terms proposed by
+        something else. All five `COMMON_FIELDS` are declared fields on every handler
+        dataclass, so filtering the payload to declared names alone let
+        `kwargs.update(payload)` overwrite every one of them - the payload won.
+
+        `corpus.to_dict` has always excluded these five from the payload it writes
+        (`corpus.py:93-97`), so the rule was known on the way out and unenforced on the
+        way in. Here all five are supplied wrong at once: none may land. See D-033."""
+        event = build_event(
+            EventType.CASH_DIVIDEND,
+            COMMON,
+            {
+                "amount": 2.0,
+                "event_id": "HALLUCINATED",
+                "security_id": "S1",
+                "ex_date": dt.date(1999, 1, 1),
+                "announcement_date": dt.date(1999, 1, 1),
+                "pay_date": dt.date(1999, 1, 1),
+            },
+        )
+
+        assert isinstance(event, CashDividend)
+        assert event.amount == 2.0
+        assert event.event_id == "E1"
+        assert event.security_id == "S0"
+        assert event.ex_date == D
+        assert event.announcement_date == dt.date(2024, 5, 20)
+        assert event.pay_date == dt.date(2024, 6, 24)
 
     def test_rejects_a_non_object_payload(self) -> None:
         """`payload: dict[str, Any]` checks nothing at runtime, and the caller nearest
@@ -1006,7 +1040,21 @@ class TestTextJoin:
     def test_two_labels_can_join_to_the_same_filing(self) -> None:
         """Two vendor events for the same security within one filing's window (e.g. a
         dividend declaration bundled with other 8-K items) both join to it. The
-        `announcement_id` disambiguates them because it embeds `raw_event_id`."""
+        `announcement_id` disambiguates them because it embeds `raw_event_id`.
+
+        **What `announcement_id` does not fix, and this test does not claim it does.**
+        Distinct ids solve identity collision, not label contradiction. The two
+        `Announcement`s below carry byte-identical `text` ("Board declares dividend.")
+        and therefore an identical `provenance.sha256`, under contradictory labels: one
+        says the filing announces a `CashDividend(0.24)`, the other that the same
+        sentence announces a `Split(2.0)`. `extract_event` returns exactly one event per
+        announcement, so **an extractor that is entirely correct is scored wrong on at
+        least one of them**, and the resulting bps figure measures the join heuristic
+        rather than the model. The window is a heuristic (D-025) and this is the shape
+        of its worst case, made concrete: every label in the window is offered the same
+        document, and nothing in `join_labels_to_text` notices that a one-sentence
+        dividend notice cannot also be a split announcement. Deferred to stage 2 rather
+        than fixed here - see D-025's Consequences for the disclosure and the options."""
         first = LabelledEvent(
             event=CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=0.24),
             security_id="AAPL",
@@ -1418,6 +1466,60 @@ class TestExtraction:
         assert result.abstained is True
         assert result.event is None
 
+    def test_a_payload_identifier_cannot_move_the_grade_to_another_security(self) -> None:
+        """The model is asked about `S0` and answers about `S1`.
+
+        All five `COMMON_FIELDS` are declared fields on every handler dataclass, so the
+        declared-field filter D-031 added let them through and `kwargs.update(payload)`
+        gave the payload the last word. `extract_event` then returned a non-abstained
+        `CashDividend` on `S1` carrying a hallucinated `event_id` - and `impact_error`
+        graded it, against a different constituent's index weight.
+
+        Both branches score the model for something other than what it did, and this
+        test pins the worse-looking one: `S1` is not in a one-name state, so the wrong
+        security made `impact_error` return `Ungraded`, **silently deleting a wrong
+        extraction from the scoreboard** rather than charging the model for it.
+
+        Hand-derived, one name at 100.00 x 1,000 shares -> market value 100,000, base
+        level 1,000 -> divisor 100. `CashDividend` is not a divisor event, so the
+        divisor stays at 100 on both sides:
+
+            truth     1.00/share -> price 99.00, MV 99,000, level 990.000000
+            predicted 2.00/share -> price 98.00, MV 98,000, level 980.000000
+            level error = |980 - 990| / 990 x 10,000 = 101.0101 bps
+
+        See D-033."""
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "event_type": "CASH_DIVIDEND",
+                    "ex_date": "2024-06-10",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": {
+                        "amount": 2.0,
+                        "security_id": "S1",
+                        "event_id": "HALLUCINATED",
+                    },
+                }
+            )
+        )
+
+        result = extract_event(client, "…dividend of $2.00…", "S0", event_id="E1")
+
+        assert result.abstained is False
+        assert isinstance(result.event, CashDividend)
+        assert result.event.security_id == "S0", "the caller's security, not the model's"
+        assert result.event.event_id == "E1", "the caller's event id, not the model's"
+
+        state = make_state(n=1)  # holds S0 only; S1 would be ungradable
+        truth = CashDividend(**COMMON, amount=1.0)
+
+        graded_result = graded(impact_error(result.event, truth, state))
+
+        assert graded_result.error_bps == pytest.approx(101.0101, abs=0.001)
+        assert graded_result.identical_events is False
+
     def test_a_zero_split_ratio_abstains_rather_than_extracting(self) -> None:
         """`0.0` is a valid `float`, so before D-032 this returned a NON-abstained
         `Split(ratio=0.0)` - a confident extraction that raises `ZeroDivisionError`
@@ -1439,3 +1541,205 @@ class TestExtraction:
         assert result.abstained is True
         assert result.event is None
         assert "ratio" in result.reason
+
+
+class EchoingLlm(LlmClient):
+    """Returns the announcement text back verbatim, as the model's whole answer.
+
+    The end-to-end test writes each filing's body as the JSON a correct model would
+    emit, so echoing the prompt back is a perfectly correct extractor - which is the
+    point. A stub that returns a fixed body (`ScriptedLlm`) can only ever exercise one
+    row; this one is scored against every label in the slice, so anything the pipeline
+    does to a payload on its way to an event shows up as a non-zero bps figure.
+
+    That is not hypothetical. The payloads this stub echoes carry a `security_id` and an
+    `event_id` belonging to a *different* label - the shape of an 8-K that names two
+    issuers, and of a model that copies the wrong identifier out of the prose. Before
+    D-033, `build_event` let a payload overwrite both, so all 31 rows extracted onto the
+    wrong constituent and all 31 misgraded; a payload-echoing stub would have caught it
+    the first time anyone wrote one.
+    """
+
+    name = "echoing"
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def complete(
+        self,
+        messages: list[Message],
+        system: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ) -> LlmResponse:
+        prompt = messages[-1].content
+        self.prompts.append(prompt)
+        return LlmResponse(text=prompt.split("Announcement:\n", 1)[1], model="echoing")
+
+
+def _model_shaped_filing(label: LabelledEvent, other_security_id: str) -> str:
+    """The JSON a correct model would return for `label`, used as a filing body.
+
+    Every declared field beyond `COMMON_FIELDS` goes into the payload, so a correct
+    extraction is field-for-field identical to the label and `identical_events` is
+    `True` - a thinner payload would score zero bps for the uninteresting reason that
+    the omitted fields happen to equal their defaults. `security_id` and `event_id` are
+    then set to *another* label's, which the taxonomy must ignore. See D-033.
+    """
+    event = label.event
+    payload: dict[str, Any] = {
+        field.name: getattr(event, field.name)
+        for field in fields(cast(Any, event))
+        if field.name not in COMMON_FIELDS
+    }
+    payload["security_id"] = other_security_id
+    payload["event_id"] = f"WRONG-{label.raw_event_id}"
+    return _json.dumps(
+        {
+            "event_type": str(event.event_type),
+            "ex_date": event.ex_date.isoformat(),
+            "announcement_date": event.announcement_date.isoformat(),
+            "pay_date": event.pay_date.isoformat(),
+            "payload": payload,
+        }
+    )
+
+
+def _state_from_provider(universe: SyntheticUniverse, as_of: dt.date) -> IndexState:
+    """An `IndexState` on `as_of` built from the provider's own prices and share counts.
+
+    The wiring D-030 observes that nothing in `triage/` performs, done here so the
+    end-to-end test grades harvested labels against a state that actually holds their
+    securities rather than against `make_state`'s hand-built `S0`/`S1`/`S2`. Names
+    without both a price and a share count on the date (not yet listed, delisted,
+    suspended) are simply not constituents, which is why the test filters its label
+    slice to `state.constituents` rather than assuming every harvested name is indexed.
+    """
+    prices = universe.get_prices(None, as_of, as_of)
+    shares = universe.get_shares(None, as_of)
+    shares_by_id = {
+        str(row.security_id): float(row.shares_outstanding) for row in shares.itertuples()
+    }
+    constituents = {
+        str(row.security_id): Constituent(
+            security_id=str(row.security_id),
+            price=float(row.close),
+            shares=shares_by_id[str(row.security_id)],
+        )
+        for row in prices.itertuples()
+        if str(row.security_id) in shares_by_id
+    }
+    assert constituents, "no priced securities on this date"
+    return IndexState.initialise(as_of, constituents, base_level=1000.0)
+
+
+class TestEndToEnd:
+    """harvest -> join -> extract -> verify, on a slice of the repo's own universe.
+
+    Every other test in this file exercises one stage against hand-built inputs. The
+    branch's ledger names the absence of this walk "the structural reason C2/I1/I5
+    survived six scoped reviews": each stage was correct against the fixtures written
+    for it, and the defects lived in what one stage handed the next. Three of them - an
+    off-index `security_id` scoring 0.0 bps, an undeclared payload key aborting the
+    harvest, and a payload overwriting the caller's `security_id` - are invisible to any
+    test that does not run the stages in series against real vendor rows. See D-035.
+    """
+
+    def test_a_correct_extractor_scores_zero_bps_across_the_pipeline(self) -> None:
+        """A twelve-name synthetic universe over eighteen months, graded end to end.
+
+        The claim under test is not "nothing raised". It is that a **perfectly correct
+        extractor scores exactly 0.00 bps on every stage-1 label in the slice, with
+        nothing lost at any stage**: no skipped vendor row, no unjoined label, no
+        abstention, and no `Ungraded` pair. That is the only baseline against which a
+        real model's bps distribution means anything - if the harness itself loses rows
+        or misgrades a correct answer, every number measured through it is a number
+        about the harness.
+
+        Each assertion pins a stage that has actually failed on this branch:
+
+        * `skipped == []` - one undeclared vendor key (`gross_amount`) made 98.2% of
+          this exact universe unbuildable, and aborted the batch as well (D-031).
+        * `unjoined == []` - the join fails closed, so a silent shrink shows up as a
+          smaller corpus rather than as an error (D-025).
+        * `security_id` - the extracted event must be about the security the
+          announcement is about, not one a payload named (D-033).
+        * `ImpactError`, never `Ungraded` - an event on a name the state does not hold
+          is absent from a scoreboard rather than scored (D-030).
+        * `error_bps == 0` with `identical_events` - a correct extraction is worth
+          exactly zero, and zero-because-correct must stay distinguishable from
+          zero-because-unmeasurable (D-029).
+
+        Twelve names over eighteen months is the smallest slice that still yields both
+        stage-1 classes (`CashDividend` and `Split`) from the generator's own event
+        intensities; the whole walk runs in about 0.1s.
+        """
+        universe = SyntheticUniverse(
+            SyntheticConfig(
+                n_securities=12,
+                seed=20260809,
+                start=dt.date(2022, 1, 1),
+                end=dt.date(2023, 6, 30),
+            )
+        )
+        state = _state_from_provider(universe, dt.date(2022, 3, 1))
+
+        labels, skipped = harvest_labels(
+            universe,
+            list(universe.get_securities()["security_id"]),
+            dt.date(2022, 1, 1),
+            dt.date(2023, 6, 30),
+        )
+
+        assert skipped == [], f"vendor rows lost before grading began: {skip_counts(skipped)}"
+
+        in_scope = [
+            label
+            for label in labels
+            if label.security_id in state.constituents
+            and TAXONOMY[label.event.event_type].in_scope_stage == 1
+        ]
+        assert len(in_scope) >= 10, "slice too small to be worth walking"
+        assert {type(label.event).__name__ for label in in_scope} == {"CashDividend", "Split"}
+
+        securities = [label.security_id for label in in_scope]
+        documents = [
+            FilingDocument(
+                accession=f"ACC-{i:04d}",
+                filed=label.event.announcement_date,
+                url=f"https://www.sec.gov/Archives/ACC-{i:04d}",
+                text=_model_shaped_filing(label, securities[(i + 1) % len(securities)]),
+                security_id=label.security_id,
+            )
+            for i, label in enumerate(in_scope)
+        ]
+
+        joined, unjoined = join_labels_to_text(
+            in_scope, documents, window_days=5, retrieved=dt.date(2022, 3, 1)
+        )
+
+        assert unjoined == []
+        assert len(joined) == len(in_scope)
+
+        client = EchoingLlm()
+        results: list[ImpactError] = []
+        for announcement, label in zip(joined, in_scope, strict=True):
+            extraction = extract_event(
+                client,
+                announcement.text,
+                announcement.security_id,
+                event_id=label.raw_event_id,
+            )
+
+            assert extraction.abstained is False, extraction.reason
+            assert extraction.event is not None
+            assert extraction.event.security_id == announcement.security_id
+            assert extraction.event.event_id == label.raw_event_id
+
+            results.append(graded(impact_error(extraction.event, label.event, state)))
+
+        assert len(results) == len(in_scope)
+        assert all(result.error_bps == pytest.approx(0.0, abs=1e-9) for result in results)
+        assert all(result.identical_events for result in results)
+        assert all(result.same_type for result in results)
+        assert len(client.prompts) == len(in_scope)

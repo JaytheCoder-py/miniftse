@@ -20,14 +20,30 @@ respectively. The divisor is what the methodology actually decides (spec §1.3: 
 graded on whether the resulting divisor is right"), so it is graded, and `error_bps` is
 the worse of the two errors. See D-029.
 
-**What is still not graded, and cannot be.** A split's ratio. `Split` is
-market-value-invariant by construction and is not a divisor event, so `Split(ratio=2.0)`
-and `Split(ratio=10.0)` leave *identical* levels and *identical* divisors - the index
-impact of a wrong split ratio genuinely is zero on the day, and reporting anything else
-would be inventing a number the engine does not produce. `identical_events` is the
-honest signal there: 0.00 bps with `identical_events=False` means "graded zero", not
-"correct". Getting the split's *class* wrong is a different matter and is caught, which
-is the failure that actually moves a published level.
+**What is still not graded here, and why that is a deferral rather than an absence.** A
+split's ratio. `Split` is market-value-invariant by construction and is not a divisor
+event, so `Split(ratio=2.0)` and `Split(ratio=10.0)` leave *identical* levels and
+*identical* divisors **on the ex-date**. This function grades one event application
+against one state, so on that comparison the error is 0.00 bps and reporting anything
+else would be inventing a number the engine did not produce.
+
+The impact is **deferred by one day, not absent.** A split moves price and shares in
+opposite directions, and `shares` is `S` in the level formula (`calc/state.py:3-10`),
+persisted in the daily state file (`production/daily.py:75,90-91`) and carried forward
+unchanged by `CalculatorEngine._mark`, which refreshes only `price` from the market feed
+(`calc/index.py:279-286`). Nothing re-derives a share count from a price, so a wrong
+ratio never self-corrects. On the three-name fixture, truth `Split(10.0)` and prediction
+`Split(2.0)`: both levels are 1000.000000 on the ex-date, but truth holds 10,000 shares
+at 10.00 where the prediction holds 2,000, and at the next mark-to-market at the market's
+own price of 10.00 the levels are 1000.000000 and 733.333333 - **2,666.67 bps**, the same
+order as the 3,333 bps a misbooked split *class* costs. `Split`'s own docstring calls
+getting this backwards the canonical index bug.
+
+`identical_events` is the honest signal in the meantime: 0.00 bps with
+`identical_events=False` means "no same-day index impact", not "correct". D-029's
+*Alternatives* records the marked-forward comparison that would price the deferred error
+using only `Constituent.with_price`, `state.replace_constituent` and `state.level`, and
+why it is a stage-2 item rather than one this function does today.
 
 **The bps figures are weight-dependent; the ratio between them is not.** The canonical
 worked example below costs 67.114 bps on a three-name fixture, 204.082 bps on a
@@ -43,7 +59,11 @@ This module computes no index arithmetic of its own. It calls the engine twice a
 compares what came back - a difference of two levels the engine published and a ratio of
 two divisors the engine returned. Neither recomputes a level, a market value or a
 divisor, which keeps one source of truth for every published figure - the same
-constraint `test_desk_contains_no_index_arithmetic` enforces on the desk.
+constraint `test_desk_contains_no_index_arithmetic` enforces on the desk. That scan now
+covers `src/miniftse/triage` as well as `src/miniftse/desk`, so the claim is checked
+rather than asserted, and the two `x 10_000` conversions below carry the scan's
+`# desk-arithmetic-allowlist: <reason>` marker like `desk.services._to_bps` does. See
+D-034.
 """
 
 from __future__ import annotations
@@ -87,7 +107,9 @@ class ImpactError:
 
     The guard against reading a zero as a pass. A market-value-invariant event pair
     (two splits with different ratios) scores 0.00 bps *correctly* - there is no index
-    impact - but is not a correct extraction, and only this field distinguishes the two."""
+    impact on the ex-date - but is not a correct extraction, and the impact is deferred
+    to the next mark-to-market rather than absent (module docstring). Only this field
+    distinguishes the two."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,8 +189,15 @@ def impact_error(
     if truth_divisor == 0.0:
         return Ungraded("truth divisor is zero", "cannot express an error in basis points")
 
-    level_error_bps = abs(predicted_level - truth_level) / abs(truth_level) * 10_000.0
-    divisor_error_bps = abs(predicted_divisor / truth_divisor - 1.0) * 10_000.0
+    # The two relative differences, then the same two numbers in the unit the business
+    # reads. The `x 10_000` conversions are split onto their own lines so each can carry
+    # the `desk-arithmetic-allowlist` marker the tree-wide scan requires: they are
+    # presentation, not derivation - a fraction of two engine-published levels and a
+    # ratio of two engine-returned divisors, neither recomputing anything.
+    level_gap = abs(predicted_level - truth_level) / abs(truth_level)
+    divisor_gap = abs(predicted_divisor / truth_divisor - 1.0)
+    level_error_bps = level_gap * 10_000.0  # desk-arithmetic-allowlist: bps presentation
+    divisor_error_bps = divisor_gap * 10_000.0  # desk-arithmetic-allowlist: bps presentation
 
     return ImpactError(
         predicted_level=predicted_level,

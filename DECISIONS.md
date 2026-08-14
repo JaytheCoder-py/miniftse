@@ -669,8 +669,13 @@ needed verifying against it.
 unrelated to and unresolved by this task. A later task that wants a green CI lint step
 either needs a dedicated formatting-cleanup commit across the 63 files or a change to
 what CI checks; either is a call for whoever owns that decision, not a byproduct of
-Task 1. The file count (63 unformatted, 26 already formatted, 89 total under
-`src tests`) was confirmed by two independent `ruff format --check src tests` runs.
+Task 1. The file count (63 unformatted, 31 already formatted, 94 total under
+`src tests`) was confirmed by `ruff format --check src tests` at branch HEAD.
+[Corrected 2026-08-14, second whole-branch review: this entry first recorded "26
+formatted, 89 total". The load-bearing 63 was right and is unchanged - it is the number
+the decision turns on - but the other two were wrong when written and were made wronger
+by the five new files this branch added. Re-derived from the tool's own summary line:
+"63 files would be reformatted, 31 files already formatted".]
 
 ---
 
@@ -832,6 +837,34 @@ true one. Splitting the join this way also kept `join_labels_to_text` pure and f
 testable with hand-built `FilingDocument`s — no network, no mocking `requests` to fake
 one — while `fetch_filings`, the only network-touching function in `text.py`, stays
 thin and untested by design, per this task's global constraint against network in tests.
+
+**Disclosed, not fixed: the many-to-one join puts contradictory labels on identical
+text.** The join is per-label, so every label in a filing's window is offered the *same*
+document and each one that wins it produces its own `Announcement`. Two vendor events
+for one security within one window therefore yield two announcements with byte-identical
+`text` and an identical `provenance.sha256` under labels that cannot both be true of that
+text. `TestTextJoin.test_two_labels_can_join_to_the_same_filing` is that case in the
+committed suite: `CashDividend(0.24)` and `Split(2.0)` both join to a filing whose entire
+body is "Board declares dividend." Distinct `announcement_id`s (which embed
+`raw_event_id`) resolve identity collision and nothing else — they do not make the labels
+consistent. The measurement consequence is the one that matters: `extract_event` returns
+exactly **one** event per announcement, so an extractor that reads that sentence perfectly
+is scored wrong on at least one of the two, and the resulting basis-point figure is a
+measurement of the join heuristic rather than of the model. It inflates the error
+distribution by an amount nobody has bounded, and it does so silently, because both rows
+look like ordinary graded rows on a scoreboard.
+
+This is deferred to stage 2 rather than fixed here, and the deferral is the decision;
+the disclosure is not deferrable, since a metric with a known unquantified bias that is
+not written down is a metric that will be quoted as though it had none. The options,
+none of them free: drop every label that shares a document with another label of a
+different `event_type` (fails closed again, at a cost in corpus size nobody has
+measured); attach all in-window labels to one announcement and grade a *set* against a
+set, which is the honest model of a multi-item 8-K but changes `extract_event`'s
+contract and `impact_error`'s signature; or keep the join and report a
+`shared_document` flag per announcement so the stage-2 harness can partition the bps
+distribution by it. The third is the cheapest and is the recommended starting point,
+because it makes the bias visible before anyone spends the budget to remove it.
 
 ---
 
@@ -1159,25 +1192,85 @@ should not have, i.e. for defects in the *engine*; grading asks whether two *dif
 events produce the same divisor, and both sides here are individually continuous by
 construction. Wiring it in would report zero breaches on every row in the table above.
 *Fold the split-ratio case in by comparing constituent share counts* - rejected as
-inventing a number: see the consequences below.
+inventing a number: a raw share-count difference is not a basis-point figure and turning
+one into the other inside `verify.py` is exactly the constituent-level arithmetic this
+module is forbidden to do. See the consequences below.
+
+*Fold the split-ratio case in by marking both post-event states forward* -
+**considered, and deferred to stage 2 rather than rejected.** [Added 2026-08-14, second
+whole-branch review; the alternatives list previously recorded only the share-count
+version, which does not work, and not this one, which does.] Apply both events, stamp
+the *truth-side* post-event price onto both resulting states, and diff the two levels the
+engine produces. That is the same shape as the level diff already here - two engine-
+published levels, subtracted - and it needs **no new arithmetic**: `Constituent.with_price`,
+`state.replace_constituent` and `state.level` are all existing `calc` API, and every
+number still comes from `calc`. On the fixture above it returns 2,666.67 bps for
+`Split(2.0)` predicted against `Split(10.0)`, where the same-day comparison returns 0.00.
+
+Not built in this wave, for three reasons, none of them "it cannot be done". (1) It needs
+a price to mark to, and choosing one is a methodology decision, not an implementation
+detail: the truth-side post-event price is the defensible choice - it is what the market
+prints on the day after a correctly-processed split - but "grade tomorrow's level at
+today's truth price" is a claim about the metric that belongs in the spec (§2) before it
+belongs in the code. (2) It changes what `ImpactError` means. `error_bps` is currently
+"impact on the published level *on the ex-date*"; a marked-forward term is a different
+horizon and would have to be a separate field with its own name, not folded into the
+`max`, or the flagship 67.114 bps figure stops being comparable with itself. (3) It is
+one horizon of many - the same argument extends to the second day, the next review, the
+next rebalance - and picking exactly one without saying why is how a metric acquires an
+arbitrary constant. Stage 2 owns the spec change; until then, `identical_events` plus the
+corrected consequences below are the disclosure, and the limitation is written down
+rather than merely unimplemented.
 
 **Consequences.** Three of the four grossly-wrong extractions the reviewer reproduced now
 score 3,333.33, 393.70 and 604.03 bps instead of 0.0000. The fourth does not, and cannot:
 `Split(ratio=2.0)` versus `Split(ratio=10.0)` still scores exactly 0.0000, in both
 components, because `Split` is market-value-invariant by construction (`_apply_split`
 raises if it is not) and is not a divisor event - the two predictions leave *identical*
-levels and *identical* divisors. The index impact of a wrong split ratio genuinely is
-zero on the day; what the error corrupts is the price/share decomposition, which is not
-an index quantity, and manufacturing a bps figure for it would mean deriving one outside
-the engine. The honest handling is a signal rather than a number, so `ImpactError` gains
-`identical_events`: 0.00 bps with `identical_events=False` reads as "no index impact",
-not "correct answer", and `test_two_splits_with_different_ratios_are_genuinely_zero_impact`
+levels and *identical* divisors. The index impact of a wrong split ratio is zero **on the
+ex-date**, and manufacturing a same-day bps figure for it would mean deriving one outside
+the engine.
+
+[Corrected 2026-08-14, second whole-branch review. This passage originally read "the
+index impact of a wrong split ratio genuinely is zero on the day; what the error corrupts
+is the price/share decomposition, **which is not an index quantity**". The second clause
+is false, and the first was missing the qualifier that makes it true. `shares` is `S` in
+the repo's own level formula (`calc/state.py:3-10`); it is persisted per constituent in
+the daily state file (`production/daily.py:75, :90-91`); and `CalculatorEngine._mark`
+refreshes **only** `price` from the market feed, carrying `shares` forward unchanged
+(`calc/index.py:279-286`). Nothing re-derives a share count from a price, so the error
+never self-corrects. **The impact is deferred by one day, not absent.** On this
+decision's own three-name fixture, truth `Split(10.0)` against prediction `Split(2.0)`:
+
+| | price | shares | level |
+|---|---|---|---|
+| truth, ex-date | 10.00 | 10,000 | 1000.000000 |
+| pred, ex-date | 50.00 | 2,000 | 1000.000000 |
+| truth, next mark at the market's 10.00 | 10.00 | 10,000 | 1000.000000 |
+| pred, next mark at the market's 10.00 | 10.00 | 2,000 | 733.333333 |
+
+0.00 bps on the ex-date; **2,666.67 bps** at the next mark-to-market - the same order as
+the 3,333 bps this decision celebrates as newly caught, and `Split`'s own docstring calls
+getting this backwards the canonical index bug. The related sentence in `verify.py`
+("Getting the split's *class* wrong ... is the failure that actually moves a published
+level") was corrected in the same pass for implying that a wrong *ratio* does not.
+`impact_error`'s behaviour is unchanged and remains correct for what it grades - one
+event application against one state. What was wrong was this record's justification for
+the gap, and the corrected justification is narrower: the same-day figure is genuinely
+zero, and the deferred figure is not this function's to compute today.]
+
+The honest handling for now is a signal rather than a number, so `ImpactError` gains
+`identical_events`: 0.00 bps with `identical_events=False` reads as "no index impact on
+the ex-date", not "correct answer", and
+`test_two_splits_with_different_ratios_are_genuinely_zero_impact`
 pins both the zero and the flag so the limitation is enforced rather than remembered.
 Splits therefore remain outside the primary metric even though `SPLIT`/`REVERSE_SPLIT`
 are `in_scope_stage=1`; the spec's own secondary metric ("parameter accuracy conditional
 on correct type", §2) is where a split ratio is scored, and stage 2 must report it rather
 than leaning on the bps headline alone. Getting a split's *class* wrong is caught, at
-3,333 bps, and that is the failure that moves a published level.
+3,333 bps, and it is caught **on the ex-date**, which is the difference that matters
+operationally: a wrong class breaks a level the day it is published, a wrong ratio breaks
+the next one.
 
 ---
 
@@ -1267,7 +1360,22 @@ smaller than intended and never finding out.
 `build_event` filters `payload` to the handler dataclass's declared field names
 (`_declared_fields`, `dataclasses.fields` cached per handler) before `kwargs.update`. An
 undeclared key describes nothing this taxonomy models, so dropping it loses nothing,
-whereas rejecting the row loses the label. Everything in `spec.required` is still checked
+whereas rejecting the row loses the label.
+
+[Amended 2026-08-14, second whole-branch review. As first written, this filter **admitted
+the five `COMMON_FIELDS`**, because every one of them is a declared field on every handler
+dataclass - so `kwargs = dict(common)` followed by `kwargs.update(payload)` let a payload
+overwrite the caller's `security_id` and `event_id`, and the grader then scored the model
+against a different constituent. The filter is now
+`if k in declared and k not in COMMON_FIELDS`. This is a narrowing of the rule decided
+here, not a reversal of it: the reason an undeclared key is dropped rather than fatal is
+that it describes nothing the taxonomy models, and by the same argument a `COMMON_FIELDS`
+key in a payload describes nothing the *payload* is entitled to state - identity is the
+caller's. `corpus.to_dict` had excluded these five from every payload it wrote since
+D-024 (`corpus.py:93-97`); the rule simply was not enforced on the way in. Recovery on
+the shipped `SyntheticUniverse` is unchanged at 12,253 of 12,253 rows - no vendor payload
+in that universe carries a `COMMON_FIELDS` key, verified by scanning all 12,253. See
+D-033.] Everything in `spec.required` is still checked
 for presence, type (D-028) and range (D-032), which is where the information that
 actually decides the divisor lives. `payload` is also guarded to be a mapping: it is
 annotated `dict[str, Any]`, which checks nothing at runtime, and the caller nearest a
@@ -1389,3 +1497,246 @@ converts an engine exception into a returned value, which means a genuine engine
 shows up as an ungraded row rather than a crash; the `detail` field carries the exception
 class and message so the row is still investigable, and the stage-2 harness must surface
 `Ungraded` counts by reason for that to be worth anything.
+
+---
+
+## D-033 — A payload cannot state identity: `common` wins over `payload` for `COMMON_FIELDS`
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** D-031 made `build_event` filter `payload` to the handler dataclass's
+declared field names, to stop an undeclared vendor key raising `TypeError` out of the
+constructor. That filter solved the problem it was written for and left a worse one open:
+**all five `COMMON_FIELDS` are declared fields on every handler dataclass.** `event_id`,
+`security_id`, `ex_date`, `announcement_date` and `pay_date` are literal `@dataclass`
+fields on `CashDividend`, `Split`, `RightsIssue` and every other handler, so they passed
+the `k in declared` test, and the assembly order was
+
+    kwargs = dict(common); kwargs.update(payload); kwargs.update(spec.defaults)
+
+— the payload had the last word on all five. Reproduced end to end through
+`extract_event`, a caller asking about `S0` with `event_id="E1"` and a model returning
+`{"amount": 2.0, "security_id": "S1", "event_id": "HALLUCINATED"}`:
+
+```
+abstained:          False
+event.security_id:  S1              (caller asked about S0)
+event.event_id:     HALLUCINATED    (caller asked about E1)
+impact_error(...)   error_bps = 33.44481605351095
+```
+
+A confident, non-abstained extraction, graded to five decimal places, against a
+constituent nobody asked about. There is no version of that number that is about the
+model: it is computed from `S1`'s index weight and `S1`'s price, and the answer under
+test was to a question about `S0`.
+
+The second branch is worse for being quieter. If the hallucinated identifier is off-index
+rather than another constituent, D-030's membership check fires and the pair returns
+`Ungraded` — so a **wrong extraction is silently deleted from the scoreboard** rather
+than scored, which flatters the model in exactly the direction D-030 exists to prevent.
+Either way the row is scored for something other than what the model did.
+
+The rule was already known and already applied in the other direction. `corpus.to_dict`
+has excluded `COMMON_FIELDS` from the payload it writes since D-024
+(`corpus.py:93-97`, `if f.name not in COMMON_FIELDS`), because the corpus format keeps
+identity in its own `common` block. Nothing enforced the same rule on the way in, and a
+serialisation format whose reader accepts what its writer would never emit is a format
+with an undefended edge.
+
+**Decision.** `build_event` filters the payload to declared fields **minus**
+`COMMON_FIELDS`:
+
+    payload = {k: v for k, v in payload.items() if k in declared and k not in COMMON_FIELDS}
+
+Identity is the caller's to state and the payload's to describe, never to decide. A
+`security_id` in a payload is a claim about which company the announcement is about;
+the caller already knows which company it asked about, and when the two disagree the
+caller is right by construction — it is the one holding the announcement. Silently
+dropping the key rather than raising follows D-031's own reasoning unchanged: a payload
+key the taxonomy will not use is not a reason to lose the label, and a model that echoes
+identifiers back is doing something reasonable, not something malformed.
+
+The fix is in `build_event` rather than in `extract_event` for the same reason D-028 and
+D-032 put type and range checking there: the taxonomy decides constructibility for every
+caller. `corpus.Announcement.from_dict` and `labels.harvest_labels` both call
+`build_event` with a `common` dict and an externally-supplied payload, and both are
+protected by one line here where each would have needed its own guard.
+
+**Alternatives rejected.** *Raise `TaxonomyError` when a payload carries a
+`COMMON_FIELDS` key* — appealing, because a model that restates the security id is
+arguably doing something worth flagging, and it would surface hallucinated identifiers as
+abstentions rather than silence. Rejected on D-031's measured argument: the cost of
+tolerating a stray key is one unnoticed echo in a field the taxonomy does not read from
+payloads, and the cost of rejecting one is the row. A vendor that starts emitting
+`security_id` inside its payload blob — which is a completely ordinary thing for a vendor
+to do — would take the whole harvest to zero, and the resulting `SkippedRow` reason
+(`unbuildable`) would point at the taxonomy rather than at the vendor. *Reorder the
+assembly to `kwargs.update(payload)` then `kwargs.update(common)`* — produces the right
+answer for the wrong reason and only by accident of ordering. The filter states the rule
+where a reader will find it, and leaves `spec.defaults` unambiguously last, which is the
+ordering D-024 depends on for type discriminators like `is_special`. *Check the
+identifiers in `extract_event` after `build_event` returns* — protects the one caller
+holding a model and leaves `from_dict` and `harvest_labels` open, and a corpus file
+edited by hand is exactly where a stray `security_id` would appear. *Drop
+`COMMON_FIELDS` from the handler dataclasses so they are not declared fields* — touches
+`corpactions/`, which the spec's non-goals fix, and would break every existing
+constructor call in the repo.
+
+**Consequences.** An extraction is now always an answer to the question that was asked:
+`extract_event`'s returned event carries the `security_id` it was called with and the
+`event_id` of the row being graded, whatever the model wrote. Two tests pin it —
+`test_a_payload_cannot_override_a_common_field` supplies all five wrong at once through
+`build_event`, and
+`test_a_payload_identifier_cannot_move_the_grade_to_another_security` walks the same
+payload through `extract_event` into `impact_error` against a one-name state, where the
+pre-fix behaviour was `Ungraded` and the post-fix result is 101.0101 bps (hand-derived in
+the test's docstring). Nothing on the live path changes: no payload in the shipped
+`SyntheticUniverse` carries a `COMMON_FIELDS` key (all 12,253 rows scanned), no corpus
+file written by `to_dict` ever has, and `harvest_labels` still recovers 12,253 of 12,253.
+
+The genuine loss is the same one D-031 accepted and is now slightly larger: a model that
+hallucinates an identifier is silently corrected rather than caught, so the extraction
+scores as if the model had answered about the right company. That is the right trade for
+grading — the alternative is scoring it against the *wrong* company, which is worse — but
+it means identifier hallucination is not measured anywhere, and a stage-2 harness that
+wants that signal has to capture it in `extract.py` (where the raw model output is
+already retained on `Extraction.raw`) rather than expect the grader to surface it.
+
+This defect survived two whole-branch reviews and one scoped fix wave because no test ran
+the stages in series: every unit test builds its payload by hand and passes the caller's
+own identifiers, so no payload in the suite ever disagreed with its `common`. The
+end-to-end test added alongside this decision uses a payload-**echoing** stub for exactly
+that reason — see D-035.
+
+---
+
+## D-034 — The tree-wide index-arithmetic scan covers `triage/`, and `verify.py` carries the marker
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** `tests/test_desk.py::test_desk_contains_no_index_arithmetic` greps a source
+tree for the re-derivation patterns a consumer of published index figures has no business
+writing — `* 100`, `/ 10_000`, `* 10_000`, `* 252`, `** (1/n)`, `** 0.5` — and fails
+unless each hit carries a `# desk-arithmetic-allowlist: <reason>` comment with real text
+after the colon (commit `8d4bfdf` made the reason mandatory). It scanned
+`src/miniftse/desk` only.
+
+`triage/verify.py` cites that constraint by name in its module docstring ("the same
+constraint `test_desk_contains_no_index_arithmetic` enforces on the desk", `verify.py:46`)
+and D-029 cites it again to justify computing `predicted_divisor / truth_divisor` inside
+the module. Both were asserting compliance with a check that had never been run against
+them. Running `_arithmetic_violations` over `src/miniftse/triage` reports two hits, both
+in `impact_error`:
+
+```
+src/miniftse/triage/verify.py:170: level_error_bps = abs(...) / abs(truth_level) * 10_000.0
+src/miniftse/triage/verify.py:171: divisor_error_bps = abs(... - 1.0) * 10_000.0
+```
+
+Both are legitimate — so is `services._to_bps`, which is why the allowlist mechanism
+exists — but "legitimate and marked" and "legitimate and unscanned" are different
+states, and only the first is checked. A module whose entire published output is a
+basis-point figure is precisely the module where this should not be taken on trust.
+
+**Decision.** The scan's root becomes a named tuple, `_SCANNED_FOR_INDEX_ARITHMETIC =
+("src/miniftse/desk", "src/miniftse/triage")`, and both bps conversions in `impact_error`
+carry the marker with a reason. The conversions are split onto their own lines
+(`level_gap`/`divisor_gap` hold the two relative differences, which trip nothing) so each
+marker sits on the line it exempts and the whole statement still fits the 100-column
+limit — an allowlist comment on a different line from its arithmetic would exempt
+nothing, which is the mechanism working as designed. The test name is unchanged despite
+now covering two trees: it is referenced by name from `README.md`, `HANDOVER.md`,
+`verify.py`, the M14 spec, two plans and D-029, and renaming it to gain accuracy in one
+place would cost accuracy in six.
+
+`test_the_arithmetic_scan_covers_the_triage_grader` pins the root list itself, so
+deleting `triage/` from the tuple fails visibly rather than silently returning the scan
+to the state this decision found it in.
+
+**Alternatives rejected.** *Add `src/miniftse/triage` to the regex's exclusions and leave
+the scan on `desk/`* — the inverse of the finding. *Extend the pattern to exempt
+`* 10_000.0` when the operand name ends in `_bps`* — a carve-out in the pattern is one a
+future violation elsewhere in the file can hide behind, which is the argument that put
+the allowlist on the line in the first place; encoding it as a naming convention makes
+the exemption automatic and unreviewed. *Scan `src/miniftse` entirely* — the calculation
+core (`calc/`, `corpactions/`, `weighting/`, `risk/`) is where index arithmetic is
+supposed to live, and a scan that flagged the engine would be deleted within a week. The
+scan's meaning is "trees that consume published figures without deriving them", and its
+value comes from that list being deliberate. *Rewrite the two lines to avoid the pattern*
+— dividing by `1e-4`, or multiplying by a `_BPS` constant, defeats a grep-based check
+by obfuscation while leaving the arithmetic exactly where it was.
+
+**Consequences.** The claim `verify.py` and D-029 both make is now checked rather than
+asserted, and any future `triage/` module that recomputes a percentage or a bps figure
+fails the suite. The cost is that `triage/` now inherits a constraint it did not have,
+including its false positives: a legitimate `* 100` in a future `triage/` module needs a
+written reason, which is the intended friction. `_SCANNED_FOR_INDEX_ARITHMETIC` is the
+place to add the next tree; the scan is worth what it covers, and `verify.py` cited it by
+name from the moment it was written (Task 2, commit `f2a2544`) through two whole-branch
+reviews and a fix wave without ever being inside its root.
+
+---
+
+## D-035 — One end-to-end test walks harvest -> join -> extract -> verify, with an echoing stub
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** Every test in `test_triage.py` exercised exactly one stage against inputs
+built by hand for that stage. The branch's ledger names the consequence directly: the
+absence of an end-to-end walk is "the structural reason C2/I1/I5 survived six scoped
+reviews". Each of those defects lived in what one stage handed the next, where no
+single-stage fixture looks. An off-index `security_id` scoring 0.0 bps (D-030) needed
+`harvest_labels`' output meeting `impact_error`'s state; an undeclared vendor key
+aborting the harvest (D-031) needed the real provider rather than a fake one with clean
+payloads; a payload overwriting the caller's `security_id` (D-033) needed a stub whose
+output was derived from its input, because a hand-written payload always agrees with the
+hand-written `common` beside it.
+
+The walk was verified to be unblocked before being written: `harvest_labels` over the
+shipped `SyntheticUniverse` returns 12,253 labels and 0 skips, an `IndexState` built from
+`get_prices`/`get_shares` on a label's `ex_date` holds 453 constituents, and the first
+400 labels grade with 400 graded and 0 ungraded. Nothing about it waits on stage-2 work.
+
+**Decision.** One test — `TestEndToEnd::
+test_a_correct_extractor_scores_zero_bps_across_the_pipeline` — runs
+`harvest_labels` -> `join_labels_to_text` -> `extract_event` -> `impact_error` over a
+twelve-name `SyntheticUniverse` across eighteen months, which is the smallest slice that
+still yields both stage-1 classes (`CashDividend` and `Split`) from the generator's own
+event intensities. It runs in about 0.1 seconds. Its assertion is a baseline, not a smoke
+test: **a perfectly correct extractor scores exactly 0.00 bps on every label, with
+nothing lost at any stage** — no skipped vendor row, no unjoined label, no abstention, no
+`Ungraded` pair, and `identical_events` true throughout. Every one of those five is a
+stage that has failed on this branch, and a harness that loses rows or misgrades a
+correct answer makes every number measured through it a number about the harness.
+
+The stub is the load-bearing part. `EchoingLlm` returns the announcement text back
+verbatim as the model's whole answer, and `_model_shaped_filing` writes each filing body
+as the JSON a correct model would emit for that label — every declared non-common field
+in the payload, so a correct extraction is field-for-field identical to the label rather
+than merely equal on the fields the test happens to check. Into that payload it also puts
+the `security_id` and `event_id` of a **different** label in the slice: the shape of an
+8-K that names two issuers, and of a model that copies the wrong identifier out of the
+prose. Verified discriminating by re-running the whole walk against a reconstruction of
+the pre-D-033 filter: 31 of 31 rows extract onto the wrong constituent and 31 of 31
+misgrade, against 0 and 0 after the fix.
+
+**Alternatives rejected.** *A stub returning a fixed body, like the existing
+`ScriptedLlm`* — cannot be scored against more than one label, and cannot surface D-033
+at all, because its output does not depend on its input. That is precisely the property
+that let a payload-override defect live through two whole-branch reviews. *Mark it
+`@pytest.mark.slow` and run the full 500-name universe* — the defects this catches are
+structural, not statistical; twelve names find them and 500 only make the suite slower.
+*Assert only that the walk completes without raising* — would have passed at every commit
+on this branch including the ones D-030, D-031 and D-033 fix, since all three produce
+plausible values rather than exceptions. *Build the `IndexState` inside `triage/` so the
+test can call it* — that wiring is a stage-2 harness decision (D-030's consequences), and
+putting it in `src/` to serve one test would ship an interface nobody has designed;
+`_state_from_provider` lives in the test file and says so.
+
+**Consequences.** There is now one test that fails if any stage stops handing the next
+what it expects, and it is cheap enough to keep in the default suite. It is also a
+worked example of the wiring D-030 says nothing in `triage/` performs, which is the
+thing a stage-2 eval harness has to build first. What it does **not** do is test a real
+model: the stub is correct by construction, so this measures the harness and nothing
+else. That is deliberate — the model's error distribution is stage 2's subject, and a
+baseline of exactly zero is what makes any later distribution readable. It also inherits
+the known bias D-025 now discloses: the slice gives each label its own filing, so the
+many-to-one contradiction case is deliberately not present here and must not be read as
+evidence that it does not exist.

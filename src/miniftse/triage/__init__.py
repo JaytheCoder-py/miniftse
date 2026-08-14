@@ -14,5 +14,10 @@ but not out of either figure, so the claim this package makes is that the
 misclassification costs **20x** the misread parameter, at every weight - not that it
 costs 67bp. See `verify.py` and D-022.
 
+Not to be confused with `miniftse.agents.triage`, which shares the word and nothing else:
+that module triages **data-quality alerts** from the quality layer, this one triages
+**corporate action announcements** into structured index events. Neither imports the
+other.
+
 Nothing here is imported by the calculation path.
 """

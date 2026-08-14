@@ -9,6 +9,11 @@ Three properties, in descending order of how much they matter:
 3. **Every field is validated through `taxonomy.build_event`.** The model proposes a
    type and a payload; the taxonomy decides whether that is constructible. The model
    never instantiates an event directly.
+4. **Identity is the caller's, never the model's.** `security_id` and `event_id` go
+   into `common` from this function's own arguments, and `build_event` drops any
+   `COMMON_FIELDS` key a payload carries, so the returned event is always an answer to
+   the question that was asked. A model that echoes a different `security_id` back
+   would otherwise be graded against a different constituent's index weight. See D-033.
 
 Rule 1 of `agents/llm.py` still holds: no number here reaches a client-facing output.
 These numbers go to the engine, which recomputes the index itself.
@@ -22,7 +27,7 @@ from dataclasses import dataclass
 
 from miniftse.agents.llm import LlmClient, Message
 from miniftse.corpactions.events import CorporateAction, EventType
-from miniftse.triage.taxonomy import TAXONOMY, TaxonomyError, build_event
+from miniftse.triage.taxonomy import TAXONOMY, build_event
 
 SYSTEM = """You classify corporate action announcements for an equity index.
 
@@ -98,7 +103,13 @@ def extract_event(
             "pay_date": dt.date.fromisoformat(parsed["pay_date"]),
         }
         event = build_event(EventType(parsed["event_type"]), common, parsed.get("payload", {}))
-    except (KeyError, TypeError, ValueError, TaxonomyError) as exc:
+    except (KeyError, TypeError, ValueError) as exc:
+        # `TaxonomyError` subclasses `ValueError`, so naming it as well would be
+        # redundant - the same tidy D-031 made to `labels.py:132`. `KeyError` and
+        # `TypeError` are not redundant and are both load-bearing: `parsed["ex_date"]`
+        # raises `KeyError` on a model that omits a date entirely, and
+        # `dt.date.fromisoformat(20240610)` raises `TypeError` for a JSON number where
+        # a date string was asked for - both before `build_event` is reached at all.
         return Extraction(None, True, str(exc), raw)
 
     return Extraction(event, False, "", raw)

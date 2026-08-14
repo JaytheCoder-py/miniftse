@@ -312,13 +312,23 @@ def build_event(
     """Construct a `CorporateAction` from a type and a flat payload.
 
     `payload` must supply every field in `spec.required`, and may additionally supply
-    any other field the handler dataclass declares - a round-tripped corpus label
-    passes every field it was built with, not just the required ones, which is what
-    lets `Spinoff.spinco_enters_index` or `Delisting.final_price` survive a
-    write/read cycle instead of silently reverting to a default. `spec.defaults` is
-    applied last and always wins over `payload`: those fields are type-discriminating
-    (`is_special` for a special dividend) rather than data, and the type itself - not
-    whatever a caller happened to pass - decides them.
+    any other field the handler dataclass declares **except a `COMMON_FIELDS` one** - a
+    round-tripped corpus label passes every field it was built with, not just the
+    required ones, which is what lets `Spinoff.spinco_enters_index` or
+    `Delisting.final_price` survive a write/read cycle instead of silently reverting to
+    a default. `spec.defaults` is applied last and always wins over `payload`: those
+    fields are type-discriminating (`is_special` for a special dividend) rather than
+    data, and the type itself - not whatever a caller happened to pass - decides them.
+
+    **`common` always wins over `payload` for the five `COMMON_FIELDS`.** Identity is
+    the caller's to state, not the payload's to propose: `extract_event` passes the
+    `security_id` it asked the model about and the `event_id` of the row being graded,
+    and a payload that could overwrite either would move the whole comparison onto a
+    different constituent - grading a plausible non-zero number against the wrong name's
+    index weight, or returning `Ungraded` and deleting a wrong extraction from the
+    scoreboard entirely. Both branches score the model for something other than what it
+    did. `corpus.to_dict` has always excluded these five from the payload it writes
+    (`corpus.py:93-97`); this is the same rule enforced on the way in. See D-033.
 
     Keys the handler dataclass does not declare are **dropped, not fatal.** A payload
     is a description of an event written by something else - a vendor feed, a model -
@@ -357,7 +367,7 @@ def build_event(
         raise TaxonomyError(f"missing common fields: {', '.join(missing_common)}")
 
     declared = _declared_fields(spec.handler)
-    payload = {k: v for k, v in payload.items() if k in declared}
+    payload = {k: v for k, v in payload.items() if k in declared and k not in COMMON_FIELDS}
 
     missing = [f for f in spec.required if f not in payload]
     if missing:

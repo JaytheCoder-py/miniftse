@@ -1112,7 +1112,7 @@ own three-name fixture:
 | `RightsIssue(1-for-4 @ 70)` | `RightsIssue(3-for-1 @ 10)` | 0.0000 | 317.5 | 330 |
 | `ReturnOfCapital(2.00)` | `ReturnOfCapital(20.00)` | 0.0000 | 298 | 280 |
 
-The first row is a misclassification between two stage-1 classes. `ImpactError` already
+The first row is a stage-1 class (`Split`) mispredicted as a stage-3 class (`SharesChange`). `ImpactError` already
 carried `predicted_divisor` and `truth_divisor`; the headline number simply ignored them.
 This is also a spec deviation, not only a quality gap: §1.3 says the model "is graded on
 whether the resulting divisor is right," and §4.4 says `verify` wraps `apply_event` *and*

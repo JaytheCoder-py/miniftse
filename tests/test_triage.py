@@ -436,12 +436,15 @@ class TestImpactError:
 
         This is not a grader defect: the index impact of a wrong split ratio genuinely
         IS zero on the day, in level and in divisor alike, and reporting a non-zero bps
-        would mean inventing a number the engine does not produce. What the ratio error
-        corrupts is the price/share decomposition, not any index quantity. The signal
-        that this is an ungraded pass rather than a correct extraction is
-        `identical_events`, which is why that field exists - a scoreboard reporting
-        0.00 bps with `identical_events=False` is reporting "no index impact", not
-        "right answer".
+        would mean inventing a number the engine does not produce. But the error is not
+        without consequence. `shares` is S in the index level formula and is persisted in
+        the daily state file, carried forward unchanged by `_mark` at the next
+        mark-to-market. A wrong split ratio therefore produces roughly 2,666.67 bps on
+        this three-name fixture at the next day's refresh at the market's own price, and
+        never self-corrects. The impact is deferred, not absent. The signal that this is
+        an ungraded pass rather than a correct extraction is `identical_events`, which is
+        why that field exists - a scoreboard reporting 0.00 bps with `identical_events=False`
+        is reporting "no index impact on the ex-date", not "right answer".
         """
         state = make_state()
         truth = Split(**COMMON, ratio=2.0)

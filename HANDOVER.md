@@ -1,6 +1,6 @@
 # Handover
 
-**Last session ended:** 2026-08-11 · **Branch:** `master`
+**Last session ended:** 2026-08-14 · **Branch:** `master`
 
 ---
 
@@ -37,18 +37,24 @@ uv run miniftse fetch-real --contact you@example.com --securities 200
 uv run miniftse build-index --universe data/snapshots/real-clean
 ```
 
-- **79 source files.** `ruff` clean, **217 tests** (2 skipped here; the Dagster tests skip
+- **86 source files.** `ruff` clean, **331 tests** (2 skipped here; the Dagster tests skip
   without the orchestration extra).
 - The golden master pins a 10-year *synthetic* index history to a hash; CI fails on drift.
 - The **default** build is still the deterministic synthetic universe — no API keys, no
   network. Real data is opt-in via `--universe`, and is a separate path with its own
   provenance (see D-018 and `docs/superpowers/specs/2026-08-13-real-universe-design.md`).
-- ⚠️ **`make ci` currently fails at `typecheck`.** `mypy --strict` reports 18
-  `unused-ignore` errors across 9 files. This is **pre-existing** — confirmed identical on
-  a pristine `git stash` of HEAD — and comes from the installed pandas-stubs/mypy being
-  newer than when the `# type: ignore` comments were written. Deleting the comments fixes
-  it today but breaks against the locked older stubs; pinning the stubs in `uv.lock` is
-  probably the right fix. Not yet decided.
+- ✅ **`make ci` passes in full**, verified 2026-08-14: `ruff check` clean, `mypy --strict`
+  clean on 86 files, 331 tests, and the golden master matches to 0.0000bp on every column.
+  The earlier note here — that `typecheck` failed with 18 `unused-ignore` errors — is
+  **stale and has been removed**; mypy is clean today.
+- ⚠️ **The GitHub workflow is red where `make ci` is green, and the two do not run the
+  same checks.** `.github/workflows/ci.yml`'s lint job runs `ruff format --check src tests`;
+  the Makefile's `lint` target runs only `ruff check`. That extra step reports **63 files
+  would be reformatted, 31 already formatted**. All 63 are pre-existing and unrelated to
+  any recent work — running `make format` would touch them all in one sweep, which is why
+  it has not been done incidentally (D-021 records the decision to keep format checks
+  scoped to the files a task owns). Fixing this is a prerequisite to the repo being
+  public: a reviewer who clones it and sees a red CI badge has learned something untrue.
 
 ---
 
@@ -143,6 +149,62 @@ What remains is bounded by **access, not effort**:
   comparison and says so, rather than padding a component to make the table sum.
 - Turnover figures are universe-size dependent. At 150 securities the 5/10/40 cap
   dominates the weighting; at 500 it barely binds. Quote the 500-name numbers.
+
+---
+
+## Corporate action triage — stage 1 complete (2026-08-14)
+
+`src/miniftse/triage/` is new: it reads corporate action announcements, produces the
+structured `CorporateAction`, and grades the result in **basis points of index impact**
+rather than classification accuracy. The argument is that accuracy scores a misread
+dividend amount the same as a return of capital booked as an ordinary dividend, and those
+differ by two orders of magnitude in what they do to a published level.
+
+Seven modules: `taxonomy` (pins the 16-value label space to its handler classes),
+`verify` (the grader), `corpus` (labelled announcements with provenance, JSONL),
+`labels` (free labels from a vendor feed), `text` (SEC filing text and the label join),
+`extract` (the LLM layer). 82 tests. Spec in
+`docs/superpowers/specs/2026-08-13-corporate-action-triage-design.md`, decisions D-021
+through D-033.
+
+**Not to be confused with `miniftse.agents.triage`**, which triages data-quality alerts.
+Different thing, colliding name.
+
+### Stage-2 carry-forward — read this before extending it
+
+Four items were deliberately deferred. None is a defect in what shipped; all four will
+bite whoever builds the stage-2 eval harness.
+
+1. **`make_state()` builds three *identical* constituents**, so relocating an event from
+   one to another is invisible to `error_bps` — the whole `TestImpactError` suite is
+   structurally blind to that class of defect, which is why a payload-can-set-`security_id`
+   bug survived eight reviews. The fix is a **separate weighted fixture** for
+   relocation-sensitive tests. Do **not** change `make_state`'s defaults: six tests and
+   three docstrings pin the canonical 67.114bp derivation to its equal weights.
+2. **A wrong split ratio is graded zero, and that is correct but incomplete.** A split is
+   market-value-invariant by construction, so the ex-date impact genuinely is zero in both
+   level and divisor. But `shares` persists in the daily state and `_mark` refreshes only
+   `price`, so the error surfaces at the next mark-to-market — roughly 2,666.67bp on the
+   three-name fixture — and never self-corrects. The fix needs no new arithmetic: apply
+   both events, stamp the truth-side post-event price onto both states, diff the two
+   engine-produced levels. Roughly an hour. It belongs in its own field, never folded into
+   the headline `max()`. See D-029's *Alternatives*.
+3. **Many-to-one joins inflate the error distribution by an unbounded amount.** When two
+   labels join to the same filing, both `Announcement`s carry byte-identical text under
+   contradictory labels, so a *correct* extractor is scored wrong on at least one — and
+   that bps figure measures the join heuristic, not the model. D-025 records three costed
+   options; a `shared_document` flag is the cheapest first step.
+4. **Identifier hallucination is now silently corrected and therefore unmeasured.** A
+   payload can no longer set `security_id`/`event_id` (the caller's win), which is right
+   for grading — but it means a model inventing an identifier leaves no trace in the
+   score. Stage 2 should capture that signal in `extract.py`; the raw model output is
+   already on `Extraction.raw`.
+
+**Also outstanding:** the real-model smoke test (Step 5 of the stage-1 plan) has never
+been run. It needs `ANTHROPIC_API_KEY`, network and spend, and `anthropic` is deliberately
+not a dependency — `AnthropicLlm` imports it lazily and raises a clear error. Everything
+in `triage/` is tested against a scripted client, so **no line of this package has ever
+met a real model.**
 
 ---
 

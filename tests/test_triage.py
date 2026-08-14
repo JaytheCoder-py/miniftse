@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from miniftse.agents.llm import LlmClient, LlmResponse, Message
 from miniftse.calc.state import Constituent, IndexState
 from miniftse.corpactions.events import (
     CashDividend,
@@ -26,6 +27,7 @@ from miniftse.triage.corpus import (
     read_jsonl,
     write_jsonl,
 )
+from miniftse.triage.extract import extract_event
 from miniftse.triage.labels import LabelledEvent, harvest_labels
 from miniftse.triage.taxonomy import TAXONOMY, build_event
 from miniftse.triage.text import FilingDocument, _strip_html, join_labels_to_text
@@ -645,3 +647,147 @@ class TestStripHtml:
             "Item 5.02 & Departure of Directors. "
             "The Board of Directors of Example Corp approved a dividend."
         )
+
+
+class ScriptedLlm(LlmClient):
+    """Returns a fixed body. The extractor's contract is parse-and-validate, and that
+    is what these tests exercise - not the model."""
+
+    name = "scripted"
+
+    def __init__(self, body: str) -> None:
+        self.body = body
+
+    def complete(
+        self,
+        messages: list[Message],
+        system: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ) -> LlmResponse:
+        return LlmResponse(text=self.body, model="scripted")
+
+
+class TestExtraction:
+    def test_parses_a_well_formed_dividend(self) -> None:
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "event_type": "CASH_DIVIDEND",
+                    "ex_date": "2024-06-10",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": {"amount": 2.0},
+                }
+            )
+        )
+
+        result = extract_event(client, "…dividend of $2.00…", "S0", event_id="E1")
+
+        assert result.abstained is False
+        assert isinstance(result.event, CashDividend)
+        assert result.event.amount == 2.0
+
+    def test_abstains_when_the_model_says_so(self) -> None:
+        client = ScriptedLlm(_json.dumps({"abstain": True, "reason": "terms not stated"}))
+
+        result = extract_event(client, "…something ambiguous…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+        assert "terms" in result.reason
+
+    def test_malformed_output_abstains_rather_than_raising(self) -> None:
+        result = extract_event(ScriptedLlm("not json at all"), "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+        assert "parse" in result.reason.lower()
+
+    def test_a_missing_required_field_abstains(self) -> None:
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "event_type": "CASH_DIVIDEND",
+                    "ex_date": "2024-06-10",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": {},
+                }
+            )
+        )
+
+        result = extract_event(client, "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert "amount" in result.reason
+
+    def test_an_unmapped_event_type_abstains_rather_than_raising(self) -> None:
+        """`STOCK_DIVIDEND`, `TENDER_OFFER` and `SUSPENSION` are declared in
+        `EventType` but `TAXONOMY[...].handler is None`. `build_event` raises
+        `TaxonomyError` (a `ValueError` subclass) for these rather than constructing
+        a partial event; `extract_event` must turn that raise into an abstention
+        rather than let it propagate."""
+        unmapped = [t for t, s in TAXONOMY.items() if s.handler is None]
+        assert unmapped, "expected at least one unmapped EventType to exercise this"
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "event_type": str(unmapped[0]),
+                    "ex_date": "2024-06-10",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": {},
+                }
+            )
+        )
+
+        result = extract_event(client, "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+
+    def test_a_malformed_date_string_abstains_rather_than_raising(self) -> None:
+        """`dt.date.fromisoformat` raises `ValueError` on a string that is not a
+        valid ISO date. `extract_event` must catch that and abstain rather than let
+        it propagate."""
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "event_type": "CASH_DIVIDEND",
+                    "ex_date": "not-a-date",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": {"amount": 2.0},
+                }
+            )
+        )
+
+        result = extract_event(client, "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+
+    def test_an_unexpected_payload_field_abstains_rather_than_raising(self) -> None:
+        """`build_event` forwards every payload key to the handler dataclass
+        (`kwargs.update(payload)`), and the system prompt names the permitted
+        `event_type` values but never the payload schema for each one - nothing
+        stops a model from adding a key the dataclass does not declare (e.g. a
+        stray `confidence` field). The dataclass constructor then raises
+        `TypeError`, not `ValueError`/`TaxonomyError`; see D-027."""
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "event_type": "CASH_DIVIDEND",
+                    "ex_date": "2024-06-10",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": {"amount": 2.0, "confidence": 0.9},
+                }
+            )
+        )
+
+        result = extract_event(client, "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None

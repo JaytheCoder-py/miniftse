@@ -904,3 +904,72 @@ resilient to any single malformed filing — the worst case for one bad document
 extra `unjoined` label, not a discarded batch. `fetch_filings` fetches marginally fewer
 documents in the rare case of an all-markup body, which is the correct behaviour since
 such a document was never going to survive `Announcement.__post_init__` regardless.
+
+---
+
+## D-027 — `extract_event`'s abstain path also catches `TypeError`, not just `KeyError`/`ValueError`/`TaxonomyError`
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** Task 6's brief writes `extract_event`'s validation `except` clause as
+`(KeyError, ValueError, TaxonomyError)` — correct against Task 3's *original*
+`build_event`, which built its `kwargs` from `{f: payload[f] for f in spec.required}`
+and so could never pass an unrecognised key to a handler dataclass. D-024 changed that:
+`build_event` now does `kwargs.update(payload)`, forwarding every payload key the
+caller supplies, not only the required ones, so that a round-tripped corpus label keeps
+optional fields like `Spinoff.spinco_enters_index`. That same permissiveness is a
+liability at the other call site. `extract_event`'s system prompt names the permitted
+`event_type` values but never enumerates each type's payload schema, so nothing stops a
+model from hallucinating an extra key (`{"amount": 2.0, "confidence": 0.9}` for a
+`CASH_DIVIDEND`) that is not in `CashDividend.__slots__`. `spec.required` is satisfied
+(`amount` is present), so `build_event`'s own missing-field check never fires; the
+unrecognised key survives all the way to `spec.handler(**kwargs)`, and a frozen,
+`slots=True` dataclass constructor called with a keyword it does not declare raises
+`TypeError: __init__() got an unexpected keyword argument '...'` — not a `ValueError`
+subclass, so the brief's literal three-exception tuple does not catch it. Confirmed
+directly: `build_event(EventType.CASH_DIVIDEND, common, {"amount": 2.0, "confidence":
+0.9})` raises exactly that `TypeError`, uncaught, at the module's own top level. Left
+uncaught inside `extract_event`, that `TypeError` propagates out of the function
+entirely, which breaks this module's first and most important stated property —
+malformed model output must abstain, never raise — for the specific case of a
+hallucinated field name, arguably the single most likely way a real model output
+diverges from the payload the taxonomy expects.
+
+**Decision.** `extract_event`'s validation `except` clause is `(KeyError, TypeError,
+ValueError, TaxonomyError)`, one member wider than the brief's literal text. `KeyError`
+still covers a `payload`/`common` dict missing a key the code reads directly (e.g.
+`parsed["ex_date"]`); `ValueError` still covers `dt.date.fromisoformat` on a malformed
+date string and is also `TaxonomyError`'s base class, so it is kept for clarity even
+though `TaxonomyError` alone would satisfy `except`'s subclass matching; `TypeError` is
+the addition, and it is caught in the same tuple rather than a separate `except` block
+because the response to all four is identical: abstain with `str(exc)` as the reason.
+`test_an_unexpected_payload_field_abstains_rather_than_raising` pins this — a payload
+with `amount` (satisfying `spec.required`) plus an unrecognised `confidence` key, which
+reaches `spec.handler(**kwargs)` and only fails there, confirming the test exercises the
+constructor path itself and is not short-circuited by the earlier missing-field check.
+
+**Alternatives rejected.** *Follow the brief's exception tuple verbatim* — matches the
+written task text, but ships a function whose own module docstring's property 1
+("malformed output abstains; it never raises") is false for a specific, foreseeable
+input shape, on the one code path in the repository where the input genuinely comes
+from a language model. *Catch bare `Exception`* — would also satisfy the test, but
+swallows genuine bugs (a typo in `_prompt`, a real `AttributeError` from code this
+function doesn't own) behind the same "the model's fault, abstain" reasoning, making
+`extract_event` a place where programming errors go to hide rather than fail loudly.
+*Validate `payload`'s keys against the handler dataclass's declared fields inside
+`build_event` and raise `TaxonomyError` instead of leaving the `TypeError` to the
+constructor* — the more thorough fix, and rejected only because `taxonomy.py` is
+outside this task's ownership (`taxonomy.py`, `corpus.py`, `labels.py`, `text.py` are
+all "other triage/ modules" this task must not touch); catching the constructor's own
+`TypeError` at the one call site that needs it is the change available without
+reopening D-024's module.
+
+**Consequences.** `extract_event` now abstains rather than raises for every failure
+mode the module's docstring claims to guard against: malformed JSON, an explicit model
+abstention, a missing required field, an unmapped `EventType`, a malformed date string,
+and now a hallucinated payload key. The cost is that `extract_event`'s `except` clause
+is one class wider than what the brief specifies verbatim, which is exactly the kind of
+deviation this decision log exists to record rather than land silently. The gap
+`build_event` itself has — an over-wide payload is accepted by construction and only
+fails if the handler dataclass happens to reject the extra key, rather than being
+validated against the taxonomy up front — remains open for whichever task next touches
+`taxonomy.py`.

@@ -1076,3 +1076,316 @@ relaxation means a required `float` field does not distinguish "the model wrote 
 number" from "the model wrote the wrong kind of whole number" - both build. Widening
 either is a real question for whichever task next touches `taxonomy.py`, not one this
 fix answers by omission.
+
+The relaxation is also **one-directional, and that asymmetry is a real behaviour change
+this entry did not originally state**: `int` satisfies an `int`-annotated field and a
+`float`-annotated one, but a `float` supplied for an `int`-annotated required field -
+`RightsIssue.new_shares` or `RightsIssue.per_held`, the only two in the taxonomy - is now
+*rejected* where before this decision it built, since a bare `isinstance(value, int)` is
+False for `1.0`. No live path produces one (the synthetic universe emits Python `int`s
+for both, and `json.loads` produces an `int` for `1` and a `float` only for `1.0`), so
+this was recorded as a deferred minor rather than fixed; it is stated here so the next
+reader finds the asymmetry written down rather than by hitting it. *(The value-range gap
+this entry's last paragraph left open - "a negative `amount` or a zero `ratio` still
+constructs" - is now closed for ratios and entitlements by D-032, and the undeclared-key
+gap D-027 left open by D-031.)*
+
+---
+
+## D-029 — Impact error grades the divisor as well as the level, and reports the worse of the two
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** D-022 fixed the metric as "apply both events to the same state and diff the
+resulting index levels," taken verbatim from the spec's §2 formula. A whole-branch review
+found that formula is blind to most of what it is supposed to grade, and the reason is
+structural rather than a coding slip: `engine.apply_event` rebases the divisor for every
+`event.is_divisor_event` precisely so that the level is *continuous* across the event
+(`engine.py:131-140`). For a return of capital, a rights issue, a share-count change or
+an ineligible spin-off, the level after the event therefore equals the level before it
+and is completely independent of the event's parameters. Diffing levels alone scores a
+**perfect 0.0000 bps** for extractions that are grossly wrong. Reproduced on the tests'
+own three-name fixture:
+
+| truth | predicted | old error_bps | truth divisor | predicted divisor |
+|---|---|---|---|---|
+| `Split(2.0)` | `SharesChange(1,000 -> 2,000)` | 0.0000 | 300 | 400 |
+| `RightsIssue(1-for-4 @ 70)` | `RightsIssue(3-for-1 @ 10)` | 0.0000 | 317.5 | 330 |
+| `ReturnOfCapital(2.00)` | `ReturnOfCapital(20.00)` | 0.0000 | 298 | 280 |
+
+The first row is a misclassification between two stage-1 classes. `ImpactError` already
+carried `predicted_divisor` and `truth_divisor`; the headline number simply ignored them.
+This is also a spec deviation, not only a quality gap: §1.3 says the model "is graded on
+whether the resulting divisor is right," and §4.4 says `verify` wraps `apply_event` *and*
+`continuity_breaches` - the latter is not called anywhere in `triage/`.
+
+**Decision.** `impact_error` computes two components and reports the worse:
+
+    level_error_bps   = |predicted_level - truth_level| / |truth_level| x 10,000
+    divisor_error_bps = |predicted_divisor / truth_divisor - 1|          x 10,000
+    error_bps         = max(level_error_bps, divisor_error_bps)
+
+Both components are exposed as their own fields on `ImpactError`, so a caller can see
+which one dominated - a 67bp level error and a 67bp divisor error are the same
+misclassification seen twice, and a 0bp level error with a 3,333bp divisor error is a
+structural misbooking the level was never going to show. The existing field names
+(`error_bps`, `predicted_level`, `truth_level`, `predicted_divisor`, `truth_divisor`,
+`same_type`) all keep their meanings; the change is additive apart from `error_bps` now
+being a maximum rather than the level term alone.
+
+The canonical `test_return_of_capital_booked_as_a_dividend` figure is **unchanged at
+67.114 bps**, and that is a check on the change rather than a coincidence: a
+`CashDividend` is not a divisor event, so the truth divisor stays at 300 while the
+predicted `ReturnOfCapital` rebases to 298, giving a divisor error of
+`|298/300 - 1| x 10,000 = 66.667 bps` - real, but smaller than the 67.114 bps level
+error, which therefore still sets the headline.
+
+Computing `predicted_divisor / truth_divisor` inside `verify.py` is a **comparison of two
+numbers the engine returned**, not index arithmetic: no level, market value or divisor is
+recomputed here, and the constraint the module docstring inherits from
+`test_desk_contains_no_index_arithmetic` is about who is allowed to *derive* a published
+figure, not who is allowed to subtract two of them. The same argument already licensed
+the level diff.
+
+**Alternatives rejected.** *Sum or root-sum-square the two components* - rejected because
+they are two views of one error, not two independent errors: a divisor event moves the
+divisor exactly so that the level does not move, so adding them double-counts every
+misclassification where both are non-zero and would silently inflate the flagship
+67.114 bps figure to 133.8. *Report the divisor error only* - simpler, and wrong in the
+other direction: the dividend-vs-return-of-capital case is the project's flagship example
+and its level error is the larger and more meaningful of the two. *Call
+`engine.continuity_breaches` as §4.4 literally specifies* - it answers a different
+question. It scans one engine's audit trail for divisor events whose level moved when it
+should not have, i.e. for defects in the *engine*; grading asks whether two *different*
+events produce the same divisor, and both sides here are individually continuous by
+construction. Wiring it in would report zero breaches on every row in the table above.
+*Fold the split-ratio case in by comparing constituent share counts* - rejected as
+inventing a number: see the consequences below.
+
+**Consequences.** Three of the four grossly-wrong extractions the reviewer reproduced now
+score 3,333.33, 393.70 and 604.03 bps instead of 0.0000. The fourth does not, and cannot:
+`Split(ratio=2.0)` versus `Split(ratio=10.0)` still scores exactly 0.0000, in both
+components, because `Split` is market-value-invariant by construction (`_apply_split`
+raises if it is not) and is not a divisor event - the two predictions leave *identical*
+levels and *identical* divisors. The index impact of a wrong split ratio genuinely is
+zero on the day; what the error corrupts is the price/share decomposition, which is not
+an index quantity, and manufacturing a bps figure for it would mean deriving one outside
+the engine. The honest handling is a signal rather than a number, so `ImpactError` gains
+`identical_events`: 0.00 bps with `identical_events=False` reads as "no index impact",
+not "correct answer", and `test_two_splits_with_different_ratios_are_genuinely_zero_impact`
+pins both the zero and the flag so the limitation is enforced rather than remembered.
+Splits therefore remain outside the primary metric even though `SPLIT`/`REVERSE_SPLIT`
+are `in_scope_stage=1`; the spec's own secondary metric ("parameter accuracy conditional
+on correct type", §2) is where a split ratio is scored, and stage 2 must report it rather
+than leaning on the bps headline alone. Getting a split's *class* wrong is caught, at
+3,333 bps, and that is the failure that moves a published level.
+
+---
+
+## D-030 — An event on a security the index does not hold is ungraded, never 0.0 bps
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** `apply_event` returns the state untouched, with a `"skipped: not a
+constituent"` note, when `event.security_id` is absent from `state.constituents`
+(`engine.py:98-106`) - correct engine behaviour, since events fire for securities outside
+an index constantly. `impact_error` never checked membership, so both sides came back
+with the starting level and the starting divisor and the pair scored **0.0000 bps**:
+structurally indistinguishable from a flawless prediction, and produced by a comparison
+in which neither event was applied to anything. This is on the live path, not a
+hypothetical: `harvest_labels` sets `security_id` from vendor data (`"AAPL"`), nothing in
+`triage/` builds an `IndexState` containing those identifiers, and the obvious wiring -
+harvest free labels, grade them against the `make_state()` fixture - yields an all-zeros
+scoreboard that reads as a perfect model. The half-off-index case is worse than the
+symmetric one, because it produces a plausible non-zero number (67.114 bps, from the
+truth side alone moving) rather than an obviously suspicious zero.
+
+**Decision.** `impact_error` checks both events' `security_id` against
+`state.constituents` before applying anything, and returns a separate `Ungraded` result -
+`reason` plus `detail` - if either is absent. `Ungraded` is deliberately **not** an
+`ImpactError` with `error_bps=0.0` and deliberately not a subclass of one: it has no
+`error_bps` attribute at all, so a caller that sums or percentiles it into a scoreboard
+raises `AttributeError` immediately instead of averaging in a flattering zero. The return
+type becomes `ImpactError | Ungraded`, which mypy forces every `src/` call site to narrow.
+Both sides are checked, not only the prediction: a corpus label on a name the state does
+not hold is exactly as ungradable, and scoring it zero would credit the model for a
+defect in the harness.
+
+**Alternatives rejected.** *Raise instead* - the reviewer's other option, and rejected
+because it collides with the exception boundary D-032 adds for the same function: a
+grading run over a corpus must not die on one row, and a raise that every caller has to
+wrap is a boundary in name only. *Return `ImpactError` with `error_bps = float("nan")`* -
+propagates rather than stops, which is the appeal, but `nan` compares false against every
+threshold, so a "count exceeding 1bp" tally (spec §2) silently omits it and the row
+disappears from the scoreboard exactly as a zero would. *Build the state from the events'
+own securities inside `impact_error`* - would make every pair gradable, and is precisely
+the index arithmetic this module is forbidden to do; it would also have to invent the
+constituent's weight, which `test_the_misclassification_penalty_is_weight_dependent_but_
+its_ratio_is_not` shows is most of the answer. *Check only the predicted side* - cheaper,
+and leaves the harness defect (a corpus label off-index) scoring zero, which is the
+direction that flatters the model.
+
+**Consequences.** Grading a harvested corpus against a state that does not contain its
+securities now fails visibly, one `Ungraded` per pair, rather than reporting a perfect
+score. The eval harness that consumes this (stage 2, `evals/`) must report the ungraded
+count alongside the bps distribution - the same fail-closed-and-count contract D-025 set
+for the text join and D-031 sets for the label harvest - because a scoreboard over 40% of
+a corpus is a different claim from a scoreboard over all of it. Callers now have a union
+to narrow, which is friction, and the friction is the point: the type is what stops the
+next caller writing `sum(r.error_bps for r in results)`.
+
+---
+
+## D-031 — An undeclared payload key is dropped, not fatal, and the harvest reports what it dropped
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** Two findings with one cause, recorded together because fixing either alone
+is worse than fixing neither. `build_event` did `kwargs.update(payload)` and then
+`spec.handler(**kwargs)`, so any payload key the handler dataclass does not declare
+raised `TypeError` from the constructor. The repo's own `SyntheticUniverse` emits exactly
+such keys: `gross_amount` alongside `amount` on every ordinary and special dividend
+(`synthetic.py:530,542`) and `terp` alongside the entitlement on every rights issue
+(`synthetic.py:596`). `labels.py` caught `(TaxonomyError, ValueError)`, which does not
+include `TypeError`, so the first affected row propagated out of `harvest_labels` and
+**aborted the entire harvest** - the third instance on this branch of the
+one-bad-row-kills-the-batch shape D-026 and D-027 each fixed once. Measured on the
+shipped synthetic universe: 12,036 of 12,253 corp-action rows unbuildable, 98.2%, of
+which 11,834 are the cash dividends this module exists to collect for free. D-027 had
+already flagged the over-wide-payload gap as open "for whichever task next touches
+`taxonomy.py`."
+
+The obvious repair - catch `TypeError` in `labels.py` and skip the row - converts a crash
+into silence and keeps the 98.2%. `labels.py` exists because "vendor data labels cash
+dividends for nothing"; a fix that labels none of them is not a fix. And nothing in
+`harvest_labels`'s signature would have said so: it returned a bare `list`,
+`continue`-ing past every failure, while `join_labels_to_text` returns
+`(joined, unjoined)` (D-025, titled "dropped **and counted**") and `extract_event`
+returns `abstained` and a `reason`. It was the one fail-closed stage in the pipeline
+whose losses were invisible, and that is the difference between knowing the corpus is 98%
+smaller than intended and never finding out.
+
+**Decision.** Two changes, both in the direction of "lose less, and say what you lost".
+
+`build_event` filters `payload` to the handler dataclass's declared field names
+(`_declared_fields`, `dataclasses.fields` cached per handler) before `kwargs.update`. An
+undeclared key describes nothing this taxonomy models, so dropping it loses nothing,
+whereas rejecting the row loses the label. Everything in `spec.required` is still checked
+for presence, type (D-028) and range (D-032), which is where the information that
+actually decides the divisor lives. `payload` is also guarded to be a mapping: it is
+annotated `dict[str, Any]`, which checks nothing at runtime, and the caller nearest a
+live model passes `parsed.get("payload", {})` straight through - filtering a JSON list
+would raise `AttributeError`, which nothing catches, where a `TaxonomyError` is what
+every caller already handles.
+
+`harvest_labels` returns `(labels, skipped)`, with `SkippedRow` carrying the event id,
+security, raw event type, a short grouping `reason` (`unknown_event_type` or
+`unbuildable`) and the exception message. `skip_counts` summarises them as
+`reason:event_type -> count`, because the useful question when a harvest comes back small
+is never "how many" alone - it is which classes, which tells you whether the corpus lost
+its long tail or lost its bulk. The `except (TaxonomyError, ValueError)` is tidied to
+`except (TypeError, ValueError)`: `TaxonomyError` subclasses `ValueError`, so naming both
+was redundant, while `TypeError` genuinely is not covered and is what aborted the batch.
+
+**Alternatives rejected.** *Catch `TypeError` in `labels.py` and skip the row* - the
+measured cost is 1,778 of 1,815 rows on the reviewer's fixture and 12,036 of 12,253 on
+the default one; a free-label module that labels 1.8% of the free labels has no reason to
+exist. *Forward only `spec.required` to the handler* - would also stop the `TypeError`,
+and would silently drop every optional field, reintroducing verbatim the corpus-mutation
+defect D-024 was written to close (`Spinoff.spinco_enters_index` reverting to `True` and
+flipping `is_divisor_event`). `test_a_declared_optional_field_still_survives_the_filter`
+exists to fail if anyone tries it. *Add `gross_amount` and `terp` to the dataclasses* -
+touches `corpactions/`, which is fixed by the spec's own non-goals ("not a rewrite of
+`corpactions/`"), and would encode one vendor's field names into the event model; the
+next provider brings different ones. *Fix `synthetic.py` to stop emitting the keys* -
+same objection from the other end, and it treats a taxonomy that cannot tolerate an
+unfamiliar field as though the data were at fault. *Return counts only, not the rows* -
+loses the event ids, which is what makes a skipped row investigable rather than merely
+tallied.
+
+**Consequences.** `harvest_labels` recovers **12,253 of 12,253** rows on the shipped
+synthetic universe, up from an aborted batch and from 217 under a catch-and-skip repair.
+Its signature changed, so every caller unpacks a tuple; the only callers today are tests.
+An undeclared payload key is now silent, which is a genuine loss of signal: a model that
+hallucinates a `confidence` field is no longer detected here, where D-027 made it
+abstain. That trade is deliberate and asymmetric on purpose - the cost of tolerating a
+stray key is one unnoticed hallucination in a field the grader never reads, and the cost
+of rejecting one is the corpus. `test_an_unexpected_payload_field_is_ignored_rather_than_fatal`
+replaces the D-027-era test that asserted the opposite, and says so in its docstring
+rather than being quietly deleted. D-027's own decision - widening `extract_event`'s
+`except` to include `TypeError` - is now doing less work than it was, but is **not**
+redundant: `dt.date.fromisoformat(20240610)` raises `TypeError` for a non-string date,
+and that runs before `build_event` is called at all, so removing the clause would reopen
+a crash path on a shape a model produces easily.
+
+---
+
+## D-032 — Ratios and entitlements are range-checked at construction, and the grader has an exception boundary anyway
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** D-028's closing paragraph named the gap it left open: the type check "checks
+type and not value range (a negative `amount` or a zero `ratio` still constructs)". A
+whole-branch review then found the third occurrence of the defect already fixed twice on
+this branch - one malformed row propagating an exception out of a batch function and
+discarding every result computed before it. All three of these escaped `impact_error`
+uncaught:
+
+* `Split(ratio=0.0)` -> `ZeroDivisionError` at `events.py:228` (`1.0 / self.ratio`)
+* `Spinoff(shares_per_parent_share=0.0)` -> `ValueError` at `events.py:428`
+* `RightsIssue(per_held=0)` -> `ValueError` at `events.py:320`
+
+and `build_event` type-checked all three fields without range-checking them, so
+`extract_event` returned `Split(ratio=0.0)` as a **non-abstained** extraction: `0.0` is a
+perfectly valid `float`. A negative ratio is quieter still - `Split(ratio=-2.0)`
+constructs, applies, and *passes* the engine's own market-value-invariance assertion,
+because price and share count both flip sign and their product is unchanged, leaving a
+negative price sitting in the index.
+
+**Decision.** Both halves, because they fail differently. Validation stops the common
+case at the point where the taxonomy already decides constructibility; the boundary stops
+the case nobody has thought of yet.
+
+`EventSpec` gains `positive: tuple[str, ...]`, listing required fields that must be
+strictly greater than zero, and `build_event` enforces it after the type check:
+`ratio` for `SPLIT`/`REVERSE_SPLIT`/`BONUS_ISSUE`, `new_shares` and `per_held` for
+`RIGHTS_ISSUE`, `shares_per_parent_share` for `SPINOFF`. These are ratios and per-share
+entitlements, where positivity is a fact about the event class rather than a judgement
+about the data - which is what makes them safe to settle once in the taxonomy for every
+caller, rather than per-caller. `test_every_positive_field_is_also_a_required_field`
+pins the invariant `_check_positive` relies on to index the payload directly.
+
+`impact_error` wraps both engine applications in
+`except (ArithmeticError, TypeError, ValueError, CorporateActionError)` and returns the
+`Ungraded` result D-030 introduced. The tuple is deliberate rather than bare:
+`ArithmeticError` covers `ZeroDivisionError` from a collapsed divisor as well as from a
+zero ratio, `TypeError` covers a wrong-typed field that reached an event without passing
+through `build_event`, `ValueError` covers `events.py`'s own guards, and
+`CorporateActionError` covers the engine's (an unhandled event class, a split that moved
+market value). A bare `except Exception` would also swallow programming errors in the
+harness itself and make a broken caller look like a corpus of bad rows.
+
+**Alternatives rejected.** *Range-check in `build_event` only* - leaves the boundary
+open, and a prediction can reach `impact_error` without passing through `build_event` at
+all (a hand-constructed event, a corpus row written before this check existed, a future
+extractor); the tests construct all three bad events directly for exactly that reason.
+*Add the boundary only* - converts the crash into an `Ungraded` row, which is right, but
+lets `extract_event` keep returning `Split(ratio=0.0)` as a confident non-abstention,
+which is the failure `extract.py`'s docstring calls the worst one. *Range-check every
+numeric field* - over-reach on the same argument D-028 rejected it with: a zero
+`amount` is a real if unusual dividend, a zero `final_price` is the documented default
+for a delisting, and a zero `subscription_price` still computes a valid TERP. Only the
+fields that divide are constrained. *Constrain `RightsIssue.cum_price` too* -
+`price_effect` divides by it, but the engine never calls `RightsIssue.price_effect`
+(`_apply_split` is its only caller; `_apply_rights` uses `terp` directly), so the
+division is unreachable on the live path and constraining it would be guessing at a
+defect rather than closing one. Noted here so the next reader does not have to redo the
+grep.
+
+**Consequences.** `extract_event` abstains on a zero or negative ratio instead of
+returning a confident, poisoned event, and a grading run over a corpus survives a bad row
+with one `Ungraded` result rather than a traceback and nothing at all -
+`test_a_bad_prediction_does_not_stop_the_next_pair_grading` pins that specifically, since
+a boundary that is never exercised across a batch is a boundary nobody has tested. The
+range check is narrow by construction and inherits D-028's caveat unchanged: a required
+field not in `spec.positive` still accepts any value its type allows. `impact_error` now
+converts an engine exception into a returned value, which means a genuine engine bug
+shows up as an ungraded row rather than a crash; the `detail` field carries the exception
+class and message so the row is still investigable, and the stage-2 harness must surface
+`Ungraded` counts by reason for that to be worth anything.

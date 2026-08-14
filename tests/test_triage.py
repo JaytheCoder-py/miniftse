@@ -14,9 +14,12 @@ from miniftse.agents.llm import LlmClient, LlmResponse, Message
 from miniftse.calc.state import Constituent, IndexState
 from miniftse.corpactions.events import (
     CashDividend,
+    CorporateAction,
     Delisting,
     EventType,
     ReturnOfCapital,
+    RightsIssue,
+    SharesChange,
     Spinoff,
     Split,
 )
@@ -28,10 +31,10 @@ from miniftse.triage.corpus import (
     write_jsonl,
 )
 from miniftse.triage.extract import extract_event
-from miniftse.triage.labels import LabelledEvent, harvest_labels
+from miniftse.triage.labels import LabelledEvent, harvest_labels, skip_counts
 from miniftse.triage.taxonomy import TAXONOMY, build_event
 from miniftse.triage.text import FilingDocument, _strip_html, join_labels_to_text
-from miniftse.triage.verify import impact_error
+from miniftse.triage.verify import ImpactError, Ungraded, impact_error
 
 D = dt.date(2024, 6, 10)
 
@@ -109,10 +112,109 @@ class TestTaxonomy:
         with pytest.raises(ValueError, match="amount"):
             build_event(EventType.CASH_DIVIDEND, COMMON, {"amount": True})
 
+    def test_ignores_a_payload_key_the_handler_does_not_declare(self) -> None:
+        """The repo's own `SyntheticUniverse` emits `gross_amount` alongside `amount`
+        on every dividend (`synthetic.py:530,542`) and `terp` on every rights issue
+        (`synthetic.py:596`). Neither is a constructor argument, so forwarding the
+        payload verbatim made `spec.handler(**kwargs)` raise `TypeError` - which
+        `harvest_labels` did not catch, so ONE such row aborted the whole harvest.
+        Undeclared keys must be dropped: they describe nothing this taxonomy models,
+        and rejecting the row throws away the label as well. See D-031."""
+        event = build_event(
+            EventType.CASH_DIVIDEND,
+            COMMON,
+            {"amount": 0.5, "currency": "USD", "gross_amount": 0.5, "is_special": False},
+        )
+
+        assert isinstance(event, CashDividend)
+        assert event.amount == 0.5
+        assert event.currency == "USD"
+        assert not hasattr(event, "gross_amount")
+
+    def test_a_declared_optional_field_still_survives_the_filter(self) -> None:
+        """The filter drops what the dataclass does not declare, and nothing else. A
+        blunter fix - forwarding only `spec.required` - would pass the test above and
+        silently discard `withholding_rate`, reintroducing exactly the corpus-mutation
+        defect D-024 exists to prevent."""
+        event = build_event(
+            EventType.CASH_DIVIDEND,
+            COMMON,
+            {"amount": 2.0, "currency": "EUR", "withholding_rate": 0.15, "terp": 94.0},
+        )
+
+        assert isinstance(event, CashDividend)
+        assert event.currency == "EUR"
+        assert event.withholding_rate == 0.15
+
+    def test_rejects_a_non_object_payload(self) -> None:
+        """`payload: dict[str, Any]` checks nothing at runtime, and the caller nearest
+        a live model passes `parsed.get("payload", {})` straight through. A JSON list
+        must raise the `TaxonomyError` every caller already handles, not the
+        `AttributeError` that filtering a non-mapping would otherwise produce."""
+        with pytest.raises(ValueError, match="payload must be an object"):
+            build_event(EventType.CASH_DIVIDEND, COMMON, [1, 2, 3])  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        ("event_type", "payload", "field_name"),
+        [
+            (EventType.SPLIT, {"ratio": 0.0}, "ratio"),
+            (EventType.SPLIT, {"ratio": -2.0}, "ratio"),
+            (EventType.REVERSE_SPLIT, {"ratio": 0.0}, "ratio"),
+            (
+                EventType.RIGHTS_ISSUE,
+                {
+                    "subscription_price": 70.0,
+                    "new_shares": 1,
+                    "per_held": 0,
+                    "cum_price": 100.0,
+                },
+                "per_held",
+            ),
+            (
+                EventType.SPINOFF,
+                {
+                    "spinco_security_id": "S1",
+                    "shares_per_parent_share": 0.0,
+                    "value_per_parent_share": 10.0,
+                    "parent_cum_price": 100.0,
+                },
+                "shares_per_parent_share",
+            ),
+        ],
+    )
+    def test_rejects_a_non_positive_ratio_or_entitlement(
+        self, event_type: EventType, payload: dict[str, object], field_name: str
+    ) -> None:
+        """Type-correct is not constructible. `0.0` is a valid `float` and built a
+        `Split` that raised `ZeroDivisionError` at `events.py:228` the moment the
+        engine divided by it; `per_held=0` and `shares_per_parent_share=0.0` raise
+        `ValueError` at `events.py:320` and `events.py:428` the same way. A NEGATIVE
+        ratio is worse still: it constructs, applies, and passes the engine's own
+        market-value-invariance check, because price and share count both flip sign
+        and their product is unchanged - leaving a negative price in the index. See
+        D-032."""
+        with pytest.raises(ValueError, match=field_name):
+            build_event(event_type, COMMON, payload)
+
+    def test_every_positive_field_is_also_a_required_field(self) -> None:
+        """`_check_positive` indexes `payload[name]` directly, which is only safe
+        because the missing-field check above it has already run. That holds for the
+        current table; this pins it, so adding a `positive` entry for an optional
+        field fails here rather than with a `KeyError` on the first payload that
+        omits it."""
+        for event_type, spec in TAXONOMY.items():
+            assert set(spec.positive) <= set(spec.required), event_type
+
 
 def make_state(n: int = 3, price: float = 100.0, shares: float = 1000.0) -> IndexState:
     constituents = {f"S{i}": Constituent(f"S{i}", price=price, shares=shares) for i in range(n)}
     return IndexState.initialise(D, constituents, base_level=1000.0)
+
+
+def graded(result: ImpactError | Ungraded) -> ImpactError:
+    """Assert a pair was actually graded, and narrow the union for the assertions."""
+    assert isinstance(result, ImpactError), result
+    return result
 
 
 class TestImpactError:
@@ -132,43 +234,355 @@ class TestImpactError:
                             level implied by 300,000: 298,000 / (300,000/300) = 298
                             level = 298,000 / 298         = 1,000.000000
 
-        error = |1,000.000000 - 993.333333| / 993.333333 x 10,000 = 67.114 bps
+        level error    = |1,000.000000 - 993.333333| / 993.333333 x 10,000
+                       = 67.114 bps
+        divisor error  = |298 / 300 - 1| x 10,000 = (2/300) x 10,000
+                       = 66.667 bps
+        headline       = max(67.114, 66.667) = 67.114 bps, unchanged by D-029.
 
         Same amount, same price effect, same date. 67bp of published index level,
-        purely from the label.
+        purely from the label - **on this three-name fixture.** The figure is a
+        property of S0's 33.3% weight as much as of the error: see
+        `test_the_misclassification_penalty_is_weight_dependent_but_its_ratio_is_not`,
+        which computes the same misclassification at 204.082 bps on a one-name index
+        and 20.040 bps on a ten-name one. What survives the weight is the ratio
+        against a misread amount, not the absolute number.
         """
         state = make_state()
         truth = CashDividend(**COMMON, amount=2.0)
         predicted = ReturnOfCapital(**COMMON, amount=2.0)
 
-        result = impact_error(predicted, truth, state)
+        result = graded(impact_error(predicted, truth, state))
 
         assert result.truth_level == pytest.approx(993.333333, abs=1e-5)
         assert result.predicted_level == pytest.approx(1000.0, abs=1e-5)
         assert result.error_bps == pytest.approx(67.114, abs=0.01)
+        assert result.level_error_bps == pytest.approx(67.114, abs=0.01)
+        assert result.divisor_error_bps == pytest.approx(66.667, abs=0.01)
         assert result.same_type is False
+        assert result.identical_events is False
 
     def test_identical_events_score_zero(self) -> None:
         state = make_state()
         truth = CashDividend(**COMMON, amount=2.0)
         predicted = CashDividend(**COMMON, amount=2.0)
 
-        result = impact_error(predicted, truth, state)
+        result = graded(impact_error(predicted, truth, state))
 
         assert result.error_bps == pytest.approx(0.0, abs=1e-9)
         assert result.same_type is True
+        assert result.identical_events is True
 
     def test_a_wrong_amount_on_the_right_type_is_small(self) -> None:
         """2.00 vs 2.10 on one of three names. Right type, wrong number: the error is
-        real but two orders of magnitude below a misclassification."""
+        real but an order of magnitude below a misclassification at this weight, and
+        exactly 1/20th of it at every weight."""
         state = make_state()
         truth = CashDividend(**COMMON, amount=2.0)
         predicted = CashDividend(**COMMON, amount=2.1)
 
-        result = impact_error(predicted, truth, state)
+        result = graded(impact_error(predicted, truth, state))
 
         assert result.same_type is True
         assert 0.0 < result.error_bps < 5.0
+        assert result.divisor_error_bps == pytest.approx(0.0, abs=1e-12)
+
+    def test_a_split_booked_as_a_share_count_change(self) -> None:
+        """A misclassification the level cannot see, hand-computed.
+
+        Both events double S0's share count; only one of them is structural, and the
+        divisor is where that shows up. From market value 300,000, divisor 300:
+
+        * Split(ratio=2.0)                is_divisor_event False. Price 100 -> 50,
+                                          shares 1,000 -> 2,000: S0's market value is
+                                          100,000 either way, total stays 300,000,
+                                          divisor stays 300, level 1,000.000000
+        * SharesChange(1,000 -> 2,000)    is_divisor_event True. Price stays 100,
+                                          shares 2,000 -> S0 is worth 200,000, total
+                                          400,000, divisor rebases to
+                                          300 x 400,000/300,000 = 400,
+                                          level = 400,000/400 = 1,000.000000
+
+        level error   = |1,000 - 1,000| / 1,000 x 10,000        = 0.000 bps
+        divisor error = |400/300 - 1| x 10,000 = (100/300) x 10,000
+                      = 3,333.333 bps
+
+        The rebase makes the level continuous *by construction*, so a level-only
+        grader scores a genuine misclassification of a stage-1 class at a perfect
+        0.0000 bps. It is the divisor that diverges by a third.
+        """
+        state = make_state()
+        truth = Split(**COMMON, ratio=2.0)
+        predicted = SharesChange(**COMMON, new_shares=2000.0, old_shares=1000.0)
+
+        result = graded(impact_error(predicted, truth, state))
+
+        assert result.truth_level == pytest.approx(1000.0, abs=1e-9)
+        assert result.predicted_level == pytest.approx(1000.0, abs=1e-9)
+        assert result.level_error_bps == pytest.approx(0.0, abs=1e-9)
+        assert result.truth_divisor == pytest.approx(300.0, abs=1e-9)
+        assert result.predicted_divisor == pytest.approx(400.0, abs=1e-9)
+        assert result.divisor_error_bps == pytest.approx(3333.3333, abs=1e-3)
+        assert result.error_bps == pytest.approx(3333.3333, abs=1e-3)
+        assert result.same_type is False
+
+    def test_two_divisor_events_with_different_amounts(self) -> None:
+        """Two events of the SAME type and the same divisor treatment, differing only
+        in the parameter. Hand-computed from market value 300,000, divisor 300:
+
+        * ReturnOfCapital(2.00)   S0 price 100 -> 98, total 298,000,
+                                  divisor = 300 x 298,000/300,000 = 298,
+                                  level = 298,000/298 = 1,000.000000
+        * ReturnOfCapital(20.00)  S0 price 100 -> 80, total 280,000,
+                                  divisor = 300 x 280,000/300,000 = 280,
+                                  level = 280,000/280 = 1,000.000000
+
+        level error   = 0.000 bps - both rebases hold the level at exactly 1,000.
+        divisor error = |280/298 - 1| x 10,000 = (18/298) x 10,000
+                      = 604.027 bps
+
+        A tenfold error in the amount of a capital return, invisible to a level diff.
+        """
+        state = make_state()
+        truth = ReturnOfCapital(**COMMON, amount=2.0)
+        predicted = ReturnOfCapital(**COMMON, amount=20.0)
+
+        result = graded(impact_error(predicted, truth, state))
+
+        assert result.level_error_bps == pytest.approx(0.0, abs=1e-9)
+        assert result.truth_divisor == pytest.approx(298.0, abs=1e-9)
+        assert result.predicted_divisor == pytest.approx(280.0, abs=1e-9)
+        assert result.divisor_error_bps == pytest.approx(604.0268, abs=1e-3)
+        assert result.error_bps == pytest.approx(604.0268, abs=1e-3)
+        assert result.same_type is True
+
+    def test_a_rights_issue_with_the_wrong_terms(self) -> None:
+        """The same shape on a stage-3 class, hand-computed from 300,000 / divisor 300.
+
+        * 1-for-4 at 70, cum 100   TERP = (4x100 + 1x70)/5 = 94.
+                                   Shares 1,000 x (1 + 1/4) = 1,250, so S0 is worth
+                                   94 x 1,250 = 117,500; total 317,500;
+                                   divisor = 300 x 317,500/300,000 = 317.5
+        * 3-for-1 at 10, cum 100   TERP = (1x100 + 3x10)/4 = 32.5.
+                                   Shares 1,000 x (1 + 3/1) = 4,000, so S0 is worth
+                                   32.5 x 4,000 = 130,000; total 330,000;
+                                   divisor = 300 x 330,000/300,000 = 330
+
+        Both levels are 1,000.000000 - a rights issue is a divisor event, so the
+        rebase is exactly what makes them equal. level error 0.000 bps.
+        divisor error = |330/317.5 - 1| x 10,000 = (12.5/317.5) x 10,000
+                      = 393.701 bps
+        """
+        state = make_state()
+        truth = RightsIssue(
+            **COMMON, subscription_price=70.0, new_shares=1, per_held=4, cum_price=100.0
+        )
+        predicted = RightsIssue(
+            **COMMON, subscription_price=10.0, new_shares=3, per_held=1, cum_price=100.0
+        )
+
+        result = graded(impact_error(predicted, truth, state))
+
+        assert result.level_error_bps == pytest.approx(0.0, abs=1e-9)
+        assert result.truth_divisor == pytest.approx(317.5, abs=1e-9)
+        assert result.predicted_divisor == pytest.approx(330.0, abs=1e-9)
+        assert result.error_bps == pytest.approx(393.7008, abs=1e-3)
+
+    def test_two_splits_with_different_ratios_are_genuinely_zero_impact(self) -> None:
+        """The one case D-029 does NOT close, pinned deliberately.
+
+        * Split(ratio=2.0)    price 100 -> 50, shares 1,000 -> 2,000
+        * Split(ratio=10.0)   price 100 -> 10, shares 1,000 -> 10,000
+
+        S0's market value is 100,000 in both cases - that is what "market value
+        invariant" means, and `_apply_split` asserts it. Total market value stays
+        300,000, `Split.is_divisor_event` is False so the divisor stays 300, and the
+        level stays 1,000.000000. Both components are exactly zero and so is the
+        headline.
+
+        This is not a grader defect: the index impact of a wrong split ratio genuinely
+        IS zero on the day, in level and in divisor alike, and reporting a non-zero bps
+        would mean inventing a number the engine does not produce. What the ratio error
+        corrupts is the price/share decomposition, not any index quantity. The signal
+        that this is an ungraded pass rather than a correct extraction is
+        `identical_events`, which is why that field exists - a scoreboard reporting
+        0.00 bps with `identical_events=False` is reporting "no index impact", not
+        "right answer".
+        """
+        state = make_state()
+        truth = Split(**COMMON, ratio=2.0)
+        predicted = Split(**COMMON, ratio=10.0)
+
+        result = graded(impact_error(predicted, truth, state))
+
+        assert result.truth_divisor == pytest.approx(300.0, abs=1e-9)
+        assert result.predicted_divisor == pytest.approx(300.0, abs=1e-9)
+        assert result.level_error_bps == pytest.approx(0.0, abs=1e-12)
+        assert result.divisor_error_bps == pytest.approx(0.0, abs=1e-12)
+        assert result.error_bps == pytest.approx(0.0, abs=1e-12)
+        assert result.same_type is True
+        assert result.identical_events is False, (
+            "zero bps here must be distinguishable from a correct extraction"
+        )
+
+    def test_the_misclassification_penalty_is_weight_dependent_but_its_ratio_is_not(
+        self,
+    ) -> None:
+        """The 67bp headline is a property of the three-name fixture. Hand-derived.
+
+        For n constituents at 100.00 x 1,000 shares, market value MV = n x 100,000 and
+        divisor MV/1,000. A 2.00 distribution on S0 removes a x S = 2,000 of market
+        value. Write x = 2,000/MV. Then
+
+            ReturnOfCapital  ->  level 1,000            (divisor rebased)
+            CashDividend     ->  level 1,000 x (1 - x)  (divisor unchanged)
+            misclassification error = x / (1 - x) x 10,000 bps
+
+        and predicting 2.10 instead of 2.00 removes 1.05 x 2,000 instead, so
+
+            misread-amount error = 0.05x / (1 - x) x 10,000 bps
+
+        n = 1    x = 2,000/100,000    -> 2,000/98,000  x 10,000 = 204.0816 bps
+        n = 10   x = 2,000/1,000,000  -> 2,000/998,000 x 10,000 =  20.0401 bps
+
+        A 10x change in weight moves the headline by 10x. At a realistic 1-3%
+        large-cap weight the same misclassification is 2-7 bps, which lands inside the
+        "under 5bp for a misread amount" band the contrast is supposed to separate -
+        so the two absolute numbers are not the claim.
+
+        The ratio is: (x/(1-x)) / (0.05x/(1-x)) = 1/0.05 = 20 exactly, for every n,
+        because the shared 1/(1-x) denominator and the shared x both cancel. That is
+        weight-invariant and is what the eval actually argues.
+        """
+        errors = {}
+        for n in (1, 10):
+            misclassified = graded(
+                impact_error(
+                    ReturnOfCapital(**COMMON, amount=2.0),
+                    CashDividend(**COMMON, amount=2.0),
+                    make_state(n),
+                )
+            )
+            misread = graded(
+                impact_error(
+                    CashDividend(**COMMON, amount=2.1),
+                    CashDividend(**COMMON, amount=2.0),
+                    make_state(n),
+                )
+            )
+            errors[n] = (misclassified.error_bps, misread.error_bps)
+
+        assert errors[1][0] == pytest.approx(204.0816, abs=1e-3)
+        assert errors[10][0] == pytest.approx(20.0401, abs=1e-3)
+        assert errors[1][0] / errors[10][0] == pytest.approx(10.1837, abs=1e-3)
+
+        for n in (1, 10):
+            assert errors[n][0] / errors[n][1] == pytest.approx(20.0, abs=1e-9), n
+
+    def test_a_predicted_event_on_a_security_outside_the_index_is_ungraded(self) -> None:
+        """`apply_event` returns the state untouched for a security it does not hold,
+        so both sides come back with the starting level and a level-only grader scores
+        a perfect 0.00 bps. Live path: `harvest_labels` takes `security_id` straight
+        from vendor data ("AAPL") and nothing in this package builds a state containing
+        those ids, so harvesting real labels and grading them against a fixture would
+        produce an all-zeros scoreboard. See D-030."""
+        result = impact_error(
+            CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=2.0),
+            CashDividend(**COMMON, amount=2.0),
+            make_state(),
+        )
+
+        assert isinstance(result, Ungraded)
+        assert "constituent" in result.reason
+        assert "AAPL" in result.detail
+        assert not hasattr(result, "error_bps")
+
+    def test_a_truth_event_on_a_security_outside_the_index_is_ungraded(self) -> None:
+        """The truth side is checked too. A corpus label on a name the fixture state
+        does not hold is just as ungradable, and scoring it zero would flatter the
+        model for a defect in the harness."""
+        result = impact_error(
+            CashDividend(**COMMON, amount=2.0),
+            CashDividend(**{**COMMON, "security_id": "AAPL"}, amount=2.0),
+            make_state(),
+        )
+
+        assert isinstance(result, Ungraded)
+        assert "constituent" in result.reason
+        assert "truth" in result.detail
+
+    def test_both_sides_off_index_is_ungraded_not_zero(self) -> None:
+        """The exact shape that reported 0.0000 bps before D-030: neither event touches
+        the state, so the two levels are identical and the two divisors are identical.
+        Structurally indistinguishable from a perfect prediction."""
+        off = {**COMMON, "security_id": "AAPL"}
+
+        result = impact_error(
+            ReturnOfCapital(**off, amount=2.0), CashDividend(**off, amount=2.0), make_state()
+        )
+
+        assert isinstance(result, Ungraded)
+
+    @pytest.mark.parametrize(
+        ("name", "event"),
+        [
+            ("split ratio zero", Split(**COMMON, ratio=0.0)),
+            (
+                "spinoff ratio zero",
+                Spinoff(
+                    **COMMON,
+                    spinco_security_id="S1",
+                    shares_per_parent_share=0.0,
+                    value_per_parent_share=10.0,
+                    parent_cum_price=100.0,
+                ),
+            ),
+            (
+                "rights entitlement zero",
+                RightsIssue(
+                    **COMMON,
+                    subscription_price=70.0,
+                    new_shares=1,
+                    per_held=0,
+                    cum_price=100.0,
+                ),
+            ),
+        ],
+    )
+    def test_an_event_the_engine_rejects_is_ungraded_rather_than_raising(
+        self, name: str, event: CorporateAction
+    ) -> None:
+        """The third occurrence of the defect already fixed twice on this branch: one
+        malformed row propagating an exception out of a batch function and discarding
+        every result computed before it. `Split(ratio=0.0)` raises `ZeroDivisionError`
+        at `events.py:228`, `Spinoff(shares_per_parent_share=0.0)` raises `ValueError`
+        at `events.py:428`, `RightsIssue(per_held=0)` raises `ValueError` at
+        `events.py:320` - all three escaped `impact_error` uncaught. `build_event` now
+        rejects all three at construction, but these are built directly here precisely
+        because a prediction can reach the grader without passing through it. See
+        D-032."""
+        result = impact_error(event, CashDividend(**COMMON, amount=2.0), make_state())
+
+        assert isinstance(result, Ungraded), name
+        assert result.reason == "engine rejected the event"
+
+    def test_a_bad_prediction_does_not_stop_the_next_pair_grading(self) -> None:
+        """What the boundary is actually for. A caller grading a corpus in a loop must
+        get a complete scoreboard with one row marked ungraded, not a traceback and
+        nothing at all."""
+        state = make_state()
+        truth = CashDividend(**COMMON, amount=2.0)
+        predictions: list[CorporateAction] = [
+            Split(**COMMON, ratio=0.0),
+            ReturnOfCapital(**COMMON, amount=2.0),
+            CashDividend(**COMMON, amount=2.0),
+        ]
+
+        results = [impact_error(p, truth, state) for p in predictions]
+
+        assert isinstance(results[0], Ungraded)
+        assert graded(results[1]).error_bps == pytest.approx(67.114, abs=0.01)
+        assert graded(results[2]).error_bps == pytest.approx(0.0, abs=1e-9)
 
 
 PROV = Provenance(
@@ -357,8 +771,9 @@ class TestFreeLabels:
             ]
         )
 
-        labels = harvest_labels(provider, ["AAPL"], D, D)
+        labels, skipped = harvest_labels(provider, ["AAPL"], D, D)
 
+        assert skipped == []
         assert len(labels) == 2
         assert {label.event.event_type for label in labels} == {
             EventType.CASH_DIVIDEND,
@@ -374,13 +789,84 @@ class TestFreeLabels:
             ]
         )
 
-        labels = harvest_labels(provider, ["AAPL"], D, D)
+        labels, skipped = harvest_labels(provider, ["AAPL"], D, D)
 
         assert len(labels) == 1
         assert labels[0].event.amount == 0.24
+        assert len(skipped) == 1
+        assert skipped[0].reason == "unbuildable"
+        assert "amount" in skipped[0].detail
 
     def test_empty_frame_yields_nothing(self) -> None:
-        assert harvest_labels(FakeActionsProvider([]), ["AAPL"], D, D) == []
+        assert harvest_labels(FakeActionsProvider([]), ["AAPL"], D, D) == ([], [])
+
+    def test_reports_what_it_dropped_rather_than_returning_a_bare_list(self) -> None:
+        """`join_labels_to_text` returns `(joined, unjoined)` and `extract_event`
+        returns `abstained` plus a `reason`; this was the one fail-closed stage whose
+        losses were invisible. With the drop count in hand, a harvest that lost most
+        of its corpus is a number you can see - without it, a 98% smaller corpus still
+        produces a scoreboard and the scoreboard still looks fine. See D-031."""
+        provider = FakeActionsProvider(
+            [
+                _row("CASH_DIVIDEND", {"amount": 0.24}),
+                _row("CASH_DIVIDEND", {}, ticker="MSFT"),
+                _row("SPLIT", {"ratio": 0.0}, ticker="GOOG"),
+                _row("NOT_AN_EVENT_TYPE", {"amount": 1.0}, ticker="NVDA"),
+            ]
+        )
+
+        labels, skipped = harvest_labels(provider, ["AAPL"], D, D)
+
+        assert len(labels) == 1
+        assert len(skipped) == 3
+        assert skip_counts(skipped) == {
+            "unbuildable:CASH_DIVIDEND": 1,
+            "unbuildable:SPLIT": 1,
+            "unknown_event_type:NOT_AN_EVENT_TYPE": 1,
+        }
+        assert {row.security_id for row in skipped} == {"MSFT", "GOOG", "NVDA"}
+
+    def test_a_vendor_payload_key_the_dataclass_does_not_declare_still_harvests(
+        self,
+    ) -> None:
+        """The regression this pins, end to end. The repo's own `SyntheticUniverse`
+        emits `gross_amount` on every dividend and `terp` on every rights issue -
+        keys no handler declares. Before D-031 the first such row raised `TypeError`
+        out of `build_event`, uncaught at `labels.py`, aborting the entire harvest and
+        discarding every label already built. On the shipped synthetic universe that
+        is 12,036 of 12,253 rows unbuildable (98.2%), of which 11,834 are the cash
+        dividends this module exists to collect for free."""
+        provider = FakeActionsProvider(
+            [
+                _row(
+                    "CASH_DIVIDEND",
+                    {"amount": 0.24, "currency": "USD", "gross_amount": 0.24, "is_special": False},
+                ),
+                _row(
+                    "RIGHTS_ISSUE",
+                    {
+                        "new_shares": 1,
+                        "per_held": 4,
+                        "subscription_price": 70.0,
+                        "cum_price": 100.0,
+                        "terp": 94.0,
+                        "currency": "USD",
+                    },
+                    ticker="MSFT",
+                ),
+                _row("SPLIT", {"ratio": 4.0}, ticker="GOOG"),
+            ]
+        )
+
+        labels, skipped = harvest_labels(provider, ["AAPL", "MSFT", "GOOG"], D, D)
+
+        assert skipped == []
+        assert len(labels) == 3
+        assert {label.event.event_type for label in labels} == {
+            EventType.CASH_DIVIDEND,
+            EventType.RIGHTS_ISSUE,
+            EventType.SPLIT,
+        }
 
 
 def _doc(filed: dt.date, text: str = "Board declares dividend.") -> FilingDocument:
@@ -874,13 +1360,22 @@ class TestExtraction:
         assert result.abstained is False
         assert isinstance(result.event, CashDividend)
 
-    def test_an_unexpected_payload_field_abstains_rather_than_raising(self) -> None:
-        """`build_event` forwards every payload key to the handler dataclass
-        (`kwargs.update(payload)`), and the system prompt names the permitted
-        `event_type` values but never the payload schema for each one - nothing
-        stops a model from adding a key the dataclass does not declare (e.g. a
-        stray `confidence` field). The dataclass constructor then raises
-        `TypeError`, not `ValueError`/`TaxonomyError`; see D-027."""
+    def test_an_unexpected_payload_field_is_ignored_rather_than_fatal(self) -> None:
+        """CHANGED by D-031. The system prompt names the permitted `event_type` values
+        but never the payload schema for each one, so nothing stops a model adding a
+        key the dataclass does not declare (a stray `confidence` field). D-027 made
+        that abstain, by widening `extract_event`'s `except` to catch the
+        `TypeError` the dataclass constructor raises.
+
+        Abstaining is the wrong trade once the same code path is measured on real
+        vendor data rather than on model output: the repo's own synthetic universe
+        emits an undeclared `gross_amount` on every dividend, and abstaining on an
+        undeclared key discards 98% of the corpus to protect against a field that,
+        by construction, describes nothing the taxonomy models. `build_event` now
+        filters the payload to the handler's declared fields, so the extraction
+        succeeds and the extra key is dropped. Everything in `spec.required` is still
+        checked for presence, type and range - the two tests below this one still
+        abstain."""
         client = ScriptedLlm(
             _json.dumps(
                 {
@@ -895,5 +1390,52 @@ class TestExtraction:
 
         result = extract_event(client, "…", "S0", event_id="E1")
 
+        assert result.abstained is False
+        assert isinstance(result.event, CashDividend)
+        assert result.event.amount == 2.0
+        assert not hasattr(result.event, "confidence")
+
+    def test_a_non_object_payload_abstains_rather_than_raising(self) -> None:
+        """`parsed.get("payload", {})` is handed to `build_event` unchecked, and a
+        model can emit a JSON list there as easily as an object. Filtering a list by
+        declared field names would raise `AttributeError`, which nothing catches;
+        `build_event`'s payload guard turns it into the `TaxonomyError` this
+        `except` clause already handles."""
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "event_type": "CASH_DIVIDEND",
+                    "ex_date": "2024-06-10",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": [1, 2, 3],
+                }
+            )
+        )
+
+        result = extract_event(client, "…", "S0", event_id="E1")
+
         assert result.abstained is True
         assert result.event is None
+
+    def test_a_zero_split_ratio_abstains_rather_than_extracting(self) -> None:
+        """`0.0` is a valid `float`, so before D-032 this returned a NON-abstained
+        `Split(ratio=0.0)` - a confident extraction that raises `ZeroDivisionError`
+        the moment the grader applies it."""
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "event_type": "SPLIT",
+                    "ex_date": "2024-06-10",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": {"ratio": 0.0},
+                }
+            )
+        )
+
+        result = extract_event(client, "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+        assert "ratio" in result.reason

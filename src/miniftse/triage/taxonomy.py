@@ -10,8 +10,8 @@ so this module writes it down and `test_covers_every_event_type` keeps it total.
 from __future__ import annotations
 
 import functools
-from dataclasses import dataclass
-from typing import Any, Final, get_type_hints
+from dataclasses import dataclass, fields
+from typing import TYPE_CHECKING, Any, Final, cast, get_type_hints
 
 from miniftse.corpactions.events import (
     CashDividend,
@@ -27,6 +27,9 @@ from miniftse.corpactions.events import (
     Split,
     StockMerger,
 )
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
 COMMON_FIELDS: Final[tuple[str, ...]] = (
     "event_id",
@@ -52,6 +55,20 @@ class EventSpec:
     in_scope_stage: int | None
     """Stage at which this type enters the eval set. None means unmapped."""
 
+    positive: tuple[str, ...] = ()
+    """Required fields that must be strictly greater than zero.
+
+    Type-correct is not the same as constructible. `Split(ratio=0.0)` is a perfectly
+    well-typed `float` and builds without complaint, then raises `ZeroDivisionError`
+    inside `Split.price_effect` the moment the engine touches it; `RightsIssue`'s
+    entitlement and `Spinoff.shares_per_parent_share` raise `ValueError` the same way.
+    A negative ratio is worse than either - it constructs, applies, passes the engine's
+    market-value-invariance check (price and shares both flip sign, so their product is
+    unchanged) and leaves a negative price in the index. These are ratios and per-share
+    entitlements, where the positivity is a fact about the event class rather than a
+    judgement about the data, so the taxonomy can settle it once for every caller.
+    See D-032."""
+
     note: str = ""
 
 
@@ -73,12 +90,13 @@ TAXONOMY: Final[dict[EventType, EventSpec]] = {
         note="Identical price effect to a cash dividend, opposite divisor treatment. "
         "The canonical misclassification.",
     ),
-    EventType.SPLIT: EventSpec(Split, ("ratio",), {}, 1),
+    EventType.SPLIT: EventSpec(Split, ("ratio",), {}, 1, positive=("ratio",)),
     EventType.REVERSE_SPLIT: EventSpec(
         Split,
         ("ratio",),
         {},
         1,
+        positive=("ratio",),
         note="Same class; Split.event_type returns REVERSE_SPLIT when ratio < 1.",
     ),
     EventType.BONUS_ISSUE: EventSpec(
@@ -86,6 +104,7 @@ TAXONOMY: Final[dict[EventType, EventSpec]] = {
         ("ratio",),
         {},
         3,
+        positive=("ratio",),
         note="Arithmetically identical to a split - see the Split docstring.",
     ),
     EventType.RIGHTS_ISSUE: EventSpec(
@@ -93,6 +112,7 @@ TAXONOMY: Final[dict[EventType, EventSpec]] = {
         ("subscription_price", "new_shares", "per_held", "cum_price"),
         {},
         3,
+        positive=("new_shares", "per_held"),
         note="TERP needs the full terms - a rights issue cannot be summarised as one "
         "ratio. `new_shares`/`per_held` is the entitlement (2-for-5 is 2 and 5).",
     ),
@@ -106,6 +126,7 @@ TAXONOMY: Final[dict[EventType, EventSpec]] = {
         ),
         {},
         3,
+        positive=("shares_per_parent_share",),
     ),
     EventType.MERGER_CASH: EventSpec(
         CashMerger,
@@ -188,6 +209,19 @@ def _field_type_hints(handler: type[CorporateAction]) -> dict[str, Any]:
     return get_type_hints(handler)
 
 
+@functools.cache
+def _declared_fields(handler: type[CorporateAction]) -> frozenset[str]:
+    """The names the handler dataclass's constructor will actually accept.
+
+    `CorporateAction` is an ABC, not itself a dataclass, so a `type[CorporateAction]`
+    does not statically satisfy `fields()`'s `DataclassInstance` protocol even though
+    every concrete handler in `TAXONOMY` is `@dataclass`-decorated and satisfies it at
+    runtime - the same cast `corpus.Announcement.to_dict` makes for the same reason.
+    Cached per handler: the taxonomy is fixed at import time.
+    """
+    return frozenset(f.name for f in fields(cast("type[DataclassInstance]", handler)))
+
+
 def _payload_value_matches(value: Any, expected: Any) -> bool:
     """True when `value`'s runtime type satisfies the dataclass field type `expected`.
 
@@ -247,6 +281,29 @@ def _check_required_types(
             )
 
 
+def _check_positive(
+    event_type: EventType,
+    positive: tuple[str, ...],
+    payload: dict[str, Any],
+) -> None:
+    """Raise `TaxonomyError` on a ratio or entitlement that is not strictly positive.
+
+    Type validation stops `{"ratio": "two"}`; it does not stop `{"ratio": 0.0}`, which
+    is a valid `float` and builds a `Split` that raises `ZeroDivisionError` the moment
+    the engine divides by it - detonating inside `apply_event`, one module away from
+    the caller that could have declined. `spec.positive` lists the fields where zero
+    or negative is not a datum but a defect, and the same argument that put the type
+    check here rather than in `extract.py` puts the range check here: the taxonomy
+    decides constructibility for every caller, not just for the one holding a model.
+    """
+    for name in positive:
+        value = payload[name]
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue  # already rejected by _check_required_types for a required field
+        if value <= 0:
+            raise TaxonomyError(f"{event_type} field {name!r} must be positive, got {value!r}")
+
+
 def build_event(
     event_type: EventType,
     common: dict[str, Any],
@@ -263,10 +320,22 @@ def build_event(
     (`is_special` for a special dividend) rather than data, and the type itself - not
     whatever a caller happened to pass - decides them.
 
-    Each `spec.required` value is also checked against the handler dataclass's own
-    annotation (`_check_required_types`) before construction - a dataclass field
-    accepts any value of any type, so key presence alone does not stop a wrong-typed
-    value from building a malformed-but-valid-looking event.
+    Keys the handler dataclass does not declare are **dropped, not fatal.** A payload
+    is a description of an event written by something else - a vendor feed, a model -
+    and both routinely carry fields this taxonomy has no use for: the repo's own
+    synthetic universe emits `gross_amount` on every dividend and `terp` on every
+    rights issue, neither of which is a constructor argument, and forwarding them
+    verbatim made `spec.handler(**kwargs)` raise `TypeError` on 98% of the corpus.
+    Dropping an undeclared key loses nothing the taxonomy models, whereas rejecting
+    the row loses the label entirely; the fields that actually matter are the ones in
+    `spec.required`, and those are checked, present, typed and ranged below. See D-031.
+
+    Each `spec.required` value is checked against the handler dataclass's own
+    annotation (`_check_required_types`) and, where the field is a ratio or an
+    entitlement, against `spec.positive` (`_check_positive`) before construction - a
+    dataclass field accepts any value of any type or magnitude, so key presence alone
+    does not stop a wrong-typed or zero value from building an event that looks valid
+    and detonates inside the engine.
 
     Raises rather than guessing. A silently-defaulted amount produces an event that
     applies cleanly and grades wrong, which is the worst possible failure here.
@@ -275,15 +344,27 @@ def build_event(
     if spec.handler is None:
         raise TaxonomyError(f"no handler for {event_type}: {spec.note}")
 
+    if not isinstance(payload, dict):
+        # `payload` is annotated `dict[str, Any]`, which checks nothing at runtime, and
+        # the caller nearest a live model hands over `parsed.get("payload", {})` - a
+        # JSON list or string reaches here just as easily as an object. Rejecting it
+        # here keeps the filtering below from raising `AttributeError`, which no caller
+        # catches, instead of the `TaxonomyError` every caller already handles.
+        raise TaxonomyError(f"{event_type} payload must be an object, got {type(payload).__name__}")
+
     missing_common = [f for f in COMMON_FIELDS if f not in common]
     if missing_common:
         raise TaxonomyError(f"missing common fields: {', '.join(missing_common)}")
+
+    declared = _declared_fields(spec.handler)
+    payload = {k: v for k, v in payload.items() if k in declared}
 
     missing = [f for f in spec.required if f not in payload]
     if missing:
         raise TaxonomyError(f"{event_type} requires {', '.join(missing)}")
 
     _check_required_types(event_type, spec.handler, spec.required, payload)
+    _check_positive(event_type, spec.positive, payload)
 
     kwargs: dict[str, Any] = dict(common)
     kwargs.update(payload)

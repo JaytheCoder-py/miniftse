@@ -9,8 +9,9 @@ so this module writes it down and `test_covers_every_event_type` keeps it total.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, get_type_hints
 
 from miniftse.corpactions.events import (
     CashDividend,
@@ -172,6 +173,80 @@ class TaxonomyError(ValueError):
     """The requested event cannot be constructed."""
 
 
+@functools.cache
+def _field_type_hints(handler: type[CorporateAction]) -> dict[str, Any]:
+    """Resolved (not stringified) field annotations for a handler dataclass.
+
+    `corpactions/events.py` has `from __future__ import annotations`, so every
+    annotation there is stored as a string under PEP 563 -
+    `dataclasses.fields(handler)[i].type` is the literal string `"float"`, not the
+    type object. `get_type_hints` is what actually evaluates a deferred annotation
+    back into a real class, resolving it against the declaring module's globals.
+    Cached per handler - the taxonomy is fixed at import time, so the resolved hints
+    never change, and `build_event` runs once per announcement in a corpus batch.
+    """
+    return get_type_hints(handler)
+
+
+def _payload_value_matches(value: Any, expected: Any) -> bool:
+    """True when `value`'s runtime type satisfies the dataclass field type `expected`.
+
+    Two deliberate departures from a bare `isinstance` check, both chosen for what a
+    model's JSON payload can actually contain rather than for type-theoretic
+    completeness:
+
+    * `int` is accepted wherever `float` is annotated. `json.loads('{"amount": 2}')`
+      produces a Python `int` for a whole-number literal, and a model asked for the
+      dollar amount of a $2 dividend has no reason to write "2.0" instead of "2".
+    * `bool` is never accepted for a numeric field, even though `bool` is an `int`
+      subclass in Python and would otherwise pass an `isinstance(value, (int,
+      float))` check silently. `CashDividend(amount=True)` constructs cleanly as a
+      $1.00 dividend if that is allowed through - exactly the "partially built event
+      that grades cleanly and is wrong" this module's docstring names as the worst
+      outcome, and worse than useless as a defence against it if the type check lets
+      it straight through.
+    """
+    if expected is bool:
+        return isinstance(value, bool)
+    if isinstance(value, bool):
+        return False
+    if expected is float:
+        return isinstance(value, (int, float))
+    if isinstance(expected, type):
+        return isinstance(value, expected)
+    return True
+
+
+def _check_required_types(
+    event_type: EventType,
+    handler: type[CorporateAction],
+    required: tuple[str, ...],
+    payload: dict[str, Any],
+) -> None:
+    """Raise `TaxonomyError` on a `spec.required` value of the wrong type.
+
+    Key presence alone (the `missing` check above) is not enough: a dataclass field
+    accepts any value at construction, so `{"amount": "two dollars"}` builds a
+    `CashDividend` with a string `amount` and `abstained=False` - it does not raise
+    anywhere, it just hands a poisoned event downstream to detonate later inside the
+    engine. This is property 3 of the module docstring made real: the taxonomy, not
+    the caller, decides constructibility, so the check belongs here rather than only
+    in `extract.py`, where it would protect one caller instead of every one.
+    """
+    hints = _field_type_hints(handler)
+    for name in required:
+        expected = hints.get(name)
+        if expected is None:
+            continue
+        value = payload[name]
+        if not _payload_value_matches(value, expected):
+            expected_name = expected.__name__ if isinstance(expected, type) else str(expected)
+            raise TaxonomyError(
+                f"{event_type} field {name!r} expects {expected_name}, got "
+                f"{type(value).__name__}: {value!r}"
+            )
+
+
 def build_event(
     event_type: EventType,
     common: dict[str, Any],
@@ -188,6 +263,11 @@ def build_event(
     (`is_special` for a special dividend) rather than data, and the type itself - not
     whatever a caller happened to pass - decides them.
 
+    Each `spec.required` value is also checked against the handler dataclass's own
+    annotation (`_check_required_types`) before construction - a dataclass field
+    accepts any value of any type, so key presence alone does not stop a wrong-typed
+    value from building a malformed-but-valid-looking event.
+
     Raises rather than guessing. A silently-defaulted amount produces an event that
     applies cleanly and grades wrong, which is the worst possible failure here.
     """
@@ -202,6 +282,8 @@ def build_event(
     missing = [f for f in spec.required if f not in payload]
     if missing:
         raise TaxonomyError(f"{event_type} requires {', '.join(missing)}")
+
+    _check_required_types(event_type, spec.handler, spec.required, payload)
 
     kwargs: dict[str, Any] = dict(common)
     kwargs.update(payload)

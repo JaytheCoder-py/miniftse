@@ -81,6 +81,34 @@ class TestTaxonomy:
         with pytest.raises(ValueError, match="no handler"):
             build_event(unmapped[0], COMMON, {})
 
+    def test_rejects_a_wrong_typed_required_field(self) -> None:
+        """Key *presence* alone is not enough: `spec.required` only checks that
+        `amount` is in the payload, and a dataclass field accepts a value of any
+        type at construction. Without a type check, `{"amount": "two dollars"}`
+        would build a `CashDividend` with a string `amount` and never raise -
+        exactly the "partially built event that grades cleanly and is wrong" this
+        module's own docstring names as the worst outcome."""
+        with pytest.raises(ValueError, match="amount"):
+            build_event(EventType.CASH_DIVIDEND, COMMON, {"amount": "two dollars"})
+
+    def test_accepts_an_int_where_a_float_is_required(self) -> None:
+        """Guards against over-tightening: `json.loads('{"amount": 2}')` produces a
+        Python `int` for a whole-number literal, and a model has no reason to write
+        "2.0" for a $2 dividend. `CashDividend.amount` is annotated `float`; an
+        `int` payload value must still build successfully."""
+        event = build_event(EventType.CASH_DIVIDEND, COMMON, {"amount": 2})
+        assert isinstance(event, CashDividend)
+        assert event.amount == 2
+
+    def test_rejects_a_bool_for_a_numeric_required_field(self) -> None:
+        """`bool` is an `int` subclass in Python, so a naive `isinstance(value,
+        (int, float))` check would silently accept `True`/`False` as a numeric
+        `amount` - `CashDividend(amount=True)` constructs cleanly as a $1.00
+        dividend. `bool` must be rejected for a numeric field even though the
+        `int`-for-`float` relaxation above exists."""
+        with pytest.raises(ValueError, match="amount"):
+            build_event(EventType.CASH_DIVIDEND, COMMON, {"amount": True})
+
 
 def make_state(n: int = 3, price: float = 100.0, shares: float = 1000.0) -> IndexState:
     constituents = {f"S{i}": Constituent(f"S{i}", price=price, shares=shares) for i in range(n)}
@@ -767,6 +795,84 @@ class TestExtraction:
 
         assert result.abstained is True
         assert result.event is None
+
+    def test_a_json_array_abstains_rather_than_raising(self) -> None:
+        """`json.loads` parses `[1, 2, 3]` without error - it is valid JSON, just not
+        an object. `parsed.get(...)` on a `list` raises `AttributeError`, uncaught
+        anywhere before this fix; this must abstain instead."""
+        result = extract_event(ScriptedLlm("[1, 2, 3]"), "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+
+    def test_a_bare_json_string_abstains_rather_than_raising(self) -> None:
+        """`"hello"` is valid JSON (a bare string), not an object."""
+        result = extract_event(ScriptedLlm('"hello"'), "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+
+    def test_a_bare_json_number_abstains_rather_than_raising(self) -> None:
+        """`42` is valid JSON (a bare number), not an object."""
+        result = extract_event(ScriptedLlm("42"), "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+
+    def test_json_null_abstains_rather_than_raising(self) -> None:
+        """`null` is valid JSON and parses to `None`, which has no `.get` at all -
+        the shape most likely to be missed by a fix that only checks for `list`."""
+        result = extract_event(ScriptedLlm("null"), "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+
+    def test_a_wrong_typed_payload_field_abstains_rather_than_building(self) -> None:
+        """`{"amount": "two dollars"}` satisfies `spec.required` (the key is
+        present) but not the dataclass's own `float` annotation. Before the
+        `taxonomy.build_event` type check, this built a `CashDividend` with a
+        string `amount` and `abstained=False` - a poisoned event handed downstream
+        with nothing raised anywhere; see D-028."""
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "event_type": "CASH_DIVIDEND",
+                    "ex_date": "2024-06-10",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": {"amount": "two dollars"},
+                }
+            )
+        )
+
+        result = extract_event(client, "…", "S0", event_id="E1")
+
+        assert result.abstained is True
+        assert result.event is None
+        assert "amount" in result.reason
+
+    def test_a_string_abstain_value_does_not_abstain(self) -> None:
+        """`if parsed.get("abstain"):` treats any truthy value as an abstention, so
+        the JSON string `"false"` (truthy in Python, however misleading the text)
+        would abstain. The check must be boolean-strict: only the JSON literal
+        `true` (Python `True`) abstains."""
+        client = ScriptedLlm(
+            _json.dumps(
+                {
+                    "abstain": "false",
+                    "event_type": "CASH_DIVIDEND",
+                    "ex_date": "2024-06-10",
+                    "announcement_date": "2024-05-20",
+                    "pay_date": "2024-06-24",
+                    "payload": {"amount": 2.0},
+                }
+            )
+        )
+
+        result = extract_event(client, "…dividend of $2.00…", "S0", event_id="E1")
+
+        assert result.abstained is False
+        assert isinstance(result.event, CashDividend)
 
     def test_an_unexpected_payload_field_abstains_rather_than_raising(self) -> None:
         """`build_event` forwards every payload key to the handler dataclass

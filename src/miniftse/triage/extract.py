@@ -19,7 +19,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 from dataclasses import dataclass
-from typing import Any
 
 from miniftse.agents.llm import LlmClient, Message
 from miniftse.corpactions.events import CorporateAction, EventType
@@ -70,11 +69,24 @@ def extract_event(
     ).text
 
     try:
-        parsed: dict[str, Any] = json.loads(raw.strip())
+        parsed = json.loads(raw.strip())
     except (json.JSONDecodeError, AttributeError):
         return Extraction(None, True, "could not parse model output as JSON", raw)
 
-    if parsed.get("abstain"):
+    # `json.loads` happily parses `[1, 2, 3]`, `"hello"`, `42` and `null` - all valid
+    # JSON, none of them the object this function's contract requires. A `dict[str,
+    # Any]` annotation on `parsed` does not check that at runtime, so without this
+    # guard `parsed.get(...)` below raises `AttributeError` on any of those four
+    # shapes: valid JSON that abstention and parsing alike must reject, not crash on.
+    if not isinstance(parsed, dict):
+        return Extraction(
+            None,
+            True,
+            f"model output was valid JSON but not an object (got {type(parsed).__name__})",
+            raw,
+        )
+
+    if parsed.get("abstain") is True:
         return Extraction(None, True, str(parsed.get("reason", "abstained")), raw)
 
     try:

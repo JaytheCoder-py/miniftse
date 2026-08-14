@@ -963,13 +963,116 @@ all "other triage/ modules" this task must not touch); catching the constructor'
 `TypeError` at the one call site that needs it is the change available without
 reopening D-024's module.
 
-**Consequences.** `extract_event` now abstains rather than raises for every failure
-mode the module's docstring claims to guard against: malformed JSON, an explicit model
-abstention, a missing required field, an unmapped `EventType`, a malformed date string,
-and now a hallucinated payload key. The cost is that `extract_event`'s `except` clause
-is one class wider than what the brief specifies verbatim, which is exactly the kind of
-deviation this decision log exists to record rather than land silently. The gap
-`build_event` itself has — an over-wide payload is accepted by construction and only
-fails if the handler dataclass happens to reject the extra key, rather than being
-validated against the taxonomy up front — remains open for whichever task next touches
-`taxonomy.py`.
+**Consequences.** *(This paragraph originally claimed `extract_event` "now abstains
+rather than raises for every failure mode the module's docstring claims to guard
+against." That was false, and is corrected here rather than quietly reworded, per this
+log's own D-014 precedent for a wrong claim caught after the fact. Code review of this
+same task's commit found a second, unrelated raise path this decision does not touch:
+`json.loads` happily parses valid JSON that is not an object — `[1, 2, 3]`, `"hello"`,
+`42`, `null` — and `parsed.get("abstain")` ran unguarded outside every `try`/`except`
+block, so each of those four raised an uncaught `AttributeError` before execution ever
+reached the `TypeError`/`KeyError`/`ValueError`/`TaxonomyError` handling this decision
+actually addresses. That gap was present in the brief's own Step 3 sample code, copied
+verbatim by the first implementer and inherited unfixed through the writing of this
+entry. See D-028 and `task-6-report.md`'s fix-round-1 section for that fix, and for a
+related but distinct gap found in the same review pass: `build_event` accepted a
+wrong-*typed* required value — `{"amount": "two dollars"}` — with no check at all,
+since key presence was the only thing `spec.required` verified.)*
+Within its own narrower scope, this decision does what it says: a hallucinated payload
+key beyond `spec.required` now abstains rather than raises, alongside the
+`KeyError`/`ValueError`/`TaxonomyError` failure modes the brief's original tuple already
+caught. The cost is that `extract_event`'s `except` clause is one class wider than what
+the brief specifies verbatim, which is exactly the kind of deviation this decision log
+exists to record rather than land silently.
+
+---
+
+## D-028 — `build_event` validates a required field's runtime type, not just its presence
+**Date:** 2026-08-14 · **Module:** M14 (triage) · **Status:** accepted
+
+**Context.** Code review of this task's commit found a second gap alongside the
+`AttributeError` fixed in `extract.py` (see the corrected Consequences of D-027, above):
+`TAXONOMY[event_type].required` and the `missing = [f for f in spec.required if f not in
+payload]` check in `build_event` verify only that a required key is *present*, never
+that its value is the right *type*. A Python dataclass does not validate types at
+construction either - `CashDividend(amount="two dollars")` builds without complaint.
+So `{"event_type": "CASH_DIVIDEND", "payload": {"amount": "two dollars"}}` from a model
+built a real `CashDividend` with a string `amount`, `Extraction.abstained=False`, no
+exception raised anywhere. That is precisely the failure `extract.py`'s own module
+docstring names as the worst outcome - "a partially built event is the failure that
+grades cleanly and is wrong" - and it happens silently downstream of every property
+D-024 through D-027 were written to defend, because none of them check a value's type.
+The reviewer's framing of where to fix it matters as much as the fix: property 3 of
+`extract.py`'s docstring is "the taxonomy decides whether that is constructible," so a
+type gate that lived only in `extract.py` would protect the one caller that happens to
+be a language model and leave `build_event` - the function every caller, including
+`corpus.Announcement.from_dict` reading a hand-edited corpus row, actually calls -
+exactly as permissive as before. D-027's own "alternatives rejected" paragraph had ruled
+out touching `taxonomy.py` for a related reason (an unrecognised payload *key*) on the
+grounds that `taxonomy.py` was outside that task's ownership; this finding is different
+in kind (a wrong-typed but correctly-*named* value) and the reviewer directing this fix
+round explicitly authorised modifying `taxonomy.py` for it, which is the authorisation
+D-027's paragraph did not have.
+
+**Decision.** `build_event` gains `_check_required_types`, called after the existing
+missing-field check and before `kwargs` is assembled: for each name in `spec.required`,
+resolve the handler dataclass's own annotation for that field and confirm the payload
+value's runtime type satisfies it, raising `TaxonomyError` on a mismatch - the same
+exception type (and therefore the same caller-facing behaviour) as the missing-field
+check right above it. Only `spec.required` fields are checked, matching the reviewer's
+explicit scope; an optional field with a wrong-typed value (e.g. a non-string
+`currency`) is unchanged by this decision.
+
+Resolving "the handler dataclass's own annotation" is not `dataclasses.fields(handler)
+[i].type` - `corpactions/events.py` has `from __future__ import annotations`, so every
+class-level annotation there is stored as a string ("float", not `float`) under PEP 563.
+`_field_type_hints` calls `typing.get_type_hints(handler)` instead, which evaluates
+those deferred string annotations back into real type objects against the declaring
+module's globals, and is cached per handler with `functools.cache` since the taxonomy is
+fixed at import time and `build_event` may run once per announcement in a batch.
+
+Two wrinkles in `_payload_value_matches`, both chosen for what a model's JSON payload
+can actually contain rather than for type-theoretic completeness. First, `int` is
+accepted wherever `float` is annotated: `json.loads('{"amount": 2}')` produces a Python
+`int` for a whole-number literal, and a model asked for a $2 dividend's amount has no
+reason to prefer "2.0" over "2" - rejecting a bare integer here would be over-tightening
+against a shape models routinely produce, not a real defect. Second, `bool` is rejected
+for every numeric field even though Python's `bool` is an `int` subclass and would
+otherwise satisfy `isinstance(value, (int, float))` silently - `CashDividend(amount=
+True)` would construct cleanly as a $1.00 dividend if that relaxation were allowed
+through unchecked, which is the exact failure this decision exists to close, reopened
+by the fix meant to close a different one. `bool` is checked first, before the
+`int`-for-`float` relaxation applies, so it can never hide behind it.
+
+**Alternatives rejected.** *Fix only the `AttributeError` in `extract.py` and leave the
+wrong-type gap in `build_event`* - was the actual state after `extract.py`'s
+non-dict-JSON guard alone; rejected because it leaves every other `build_event` caller,
+not only a language model, able to construct a malformed event from a wrong-typed value,
+and because the reviewer's finding was explicit that this belongs in the taxonomy, not
+the one caller that happened to surface it. *Validate every dataclass field, not only
+`spec.required`* - broader coverage, and rejected as over-reach relative to what was
+actually shown to be broken: an optional field's default already comes from the type
+itself in most cases (`spec.defaults`) or from the handler's own dataclass default, and
+validating fields nobody demonstrated a problem with expands the change past its
+evidence. *Coerce instead of reject (e.g. `float(value)` for a numeric field)* - would
+silently turn `"2"` into `2.0` and mask exactly the ambiguity `TaxonomyError` exists to
+surface; a coercion that happens to succeed on a string that merely looks numeric is a
+guess, and this module's whole design is "raise rather than guess." *A bare
+`isinstance(value, (int, float))` check with no `bool` carve-out* - simpler, and
+rejected because it is a known Python foot-gun that would have passed
+`test_rejects_a_bool_for_a_numeric_required_field` failing silently instead of raising:
+`bool`'s `int`-subclass relationship is exactly the kind of "technically satisfies the
+check" gap this decision was written to close, not reproduce one field over.
+
+**Consequences.** `build_event` is now the single point that decides both whether a
+required field is present and whether its value is usable, matching property 3 of
+`extract.py`'s docstring ("the taxonomy decides whether that is constructible") for real
+rather than only for key presence. Every `build_event` caller benefits, not only
+`extract_event` - a hand-edited corpus JSONL row with a string `amount` now fails loudly
+at `Announcement.from_dict` instead of building a silently-wrong label. The check is
+deliberately narrow: it covers `spec.required` fields only, checks type and not value
+range (a negative `amount` or a zero `ratio` still constructs), and its `int`-for-`float`
+relaxation means a required `float` field does not distinguish "the model wrote a whole
+number" from "the model wrote the wrong kind of whole number" - both build. Widening
+either is a real question for whichever task next touches `taxonomy.py`, not one this
+fix answers by omission.

@@ -44,6 +44,12 @@ quantifiable but not fixable from free sources:
    reconstructed from price x shares, because the two series sit on different bases
    either side of every split.
 
+Of those three, only the second is a property of free data. The first and third are
+properties of *these two sources* - the SEC current-registrant list and Yahoo - and both
+dissolve if the universe and prices come from historical iShares holdings files instead.
+`NOT_STRUCTURAL` records what was measured and what it would take. Read it before
+quoting any of this as a reason a study cannot be run.
+
 The fourth, spin-offs missing from the actions series, is handled: the corporate action
 engine never sees the event, so the parent's ex-date drop is read as a price fall. That
 is precisely the error the M1 memo measures.
@@ -81,7 +87,8 @@ DEFECTS: dict[str, str] = {
     "survivorship": (
         "The universe comes from the SEC's current registrant list, so companies "
         "acquired or delisted during the window are absent entirely. Returns are "
-        "measured on survivors only and are biased upward."
+        "measured on survivors only and are biased upward. This is a limitation of "
+        "*this* universe builder, not of free data: see NOT_STRUCTURAL['survivorship']."
     ),
     "no_free_float": (
         "No free source publishes free-float factors. Every security is set to 1.0, "
@@ -114,6 +121,52 @@ DEFECTS: dict[str, str] = {
         "reclassification is invisible, so classification-driven turnover is absent."
     ),
 }
+
+
+NOT_STRUCTURAL: dict[str, str] = {
+    "survivorship": (
+        "Fixable. Historical iShares holdings files list the constituents as they stood "
+        "on the date, delisted names included - Pharmacyclics is in the 2013-06-21 IWM "
+        "file at 0.34% weight, nine years after being acquired. EDGAR also keeps the "
+        "fundamentals of dead registrants permanently. What is missing is only the join "
+        "key: company_tickers.json holds current registrants, so ticker->CIK resolves "
+        "83% of a 2024 vintage but 44% of 2013, and recycled tickers make some of those "
+        "matches silently wrong (ARRY was Array Biopharma in 2013, Array Technologies "
+        "today). Resolving on the SEC name index (cik-lookup-data.txt, ~1.0M names "
+        "including former and defunct) plus a check that the filer was actually filing "
+        "on the date lifts a 2013 vintage to 94% of names and 92% of weight."
+    ),
+    "split_adjusted_prices": (
+        "Sidesteppable. The defect is Yahoo's, not free data's. iShares holdings files "
+        "carry an as-traded price per holding per date, and market_value / quantity "
+        "reproduces it (median error zero). Sourcing constituent prices from the "
+        "holdings file instead of Yahoo removes the split problem rather than "
+        "correcting it."
+    ),
+    "current_ranking": (
+        "Fixable, and by the same change. Taking the candidate pool from today's SEC "
+        "ranking is look-ahead; taking it from the holdings file for the review date is "
+        "not, because that file *is* what the index held on the day."
+    ),
+}
+"""Defects recorded as structural that turn out not to be.
+
+Kept separate from `DEFECTS` on purpose. `DEFECTS` describes what a snapshot built by
+*this module* actually suffers from, and every entry there is still true of it. This
+records which of those are properties of the chosen sources rather than of free data,
+so the list is not read as a claim that the work is impossible.
+
+The real remaining constraint on deep history is neither identity nor price: XBRL was
+phased in between 2009 and 2011 and small caps were in the last wave, so shares
+outstanding and public float do not exist before roughly 2011 at any resolution
+quality. Constituents, weights and prices reach back to 2008.
+
+Free float stays genuinely unavailable. dei:EntityPublicFloat is a usable proxy -
+implied factors land in (0, 1] for 89% of names, median 0.95 - but it lags by a median
+364 days, carries a tail of unit errors, and is defined over non-affiliate holdings
+rather than the strategic, cross- and locked-up holdings an index provider strips out.
+Better than hardcoding 1.0; not the same measure.
+"""
 
 
 class RealDataError(RuntimeError):

@@ -37,8 +37,10 @@ uv run miniftse fetch-real --contact you@example.com --securities 200
 uv run miniftse build-index --universe data/snapshots/real-clean
 ```
 
-- **86 source files.** `ruff` clean, **331 tests** (2 skipped here; the Dagster tests skip
-  without the orchestration extra).
+- **86 source files.** `ruff` clean, **340 tests** (2 skipped here; the Dagster tests skip
+  without the orchestration extra). Nine of those are `tests/test_readme_figures.py`,
+  which pins the README's published numbers to the run manifest — added after the README
+  was found quoting a +10.4% annualised return against an actual +3.7%.
 - The golden master pins a 10-year *synthetic* index history to a hash; CI fails on drift.
 - The **default** build is still the deterministic synthetic universe — no API keys, no
   network. Real data is opt-in via `--universe`, and is a separate path with its own
@@ -215,9 +217,15 @@ The build is complete against the plan. Natural next steps, none of them blockin
 1. **Point it at real data.** `build_free_composite()` (Yahoo + EDGAR + FRED) has full
    Protocol coverage. Running the engine against it is the strongest remaining
    validation, and the reconciliation module is built for exactly that.
-2. **Archive iShares holdings daily, starting now.** The historical files are not
-   retrievable, so the archive not started last year is the study that cannot be run
-   today. `ISharesProvider.archive_all()` is a one-line scheduled job.
+2. **Backfill iShares holdings — history is retrievable after all.** This entry
+   previously said the opposite and recommended starting a daily archive. That was
+   wrong: `ISharesProvider.fetch_holdings(ticker, as_of)` now reads any past date,
+   verified to 2008-06-30 for IWM. `archive_all()` is a backfill to walk backwards, not
+   a job to schedule forwards. The old `.ajax` endpoint it used had also died in the
+   worst way — HTTP 200, `Content-Type: text/csv`, HTML body — so anything calling it
+   would have parsed a web page into a DataFrame without raising. Nothing did call it,
+   so no published number was affected, but that is luck rather than design and the
+   guard clauses are now explicit.
 3. **Golden-master the factor variant**, not just the parent — the capping incident
    would have been caught immediately by one.
 4. **Deploy something.** The ops desk has a written Google Cloud Run runbook

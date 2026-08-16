@@ -25,6 +25,7 @@ from __future__ import annotations
 import datetime as dt
 import io
 import json
+import re
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -656,13 +657,34 @@ SIC_TO_ICB: dict[str, str] = {
 class ISharesProvider:
     """Daily ETF holdings from iShares - the best free proxy for real index membership.
 
-    The CSVs carry ISIN, SEDOL and CUSIP alongside weight, shares and market value,
-    which makes them usable for two things the synthetic universe cannot teach:
-    reverse-engineering implied free-float factors, and measuring real reconstitution
-    turnover.
+    Each row carries weight, quantity, market value and price, which makes these files
+    usable for two things the synthetic universe cannot teach: reverse-engineering
+    implied free-float factors, and measuring real reconstitution turnover.
 
-    Archive these daily. The historical files are not retrievable, so the archive you
-    did not start last year is the study you cannot run today.
+    **History is retrievable, and goes back further than you would expect.** Passing
+    ``as_of`` returns that date's file, verified working to at least 2008-06-30 for
+    IWM. An earlier version of this class said the opposite and recommended starting a
+    daily archive; that was wrong, and it was wrong in the expensive direction - it
+    retired a study as impossible when the data was sitting there. ``archive_all`` is
+    now a backfill, not a subscription.
+
+    Two things to know before relying on the parsed frame:
+
+    * **The US files carry no ISIN, SEDOL or CUSIP** - only ``ticker`` and ``name``.
+      Ticker is a poor join key across time because tickers are recycled (ARRY was
+      Array Biopharma in 2013 and is Array Technologies today), so resolving a
+      historical holding to an issuer needs the SEC name index and a check that the
+      filer was alive on the date. N-PORT is where the proper identifiers live.
+    * **``price`` is internally consistent**, so these files are a self-contained
+      as-traded price source and do not need Yahoo, whose closes are split-adjusted.
+      On IWM at 2013-06-21, ``market_value / quantity`` reproduces ``price`` with a
+      median error of exactly zero and 2e-16 at the 99th percentile. It is not exact
+      everywhere - the worst row sits near 1e-3 on published rounding - so reconcile
+      rather than assume. One row (an escrow residual) carries a zero price against a
+      non-zero quantity, which will produce a division by zero if not filtered.
+
+    The endpoint is undocumented. Treat it as an archival source - fetch once, cache,
+    and never put it on a runtime path.
     """
 
     cache_dir: Path = Path("data/raw/ishares")
@@ -681,50 +703,118 @@ class ISharesProvider:
     def name(self) -> str:
         return "ishares"
 
-    def holdings_url(self, ticker: str) -> str:
-        slug = self.FUNDS[ticker]
-        fund_id, name = slug.split("/", 1)
-        return (
-            f"https://www.ishares.com/us/products/{fund_id}/{name}/1467271812596.ajax"
-            f"?fileType=csv&fileName={ticker}_holdings&dataType=fund"
+    def holdings_url(self, ticker: str, as_of: dt.date | None = None) -> str:
+        """The current endpoint, optionally pinned to a date.
+
+        The old ``www.ishares.com/.../1467271812596.ajax?fileType=csv`` form is dead in
+        the worst available way: it answers 200 with ``Content-Type: text/csv`` and an
+        HTML body, so a caller that trusts the header parses a web page into a
+        DataFrame without raising. `fetch_holdings` guards against that explicitly.
+        """
+        fund_id = self.FUNDS[ticker].split("/", 1)[0]
+        url = (
+            "https://www.blackrock.com/varnish-api/blk-one01-product-data/product-data"
+            "/api/v1/get-fund-document?appType=PRODUCT_PAGE&appSubType=ISHARES"
+            f"&targetSite=us-ishares&locale=en_US&portfolioId={fund_id}"
+            "&userType=individual&component=holdings"
         )
+        if as_of is not None:
+            url += f"&asOfDate={as_of.strftime('%Y%m%d')}"
+        return url
 
     def fetch_holdings(self, ticker: str, as_of: dt.date | None = None) -> pd.DataFrame:
-        """Download today's holdings and cache under the retrieval date.
+        """Holdings as at ``as_of``, or the latest file when it is ``None``.
 
-        The cache key is the *retrieval* date, not a date you can choose: the endpoint
-        only ever serves the current file.
+        ``as_of`` is the *content* date and is passed to the endpoint, so this reads
+        history rather than only today. Files are cached under the date actually
+        returned by the server, which is not always the date asked for - a weekend or
+        holiday resolves to a nearby session.
+
+        Raises ``ValueError`` rather than returning a malformed frame when the response
+        is not a holdings file. That is deliberate: every failure mode this endpoint has
+        is silent, and a garbage DataFrame is worse than an exception.
         """
-        as_of = as_of or dt.date.today()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        dest = self.cache_dir / f"{ticker}_{as_of.isoformat()}.csv"
+        key = as_of.isoformat() if as_of is not None else "latest"
+        dest = self.cache_dir / f"{ticker}_{key}.csv"
 
         if not dest.exists():
             resp = requests.get(
-                self.holdings_url(ticker), headers={"User-Agent": USER_AGENT}, timeout=60
+                self.holdings_url(ticker, as_of),
+                headers={"User-Agent": USER_AGENT}, timeout=60,
             )
             resp.raise_for_status()
             dest.write_bytes(resp.content)
 
         text = dest.read_text(encoding="utf-8", errors="replace")
-        # The file carries a variable-length preamble before the real header row.
+
+        if text.lstrip()[:200].lower().startswith(("<!doctype", "<html")):
+            dest.unlink(missing_ok=True)
+            raise ValueError(
+                f"{ticker}: endpoint returned HTML, not a holdings CSV. The URL form "
+                "has changed again - check `holdings_url`."
+            )
+
+        # Dates outside the fund's published history return a short stub whose as-of
+        # field is a bare '-'. Without this check it parses to an empty-ish frame and
+        # looks like a fund that held nothing.
+        # The value is quoted and contains a comma - 'Fund Holdings as of,"Aug 13, 2026"'
+        # - so take the rest of the line and strip the quotes rather than splitting.
+        matched = re.search(r"Fund Holdings as of,\s*(.+)", text)
+        served = matched.group(1).strip().strip('"').strip() if matched else None
+        if served == "-":
+            raise ValueError(
+                f"{ticker}: no holdings published for {as_of}. The history does not "
+                "reach that far back, or it is not a trading day."
+            )
+
         lines = text.splitlines()
         header_ix = next(
-            (i for i, line in enumerate(lines) if line.lstrip('"').startswith("Ticker")), 0
+            (i for i, line in enumerate(lines) if line.lstrip('"').startswith("Ticker")),
+            None,
         )
+        if header_ix is None:
+            raise ValueError(
+                f"{ticker}: no 'Ticker' header row in the response for {as_of}. "
+                f"Got {len(lines)} lines starting {lines[:1]!r}."
+            )
+
         df = pd.read_csv(io.StringIO("\n".join(lines[header_ix:])), thousands=",")
         df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
         df["fund"] = ticker
-        df["as_of"] = as_of
+        df["as_of"] = self._served_date(served) or as_of
         return df
 
+    @staticmethod
+    def _served_date(served: str | None) -> dt.date | None:
+        """The date the server actually returned, which need not be the one asked for.
+
+        A format change here should not fail a fetch that otherwise succeeded, so an
+        unparseable value falls back to the requested date rather than raising.
+        """
+        if not served:
+            return None
+        try:
+            return dt.datetime.strptime(served, "%b %d, %Y").date()
+        except ValueError:
+            return None
+
     def archive_all(self, as_of: dt.date | None = None) -> dict[str, Path]:
-        """Snapshot every configured fund. Wire this to a daily scheduled job."""
+        """Snapshot every configured fund at one date.
+
+        A backfill rather than a subscription: because history is retrievable, this can
+        be walked backwards over past dates instead of being scheduled forwards. Funds
+        that publish nothing for the date are skipped rather than aborting the sweep -
+        coverage start dates differ per fund.
+        """
         out: dict[str, Path] = {}
-        as_of = as_of or dt.date.today()
+        key = as_of.isoformat() if as_of is not None else "latest"
         for ticker in self.FUNDS:
-            self.fetch_holdings(ticker, as_of)
-            out[ticker] = self.cache_dir / f"{ticker}_{as_of.isoformat()}.csv"
+            try:
+                self.fetch_holdings(ticker, as_of)
+            except ValueError:
+                continue
+            out[ticker] = self.cache_dir / f"{ticker}_{key}.csv"
         return out
 
     def implied_float_factors(self, ticker: str, prices: pd.DataFrame,

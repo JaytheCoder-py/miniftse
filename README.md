@@ -51,23 +51,31 @@ Google Cloud account; see `desk/README.md` for the steps to run it._
 
 ## What it does
 
-**Reference index over 2016–2026** (500 securities, quarterly reviews):
+**Reference index over 2016–2026** (500-security universe, ~257 mean constituents,
+quarterly reviews):
 
 | | |
 |---|---|
-| Annualised return (GTR) | +10.4% |
-| Annualised volatility | 17.7% |
-| Maximum drawdown | −32.6% |
-| Divisor events | 7,335 |
+| Annualised return (GTR) | +3.7% |
+| Annualised volatility | 17.1% |
+| Maximum drawdown | −36.4% |
+| Divisor events | 7,590 |
 | Divisor continuity breaches | **0** |
 | Reviews | 42 |
+| Build warnings | 178 — every one a delisted or late-listed security with no price at a review |
+
+Every figure in that table is checked against the run manifest of the last
+`make build-index` by `tests/test_readme_figures.py`. It is a published number, so it
+gets the same treatment as any other: pinned, and CI fails if the code moves and the
+document does not. The table above was wrong for exactly that reason before the test
+existed — it quoted a +10.4% return against an actual +3.7%.
 
 | Gate | Result |
 |---|---|
-| Tests | 70 passing — hand-computed, property-based, golden master |
+| Tests | 340 passing, 2 skipped — hand-computed, property-based, golden master |
 | `ruff` | clean |
 | `mypy` | clean (strict on the core; see [D-011](DECISIONS.md)) |
-| Validation | 27 rules; 11/11 injected faults detected |
+| Validation | 27 rules; 12 faults defined, 11 injectable in a single cross-section, 11/11 detected |
 | Methodology assistant | 88% accuracy, 100% citation precision, 0% hallucinated numbers |
 
 ---

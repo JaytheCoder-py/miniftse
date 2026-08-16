@@ -1,9 +1,14 @@
 """Fault injection: the chaos drill.
 
-Ten realistic data defects, injected into clean data, so the validation suite can be
-measured rather than assumed. A rules engine nobody has tried to defeat is a rules
-engine of unknown value, and the useful output of this module is not the faults it
-catches - it is the list of faults it *misses*.
+Twelve realistic data defects (F01-F12), injected into clean data, so the validation
+suite can be measured rather than assumed. Eleven are injectable into a single
+cross-section; F02, a missing dividend, is not, because it is an absence across time
+rather than a corruption of one day's data. So the drill reports 11/11 rather than
+12/12, and the gap is a property of the fixture, not a coverage hole.
+
+A rules engine nobody has tried to defeat is a rules engine of unknown value, and the
+useful output of this module is not the faults it catches - it is the list of faults it
+*misses*.
 
 Each fault is drawn from something that actually happens: a decimal error in a manual
 override, a dividend that failed to load, a share count applied a day late, two

@@ -212,15 +212,26 @@ class PipelineSpec:
         parts = [
             f"Raw values are winsorised at the "
             f"{self.winsorise_lower:.0%}/{self.winsorise_upper:.0%} percentiles"
-            + (" using a median-absolute-deviation rule" if self.use_mad else "") + ".",
+            + (" using a median-absolute-deviation rule" if self.use_mad else "")
+            + ".",
             "They are then standardised by "
             + ("rank-normalisation" if self.standardise == "rank" else "z-score")
-            + (", using a capitalisation-weighted mean so that the parent index scores "
-               "zero" if self.cap_weighted_mean else "") + ".",
+            + (
+                ", using a capitalisation-weighted mean so that the parent index scores zero"
+                if self.cap_weighted_mean
+                else ""
+            )
+            + ".",
         ]
-        targets = [n for n, on in (("industry", self.neutralise_industry),
-                                   ("country", self.neutralise_country),
-                                   ("size", self.neutralise_size)) if on]
+        targets = [
+            n
+            for n, on in (
+                ("industry", self.neutralise_industry),
+                ("country", self.neutralise_country),
+                ("size", self.neutralise_size),
+            )
+            if on
+        ]
         if targets:
             parts.append(
                 f"Scores are neutralised to {', '.join(targets)} by cross-sectional "
@@ -229,12 +240,12 @@ class PipelineSpec:
         parts.append(
             {
                 MissingDataPolicy.NEUTRAL: "Securities with no value receive the "
-                                           "neutral score of zero.",
+                "neutral score of zero.",
                 MissingDataPolicy.EXCLUDE: "Securities with no value are excluded.",
                 MissingDataPolicy.WORST: "Securities with no value receive the fifth "
-                                         "percentile score.",
+                "percentile score.",
                 MissingDataPolicy.INDUSTRY_MEDIAN: "Securities with no value receive "
-                                                   "their industry median.",
+                "their industry median.",
             }[self.missing_policy]
         )
         return " ".join(parts)
@@ -253,22 +264,16 @@ class FactorPipeline:
         country: pd.Series | None = None,
         market_cap: pd.Series | None = None,
     ) -> pd.Series:
-        s = winsorise(raw, self.spec.winsorise_lower, self.spec.winsorise_upper,
-                      self.spec.use_mad)
+        s = winsorise(raw, self.spec.winsorise_lower, self.spec.winsorise_upper, self.spec.use_mad)
 
         weights = market_cap if self.spec.cap_weighted_mean else None
-        s = (
-            rank_normalise(s) if self.spec.standardise == "rank"
-            else zscore(s, weights)
-        )
+        s = rank_normalise(s) if self.spec.standardise == "rank" else zscore(s, weights)
 
         dummies = []
         if self.spec.neutralise_industry and industry is not None:
-            dummies.append(pd.get_dummies(industry.reindex(s.index), prefix="ind",
-                                          dtype=float))
+            dummies.append(pd.get_dummies(industry.reindex(s.index), prefix="ind", dtype=float))
         if self.spec.neutralise_country and country is not None:
-            dummies.append(pd.get_dummies(country.reindex(s.index), prefix="cty",
-                                          dtype=float))
+            dummies.append(pd.get_dummies(country.reindex(s.index), prefix="cty", dtype=float))
         dummy_block = pd.concat(dummies, axis=1) if dummies else None
 
         controls = None
@@ -294,9 +299,8 @@ class FactorPipeline:
         """Apply date by date. A panel-wide transform would leak across time."""
         out = {}
         for date in raw.index:
-            ind = (industry.loc[date] if isinstance(industry, pd.DataFrame)
-                   else industry)
-            cty = (country.loc[date] if isinstance(country, pd.DataFrame) else country)
+            ind = industry.loc[date] if isinstance(industry, pd.DataFrame) else industry
+            cty = country.loc[date] if isinstance(country, pd.DataFrame) else country
             cap = market_cap.loc[date] if market_cap is not None else None
             out[date] = self.transform(raw.loc[date], ind, cty, cap)
         return pd.DataFrame(out).T
@@ -331,8 +335,7 @@ def combine_scores(
     if method == "integrated":
         acc = pd.Series(0.0, index=index)
         for name, s in scores.items():
-            acc = acc.add(s.reindex(index).fillna(0.0) * weights[name] / total,
-                          fill_value=0.0)
+            acc = acc.add(s.reindex(index).fillna(0.0) * weights[name] / total, fill_value=0.0)
         return acc
     if method == "mixed":
         # Convert each score to a within-sleeve weight, then average the weights.

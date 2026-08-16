@@ -44,15 +44,15 @@ class FxTable:
     _dates: list[dt.date] = field(default_factory=list, repr=False)
 
     @classmethod
-    def from_frame(cls, fx: pd.DataFrame, deposits: pd.DataFrame | None = None,
-                   base: str = "USD") -> FxTable:
+    def from_frame(
+        cls, fx: pd.DataFrame, deposits: pd.DataFrame | None = None, base: str = "USD"
+    ) -> FxTable:
         table = cls(base=base)
         for row in fx.itertuples(index=False):
             table.spot[(_as_date(row.date), str(row.quote))] = float(row.rate)
         if deposits is not None:
             for row in deposits.itertuples(index=False):
-                table.deposit[(_as_date(row.date), str(row.currency))] = float(
-                    row.deposit_rate)
+                table.deposit[(_as_date(row.date), str(row.currency))] = float(row.deposit_rate)
         table._dates = sorted({d for d, _ in table.spot})
         return table
 
@@ -93,9 +93,7 @@ class FxTable:
         return {c for _, c in self.spot}
 
 
-def forward_rate(
-    spot: float, base_rate: float, quote_rate: float, tenor_years: float
-) -> float:
+def forward_rate(spot: float, base_rate: float, quote_rate: float, tenor_years: float) -> float:
     """Covered interest parity.
 
         F = S * (1 + r_base * t) / (1 + r_quote * t)
@@ -202,9 +200,7 @@ class HedgedIndexCalculator:
 
     def mark(self, date: dt.date) -> float:
         """Total hedge P&L in base currency, marked to today's spot."""
-        return sum(
-            leg.mark_to_market(self.fx.rate(date, ccy)) for ccy, leg in self._legs.items()
-        )
+        return sum(leg.mark_to_market(self.fx.rate(date, ccy)) for ccy, leg in self._legs.items())
 
     def decompose(
         self,
@@ -243,14 +239,16 @@ def convert_series(
     values: pd.Series, currencies: pd.Series, dates: pd.Series, fx: FxTable
 ) -> pd.Series:
     """Vectorised local-to-base conversion with an explicit missing-rate failure."""
-    rates = np.array([
-        fx.rate(_as_date(d), str(c)) for d, c in zip(dates, currencies, strict=False)
-    ])
+    rates = np.array(
+        [fx.rate(_as_date(d), str(c)) for d, c in zip(dates, currencies, strict=False)]
+    )
     return values * rates
 
 
 def currency_exposures(
-    market_values_base: dict[str, float], currencies: dict[str, str], fx: FxTable,
+    market_values_base: dict[str, float],
+    currencies: dict[str, str],
+    fx: FxTable,
     date: dt.date,
 ) -> dict[str, float]:
     """Index market value by currency, expressed in each local currency.

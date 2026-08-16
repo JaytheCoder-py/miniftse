@@ -143,8 +143,7 @@ def score_tilt_weights(
     """
     base = float_market_cap_weights(inputs)
     tilted = {
-        k: base[k] * float(np.exp(strength * inputs[k].score)) + floor * base[k]
-        for k in base
+        k: base[k] * float(np.exp(strength * inputs[k].score)) + floor * base[k] for k in base
     }
     return _normalise(tilted)
 
@@ -174,8 +173,10 @@ def selection_weights(
         case "equal":
             return equal_weights(selected)
         case "score":
-            shifted = {k: max(v.score - min(s.score for s in selected.values()) + 1e-6, 0.0)
-                       for k, v in selected.items()}
+            shifted = {
+                k: max(v.score - min(s.score for s in selected.values()) + 1e-6, 0.0)
+                for k, v in selected.items()
+            }
             return _normalise(shifted)
         case _:
             raise ValueError(f"unknown weight_by {weight_by!r}")
@@ -202,8 +203,11 @@ def capacity_constrained_weights(
         return dict(base)
 
     ceilings = {
-        k: (inputs[k].adv * participation * max_days_to_trade / fund_size
-            if inputs[k].adv > 0 else 0.0)
+        k: (
+            inputs[k].adv * participation * max_days_to_trade / fund_size
+            if inputs[k].adv > 0
+            else 0.0
+        )
         for k in base
     }
     w = dict(base)
@@ -233,8 +237,7 @@ def days_to_trade(
 ) -> dict[str, float]:
     """Per-name days to build the position at a given participation rate."""
     return {
-        k: (fund_size * w / (inputs[k].adv * participation)
-            if inputs[k].adv > 0 else float("inf"))
+        k: (fund_size * w / (inputs[k].adv * participation) if inputs[k].adv > 0 else float("inf"))
         for k, w in weights.items()
     }
 

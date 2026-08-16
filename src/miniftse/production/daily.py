@@ -65,18 +65,27 @@ class IndexStateFile:
     constituents: dict[str, dict[str, Any]]
 
     @classmethod
-    def from_state(cls, index_id: str, state: IndexState, pr: float, gtr: float,
-                   ntr: float) -> IndexStateFile:
+    def from_state(
+        cls, index_id: str, state: IndexState, pr: float, gtr: float, ntr: float
+    ) -> IndexStateFile:
         return cls(
-            index_id=index_id, as_of=state.date.isoformat(), divisor=state.divisor,
-            level_pr=pr, level_gtr=gtr, level_ntr=ntr,
+            index_id=index_id,
+            as_of=state.date.isoformat(),
+            divisor=state.divisor,
+            level_pr=pr,
+            level_gtr=gtr,
+            level_ntr=ntr,
             constituents={
                 k: {
-                    "price": c.price, "shares": c.shares,
+                    "price": c.price,
+                    "shares": c.shares,
                     "free_float_factor": c.free_float_factor,
-                    "capping_factor": c.capping_factor, "fx_rate": c.fx_rate,
-                    "currency": str(c.currency), "country": str(c.country),
-                    "icb_industry": c.icb_industry, "size_band": str(c.size_band),
+                    "capping_factor": c.capping_factor,
+                    "fx_rate": c.fx_rate,
+                    "currency": str(c.currency),
+                    "country": str(c.country),
+                    "icb_industry": c.icb_industry,
+                    "size_band": str(c.size_band),
                     "adv": c.adv,
                 }
                 for k, c in state.constituents.items()
@@ -85,14 +94,20 @@ class IndexStateFile:
 
     def to_state(self) -> IndexState:
         return IndexState(
-            date=dt.date.fromisoformat(self.as_of), divisor=self.divisor,
+            date=dt.date.fromisoformat(self.as_of),
+            divisor=self.divisor,
             constituents={
                 k: Constituent(
-                    security_id=k, price=v["price"], shares=v["shares"],
+                    security_id=k,
+                    price=v["price"],
+                    shares=v["shares"],
                     free_float_factor=v["free_float_factor"],
-                    capping_factor=v["capping_factor"], fx_rate=v["fx_rate"],
-                    currency=Currency(v["currency"]), country=Country(v["country"]),
-                    icb_industry=v["icb_industry"], size_band=SizeBand(v["size_band"]),
+                    capping_factor=v["capping_factor"],
+                    fx_rate=v["fx_rate"],
+                    currency=Currency(v["currency"]),
+                    country=Country(v["country"]),
+                    icb_industry=v["icb_industry"],
+                    size_band=SizeBand(v["size_band"]),
                     adv=v.get("adv", 0.0),
                 )
                 for k, v in self.constituents.items()
@@ -161,18 +176,14 @@ class DailyJob:
         # fires on the first two attempts and then succeeds.
         if self.simulate == "late_data" and self._attempts <= 2:
             raise DataNotReadyError(
-                f"market data file for {run_date} has not arrived "
-                f"(attempt {self._attempts})"
+                f"market data file for {run_date} has not arrived (attempt {self._attempts})"
             )
 
         prices = self.universe.get_prices(None, run_date, run_date)
         if prices.empty:
             raise DataNotReadyError(f"no prices for {run_date} - not a trading day?")
 
-        prior_dates = sorted(
-            d for d in self.universe.prices["date"].unique()
-            if d < run_date
-        )
+        prior_dates = sorted(d for d in self.universe.prices["date"].unique() if d < run_date)
         if not prior_dates:
             raise PipelineError(f"{run_date} has no prior session to roll from")
         prior = self.universe.get_prices(None, prior_dates[-1], prior_dates[-1])
@@ -191,8 +202,7 @@ class DailyJob:
             "corp_actions": corp_actions,
             "all_corp_actions": self.universe.get_corp_actions(None, run_date, run_date),
             "fx": self.universe.get_fx("USD", quotes, run_date, run_date),
-            "prior_fx": self.universe.get_fx("USD", quotes, prior_dates[-1],
-                                             prior_dates[-1]),
+            "prior_fx": self.universe.get_fx("USD", quotes, prior_dates[-1], prior_dates[-1]),
             "shares": self.universe.get_shares(None, run_date),
         }
 
@@ -210,18 +220,21 @@ class DailyJob:
         gate = PublicationGate()
         report = gate.check(
             ValidationContext(
-                as_of=run_date, prices=prices, prior_prices=data["prior_prices"],
-                shares=data["shares"], corp_actions=data["corp_actions"],
-                fx=data["fx"], prior_fx=data["prior_fx"], config=self.config,
+                as_of=run_date,
+                prices=prices,
+                prior_prices=data["prior_prices"],
+                shares=data["shares"],
+                corp_actions=data["corp_actions"],
+                fx=data["fx"],
+                prior_fx=data["prior_fx"],
+                config=self.config,
             ),
             run_id=f"inputs-{run_date}",
         )
-        blocking = [f for f in report.blocking if f.category in
-                    {"schema", "range", "cross_source"}]
+        blocking = [f for f in report.blocking if f.category in {"schema", "range", "cross_source"}]
         if blocking:
             raise ValidationFailedError(
-                "input validation failed: "
-                + "; ".join(f"{f.rule} - {f.message}" for f in blocking)
+                "input validation failed: " + "; ".join(f"{f.rule} - {f.message}" for f in blocking)
             )
         return {"report": report, "prices": prices}
 
@@ -253,8 +266,7 @@ class DailyJob:
         book = _PriceBook(prices)
         rolled = calculator._mark(state, run_date, book)
 
-        events = parse_events(data["corp_actions"]) if not data["corp_actions"].empty \
-            else []
+        events = parse_events(data["corp_actions"]) if not data["corp_actions"].empty else []
         gross = net = 0.0
         if events:
             rolled, gross, net, _ = engine.apply_all(events, rolled)
@@ -262,15 +274,26 @@ class DailyJob:
         pr = rolled.level
         points = gross / rolled.divisor if rolled.divisor else 0.0
         net_points = net / rolled.divisor if rolled.divisor else 0.0
-        gtr = stored.level_gtr * ((pr + points) / stored.level_pr) \
-            if stored.level_pr else stored.level_gtr
-        ntr = stored.level_ntr * ((pr + net_points) / stored.level_pr) \
-            if stored.level_pr else stored.level_ntr
+        gtr = (
+            stored.level_gtr * ((pr + points) / stored.level_pr)
+            if stored.level_pr
+            else stored.level_gtr
+        )
+        ntr = (
+            stored.level_ntr * ((pr + net_points) / stored.level_pr)
+            if stored.level_pr
+            else stored.level_ntr
+        )
 
         return {
-            "state": rolled, "price_return": pr, "gross_total_return": gtr,
-            "net_total_return": ntr, "dividend_points": points,
-            "prior": stored, "audit": engine.audit_frame(), "engine": engine,
+            "state": rolled,
+            "price_return": pr,
+            "gross_total_return": gtr,
+            "net_total_return": ntr,
+            "dividend_points": points,
+            "prior": stored,
+            "audit": engine.audit_frame(),
+            "engine": engine,
         }
 
     def validate_output(self, context: dict[str, Any]) -> Any:
@@ -284,18 +307,22 @@ class DailyJob:
             ValidationContext(
                 as_of=run_date,
                 prices=context["validate_inputs"]["prices"],
-                prior_prices=data["prior_prices"], shares=data["shares"],
+                prior_prices=data["prior_prices"],
+                shares=data["shares"],
                 weights=pd.Series(state.weights()),
                 constituents=dict.fromkeys(state.constituents, None),
                 index_level=calc["price_return"],
                 prior_index_level=calc["prior"].level_pr,
-                divisor=state.divisor, prior_divisor=calc["prior"].divisor,
+                divisor=state.divisor,
+                prior_divisor=calc["prior"].divisor,
                 total_market_value=state.total_market_value,
                 divisor_audit=calc["audit"],
                 # The FULL corporate action file, not the one the calculation saw. If a
                 # row went missing between them, this is the check that finds it.
                 corp_actions=data["all_corp_actions"],
-                fx=data["fx"], prior_fx=data["prior_fx"], config=self.config,
+                fx=data["fx"],
+                prior_fx=data["prior_fx"],
+                config=self.config,
             ),
             run_id=f"output-{run_date}",
         )
@@ -313,8 +340,11 @@ class DailyJob:
         state: IndexState = calc["state"]
 
         state_file = IndexStateFile.from_state(
-            self.config.index_id, state, calc["price_return"],
-            calc["gross_total_return"], calc["net_total_return"],
+            self.config.index_id,
+            state,
+            calc["price_return"],
+            calc["gross_total_return"],
+            calc["net_total_return"],
         )
         path = state_file.save(self.state_dir)
 
@@ -330,10 +360,15 @@ class DailyJob:
         manifest.finish("success")
         ManifestStore(self.manifest_dir).save(manifest)
 
-        return {"state_path": str(path), "run_id": manifest.run_id,
-                "levels": {"pr": calc["price_return"],
-                           "gtr": calc["gross_total_return"],
-                           "ntr": calc["net_total_return"]}}
+        return {
+            "state_path": str(path),
+            "run_id": manifest.run_id,
+            "levels": {
+                "pr": calc["price_return"],
+                "gtr": calc["gross_total_return"],
+                "ntr": calc["net_total_return"],
+            },
+        }
 
     def notify(self, context: dict[str, Any]) -> str:
         published = context["publish"]
@@ -378,9 +413,12 @@ class DailyJob:
         """
         from miniftse.production.build import BuildSpec, build_index
 
-        spec = BuildSpec(index_config=self.config,
-                         universe_config=self.universe_config,
-                         start=self.config.base_date, end=up_to)
+        spec = BuildSpec(
+            index_config=self.config,
+            universe_config=self.universe_config,
+            start=self.config.base_date,
+            end=up_to,
+        )
         result = build_index(spec, verbose=verbose)
         levels = result.history.levels.iloc[-1]
 
@@ -393,7 +431,10 @@ class DailyJob:
         if state is None:
             raise PipelineError("the build produced no final state to seed from")
         file = IndexStateFile.from_state(
-            self.config.index_id, state, float(levels["price_return"]),
-            float(levels["gross_total_return"]), float(levels["net_total_return"]),
+            self.config.index_id,
+            state,
+            float(levels["price_return"]),
+            float(levels["gross_total_return"]),
+            float(levels["net_total_return"]),
         )
         return file.save(self.state_dir)

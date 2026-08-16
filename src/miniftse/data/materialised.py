@@ -38,27 +38,35 @@ from typing import Any
 import pandas as pd
 
 # Every column across every table that carries a date rather than a timestamp.
-_DATE_COLUMNS: frozenset[str] = frozenset({
-    "date",
-    "effective_date",
-    "knowledge_date",
-    "filed_date",
-    "period_end",
-    "announcement_date",
-    "ex_date",
-    "pay_date",
-    "listing_start",
-    "listing_end",
-    "valid_from",
-    "valid_to",
-})
+_DATE_COLUMNS: frozenset[str] = frozenset(
+    {
+        "date",
+        "effective_date",
+        "knowledge_date",
+        "filed_date",
+        "period_end",
+        "announcement_date",
+        "ex_date",
+        "pay_date",
+        "listing_start",
+        "listing_end",
+        "valid_from",
+        "valid_to",
+    }
+)
 
 # The tables `materialise()` writes. `factor_returns` is synthetic-only - it is the
 # ground truth of the generative model, and real data has no such thing - so it is
 # optional and absent from real snapshots.
 _REQUIRED_TABLES: tuple[str, ...] = (
-    "prices", "shares", "corp_actions", "securities", "listings", "identifiers",
-    "fundamentals", "fx",
+    "prices",
+    "shares",
+    "corp_actions",
+    "securities",
+    "listings",
+    "identifiers",
+    "fundamentals",
+    "fx",
 )
 _OPTIONAL_TABLES: tuple[str, ...] = ("factor_returns", "classifications")
 
@@ -97,9 +105,7 @@ class MaterialisedUniverse:
         if not self.path.is_dir():
             raise SnapshotError(f"no snapshot directory at {self.path}")
 
-        missing = [
-            t for t in _REQUIRED_TABLES if not (self.path / f"{t}.parquet").exists()
-        ]
+        missing = [t for t in _REQUIRED_TABLES if not (self.path / f"{t}.parquet").exists()]
         if missing:
             raise SnapshotError(
                 f"snapshot at {self.path} is incomplete - missing {', '.join(missing)}. "
@@ -188,18 +194,25 @@ class MaterialisedUniverse:
 
     @property
     def start(self) -> dt.date:
-        return dt.date.fromisoformat(str(self._meta["start"])) if "start" in self._meta \
+        return (
+            dt.date.fromisoformat(str(self._meta["start"]))
+            if "start" in self._meta
             else self.calendar[0].date()
+        )
 
     @property
     def end(self) -> dt.date:
-        return dt.date.fromisoformat(str(self._meta["end"])) if "end" in self._meta \
+        return (
+            dt.date.fromisoformat(str(self._meta["end"]))
+            if "end" in self._meta
             else self.calendar[-1].date()
+        )
 
     # ------------------------------------------------------------------ provider API
 
-    def get_prices(self, listing_ids: list[str] | None, start: dt.date, end: dt.date
-                   ) -> pd.DataFrame:
+    def get_prices(
+        self, listing_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         df = self.prices
         out = df[(df["date"] >= start) & (df["date"] <= end)]
         if listing_ids is not None:
@@ -218,16 +231,22 @@ class MaterialisedUniverse:
             .reset_index(drop=True)
         )
 
-    def get_shares_history(self, security_ids: list[str] | None, start: dt.date,
-                           end: dt.date) -> pd.DataFrame:
+    def get_shares_history(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         df = self.shares
         out = df[(df["effective_date"] >= start) & (df["effective_date"] <= end)]
         if security_ids is not None:
             out = out[out["security_id"].isin(security_ids)]
         return out.reset_index(drop=True)
 
-    def get_fundamentals(self, security_ids: list[str] | None, items: list[str],
-                         as_of: dt.date, max_staleness_days: int = 550) -> pd.DataFrame:
+    def get_fundamentals(
+        self,
+        security_ids: list[str] | None,
+        items: list[str],
+        as_of: dt.date,
+        max_staleness_days: int = 550,
+    ) -> pd.DataFrame:
         df = self.fundamentals
         if df.empty:
             return df
@@ -242,8 +261,9 @@ class MaterialisedUniverse:
             .reset_index(drop=True)
         )
 
-    def get_fundamentals_ttm(self, security_ids: list[str] | None, item: str,
-                             as_of: dt.date) -> pd.DataFrame:
+    def get_fundamentals_ttm(
+        self, security_ids: list[str] | None, item: str, as_of: dt.date
+    ) -> pd.DataFrame:
         df = self.fundamentals
         if df.empty:
             return df
@@ -258,7 +278,8 @@ class MaterialisedUniverse:
         latest = latest.sort_values(["security_id", "period_end"])
         top4 = latest.groupby("security_id").tail(4)
         agg = top4.groupby("security_id", as_index=False).agg(
-            value=("value", "sum"), n_periods=("value", "size"),
+            value=("value", "sum"),
+            n_periods=("value", "size"),
             latest_period=("period_end", "max"),
         )
         return agg[agg["n_periods"] == 4].reset_index(drop=True)
@@ -268,8 +289,9 @@ class MaterialisedUniverse:
         using this without a `filed_date` bound is a look-ahead bug."""
         return self.fundamentals
 
-    def get_corp_actions(self, security_ids: list[str] | None, start: dt.date,
-                         end: dt.date) -> pd.DataFrame:
+    def get_corp_actions(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         df = self.corp_actions
         if df.empty:
             return df
@@ -278,27 +300,25 @@ class MaterialisedUniverse:
             out = out[out["security_id"].isin(security_ids)]
         return out.reset_index(drop=True)
 
-    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
-               ) -> pd.DataFrame:
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date) -> pd.DataFrame:
         df = self.fx_rates
         out = df[(df["date"] >= start) & (df["date"] <= end) & (df["quote"].isin(quotes))]
         if "base" in out.columns:
             out = out[out["base"] == base]
         return out[["date", "base", "quote", "rate"]].reset_index(drop=True)
 
-    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
-                          ) -> pd.DataFrame:
+    def get_deposit_rates(
+        self, currencies: list[str], start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         df = self.fx_rates
-        out = df[(df["date"] >= start) & (df["date"] <= end)
-                 & (df["quote"].isin(currencies))]
+        out = df[(df["date"] >= start) & (df["date"] <= end) & (df["quote"].isin(currencies))]
         return (
             out[["date", "quote", "deposit_rate"]]
             .rename(columns={"quote": "currency"})
             .reset_index(drop=True)
         )
 
-    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
-                            ) -> pd.DataFrame:
+    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
         """Classifications, from the dedicated table if present or derived from
         `securities` if not - which is what a synthetic snapshot leaves behind."""
         del as_of
@@ -358,9 +378,7 @@ class MaterialisedUniverse:
             "trading_days": self.n_days,
             "price_rows": int(len(self.prices)),
             "delisted": delisted,
-            "corp_actions": (
-                ca["event_type"].value_counts().to_dict() if not ca.empty else {}
-            ),
+            "corp_actions": (ca["event_type"].value_counts().to_dict() if not ca.empty else {}),
             "fundamental_rows": int(len(self.fundamentals)),
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
@@ -368,8 +386,7 @@ class MaterialisedUniverse:
             # absence is what tells a downstream document it is looking at simulated
             # data. See `reporting.factsheet._important_information`.
             **({"source": self._meta["source"]} if "source" in self._meta else {}),
-            **({"provenance": self._meta["provenance"]}
-               if "provenance" in self._meta else {}),
+            **({"provenance": self._meta["provenance"]} if "provenance" in self._meta else {}),
         }
 
 

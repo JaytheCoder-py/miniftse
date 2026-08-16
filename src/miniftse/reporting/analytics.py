@@ -71,15 +71,17 @@ class RiskAnalysis:
     def summary(self) -> dict[str, Any]:
         factor_share = float(
             self.decomposition.loc[
-                self.decomposition["type"] == "factor", "variance_contribution"].sum()
+                self.decomposition["type"] == "factor", "variance_contribution"
+            ].sum()
         )
         total = float(self.decomposition["variance_contribution"].sum())
         return {
             "as_of": str(self.as_of),
             "ex_ante_tracking_error": self.ex_ante_te,
             "ex_post_tracking_error": self.ex_post_te,
-            "forecast_ratio": (self.ex_post_te / self.ex_ante_te
-                               if self.ex_ante_te else float("nan")),
+            "forecast_ratio": (
+                self.ex_post_te / self.ex_ante_te if self.ex_ante_te else float("nan")
+            ),
             "factor_share_of_risk": factor_share / total if total else 0.0,
             "specific_share_of_risk": 1 - (factor_share / total if total else 0.0),
             "n_factors": len(self.model.factors),
@@ -105,12 +107,14 @@ def build_risk_model(
 
     universe = variant.reconstitution
     prices = universe.prices
-    wide = prices.pivot_table(index="date", columns="security_id", values="close",
-                              aggfunc="last").sort_index()
+    wide = prices.pivot_table(
+        index="date", columns="security_id", values="close", aggfunc="last"
+    ).sort_index()
     returns = wide.loc[wide.index <= as_of].tail(estimation_days).pct_change().iloc[1:]
 
-    builder = FactorInputBuilder(provider=variant.score_provider.builder.provider
-                                 if variant.score_provider else None)
+    builder = FactorInputBuilder(
+        provider=variant.score_provider.builder.provider if variant.score_provider else None
+    )
     if variant.score_provider is not None:
         builder = variant.score_provider.builder
 
@@ -118,8 +122,7 @@ def build_risk_model(
     # Rebuilding a full cross-section for every one of 500 days would dominate the cost
     # of the whole report, and style exposures move slowly enough that the approximation
     # is standard practice as well as pragmatic.
-    inputs = builder.build(as_of, fx_rates=getattr(variant.score_provider, "fx_rates",
-                                                   {}) or {})
+    inputs = builder.build(as_of, fx_rates=getattr(variant.score_provider, "fx_rates", {}) or {})
     scores = pd.DataFrame({f: ALL_FACTORS[f].compute(inputs) for f in factors})
     exposures = build_exposures(scores, inputs.industry, include_market=True)
 
@@ -127,9 +130,7 @@ def build_risk_model(
     returns = returns[common]
     exposures = exposures.loc[common]
 
-    weights = pd.DataFrame(
-        {c: inputs.market_cap.get(c, 1.0) for c in common}, index=returns.index
-    )
+    weights = pd.DataFrame({c: inputs.market_cap.get(c, 1.0) for c in common}, index=returns.index)
     estimator = FactorModelEstimator()
     return estimator.fit(
         returns=returns,
@@ -170,14 +171,14 @@ def analyse_risk(
     ex_ante = model.tracking_error(portfolio, benchmark)
 
     # Realised active return AFTER the estimation date.
-    merged = (
-        levels[["date", "gross_total_return"]]
-        .merge(parent.history.levels[["date", "gross_total_return"]], on="date",
-               suffixes=("", "_parent"))
+    merged = levels[["date", "gross_total_return"]].merge(
+        parent.history.levels[["date", "gross_total_return"]], on="date", suffixes=("", "_parent")
     )
     forward = merged[merged["date"] > as_of].head(forward_days)
-    active = (forward["gross_total_return"].pct_change()
-              - forward["gross_total_return_parent"].pct_change()).dropna()
+    active = (
+        forward["gross_total_return"].pct_change()
+        - forward["gross_total_return_parent"].pct_change()
+    ).dropna()
     ex_post = float(active.std() * np.sqrt(252)) if len(active) > 20 else float("nan")
 
     daily_forecast = pd.Series(
@@ -185,12 +186,16 @@ def analyse_risk(
         index=active.index,
     )
     return RiskAnalysis(
-        model=model, portfolio_weights=portfolio, benchmark_weights=benchmark,
-        ex_ante_te=ex_ante, ex_post_te=ex_post,
+        model=model,
+        portfolio_weights=portfolio,
+        benchmark_weights=benchmark,
+        ex_ante_te=ex_ante,
+        ex_post_te=ex_post,
         decomposition=model.risk_decomposition(portfolio, benchmark),
         marginal=model.marginal_contributions(portfolio, benchmark),
-        bias=bias_test(daily_forecast, active), exposures=model.portfolio_exposures(
-            portfolio - benchmark), as_of=as_of,
+        bias=bias_test(daily_forecast, active),
+        exposures=model.portfolio_exposures(portfolio - benchmark),
+        as_of=as_of,
     )
 
 
@@ -244,8 +249,9 @@ def analyse_attribution(
     parent_weights = _weights_at(parent, start)
 
     prices = variant.reconstitution.prices
-    wide = prices.pivot_table(index="date", columns="security_id", values="close",
-                              aggfunc="last").sort_index()
+    wide = prices.pivot_table(
+        index="date", columns="security_id", values="close", aggfunc="last"
+    ).sort_index()
     window = wide.loc[(wide.index >= start) & (wide.index <= end)]
     if len(window) < 2:
         raise ValueError("attribution needs at least two dates")
@@ -258,8 +264,7 @@ def analyse_attribution(
     returns = security_returns.reindex(ids)
 
     industry = pd.Series(
-        {i: str(variant.reconstitution._meta.get(i, {}).get("icb_industry", "?"))
-         for i in ids}
+        {i: str(variant.reconstitution._meta.get(i, {}).get("icb_industry", "?")) for i in ids}
     )
 
     brinson = brinson_fachler(child, bench, returns, returns, industry)
@@ -269,9 +274,12 @@ def analyse_attribution(
     parent_gtr = parent.history.levels.set_index("date")["gross_total_return"]
     window_dates = [d for d in gtr.index if start <= d <= end]
     active = (
-        float(gtr.loc[window_dates[-1]] / gtr.loc[window_dates[0]]
-              - parent_gtr.loc[window_dates[-1]] / parent_gtr.loc[window_dates[0]])
-        if window_dates else 0.0
+        float(
+            gtr.loc[window_dates[-1]] / gtr.loc[window_dates[0]]
+            - parent_gtr.loc[window_dates[-1]] / parent_gtr.loc[window_dates[0]]
+        )
+        if window_dates
+        else 0.0
     )
 
     notes: list[str] = []
@@ -282,8 +290,12 @@ def analyse_attribution(
             "period, and this window contains reviews."
         )
     return AttributionAnalysis(
-        period_start=start, period_end=end, active_return=active,
-        brinson=brinson, index_effects=effects, notes=notes,
+        period_start=start,
+        period_end=end,
+        active_return=active,
+        brinson=brinson,
+        index_effects=effects,
+        notes=notes,
     )
 
 
@@ -306,22 +318,25 @@ def attribution_by_period(
     if reviews.empty:
         return pd.DataFrame()
 
-    boundaries = list(reviews["date"])[-(max_periods + 1):]
+    boundaries = list(reviews["date"])[-(max_periods + 1) :]
     rows: list[dict[str, Any]] = []
     for start, end in zip(boundaries, boundaries[1:], strict=False):
         try:
             analysis = analyse_attribution(variant, parent, start=start, end=end)
         except ValueError:
             continue
-        rows.append({
-            "period_start": start, "period_end": end,
-            "active_return": analysis.active_return,
-            "allocation": analysis.brinson.total_allocation,
-            "selection": analysis.brinson.total_selection,
-            "interaction": analysis.brinson.total_interaction,
-            "brinson_total": analysis.brinson.total_active,
-            "reconciles": analysis.brinson.reconciles,
-        })
+        rows.append(
+            {
+                "period_start": start,
+                "period_end": end,
+                "active_return": analysis.active_return,
+                "allocation": analysis.brinson.total_allocation,
+                "selection": analysis.brinson.total_selection,
+                "interaction": analysis.brinson.total_interaction,
+                "brinson_total": analysis.brinson.total_active,
+                "reconciles": analysis.brinson.reconciles,
+            }
+        )
 
     frame = pd.DataFrame(rows)
     if frame.empty:
@@ -332,12 +347,15 @@ def attribution_by_period(
     frame.attrs["summed_selection"] = float(frame["selection"].sum())
     frame.attrs["summed_interaction"] = float(frame["interaction"].sum())
     frame.attrs["linking_residual"] = compounded - float(
-        frame[["allocation", "selection", "interaction"]].sum().sum())
+        frame[["allocation", "selection", "interaction"]].sum().sum()
+    )
     return frame
 
 
 def factor_based_attribution(
-    analysis: RiskAnalysis, variant: VariantResult, parent: VariantResult,
+    analysis: RiskAnalysis,
+    variant: VariantResult,
+    parent: VariantResult,
     end: dt.date | None = None,
 ) -> Any:
     """Decompose active return onto the risk model's factors.
@@ -353,16 +371,20 @@ def factor_based_attribution(
     cumulative = (1 + window).prod() - 1 if len(window) else window.sum()
 
     prices = variant.reconstitution.prices
-    wide = prices.pivot_table(index="date", columns="security_id", values="close",
-                              aggfunc="last").sort_index()
+    wide = prices.pivot_table(
+        index="date", columns="security_id", values="close", aggfunc="last"
+    ).sort_index()
     band = wide.loc[(wide.index > analysis.as_of) & (wide.index <= end)]
-    asset_returns = (band.iloc[-1] / band.iloc[0] - 1.0) if len(band) > 1 else pd.Series(
-        dtype=float)
+    asset_returns = (
+        (band.iloc[-1] / band.iloc[0] - 1.0) if len(band) > 1 else pd.Series(dtype=float)
+    )
 
     active_weights = analysis.portfolio_weights - analysis.benchmark_weights
     return factor_attribution(
-        active_weights=active_weights, exposures=analysis.model.exposures,
-        factor_returns=pd.Series(cumulative), asset_returns=asset_returns,
+        active_weights=active_weights,
+        exposures=analysis.model.exposures,
+        factor_returns=pd.Series(cumulative),
+        asset_returns=asset_returns,
     )
 
 
@@ -371,8 +393,9 @@ def factor_based_attribution(
 # --------------------------------------------------------------------------------------
 
 
-def write_risk_onepager(analysis: RiskAnalysis, variant_name: str, parent_name: str,
-                        out: Path) -> Path:
+def write_risk_onepager(
+    analysis: RiskAnalysis, variant_name: str, parent_name: str, out: Path
+) -> Path:
     """A one-page risk report a non-technical reader can follow."""
     summary = analysis.summary()
     decomposition = analysis.decomposition
@@ -404,8 +427,7 @@ def write_risk_onepager(analysis: RiskAnalysis, variant_name: str, parent_name: 
     for row in factors.itertuples(index=False):
         exposure = "-" if not np.isfinite(row.exposure) else f"{row.exposure:+.3f}"
         lines.append(
-            f"| {_pretty(row.source)} | {exposure} | "
-            f"{row.variance_contribution / total:.1%} |"
+            f"| {_pretty(row.source)} | {exposure} | {row.variance_contribution / total:.1%} |"
         )
     specific = decomposition[decomposition["type"] == "specific"]
     if not specific.empty:
@@ -428,8 +450,7 @@ def write_risk_onepager(analysis: RiskAnalysis, variant_name: str, parent_name: 
     active = analysis.portfolio_weights - analysis.benchmark_weights
     for sec in analysis.marginal.abs().nlargest(5).index:
         lines.append(
-            f"| {sec} | {float(active.get(sec, 0.0)):+.2%} | "
-            f"{float(analysis.marginal[sec]):+.2%} |"
+            f"| {sec} | {float(active.get(sec, 0.0)):+.2%} | {float(analysis.marginal[sec]):+.2%} |"
         )
 
     lines += [
@@ -442,7 +463,8 @@ def write_risk_onepager(analysis: RiskAnalysis, variant_name: str, parent_name: 
         "",
         f"- Forecast at {analysis.as_of}: **{analysis.ex_ante_te:.2%}**",
         f"- Realised over the following period: **{analysis.ex_post_te:.2%}**"
-        if np.isfinite(analysis.ex_post_te) else "- Realised: insufficient data",
+        if np.isfinite(analysis.ex_post_te)
+        else "- Realised: insufficient data",
         f"- Verdict: {analysis.bias_verdict}",
         "",
         "The forecast was made using data available at the estimation date only, and "
@@ -471,8 +493,7 @@ def write_attribution_onepager(
     lines = [
         f"# Performance attribution — {variant_name}",
         "",
-        f"**Against** {parent_name} · "
-        f"**Period** {analysis.period_start} to {analysis.period_end}",
+        f"**Against** {parent_name} · **Period** {analysis.period_start} to {analysis.period_end}",
         "",
         "---",
         "",
@@ -489,11 +510,11 @@ def write_attribution_onepager(
         "|---|---:|---|",
     ]
     for row in effects.components.itertuples(index=False):
-        lines.append(
-            f"| {_pretty(row.component)} | {row.contribution:+.2%} | {row.note} |")
+        lines.append(f"| {_pretty(row.component)} | {row.contribution:+.2%} | {row.note} |")
     lines.append(
         f"| Unexplained residual | {effects.unexplained:+.2%} | "
-        "not attributable to an identified effect |")
+        "not attributable to an identified effect |"
+    )
 
     lines += [
         "",
@@ -507,7 +528,8 @@ def write_attribution_onepager(
         "|---|---:|---:|---:|---:|",
     ]
     top = brinson.by_group.reindex(
-        brinson.by_group["total"].abs().sort_values(ascending=False).index).head(6)
+        brinson.by_group["total"].abs().sort_values(ascending=False).index
+    ).head(6)
     for row in top.itertuples(index=False):
         lines.append(
             f"| {row.group} | {row.active_weight:+.2%} | {row.allocation:+.3%} | "
@@ -562,8 +584,7 @@ def build_backtest_live_bridge(
 
     def annualise(series: pd.Series) -> float:
         years = (series.index[-1] - series.index[0]).days / 365.25
-        return float((series.iloc[-1] / series.iloc[0]) ** (1 / years) - 1) if years \
-            else 0.0
+        return float((series.iloc[-1] / series.iloc[0]) ** (1 / years) - 1) if years else 0.0
 
     backtest_return = annualise(backtest)
     live_return = annualise(live)
@@ -571,23 +592,28 @@ def build_backtest_live_bridge(
     reviews = variant.history.reviews
     annual_turnover = (
         float(reviews[reviews["date"] >= live_start]["one_way_turnover"].mean())
-        * len(variant.history.config.review.months) if not reviews.empty else 0.0
+        * len(variant.history.config.review.months)
+        if not reviews.empty
+        else 0.0
     )
     cost_drag = -annual_turnover * 2 * cost_bps / 10_000
 
     bridge = BacktestLiveBridge()
     bridge.add(
-        "transaction costs", cost_drag,
+        "transaction costs",
+        cost_drag,
         f"{annual_turnover:.1%} annual one-way turnover at {cost_bps:.0f}bp "
         "round-trip. The index itself does not trade, but a fund tracking it does.",
     )
     bridge.add(
-        "data vintage", 0.0,
+        "data vintage",
+        0.0,
         "Both periods use the same generated dataset, so there is no restatement "
         "difference here. On real data this line is usually the largest.",
     )
     bridge.add(
-        "pro-forma reviews", 0.0,
+        "pro-forma reviews",
+        0.0,
         "Reviews were applied on the published schedule in both periods. A real live "
         "period carries committee exceptions and fast entries that a backtest does not.",
     )
@@ -595,5 +621,11 @@ def build_backtest_live_bridge(
 
 
 def _pretty(name: str) -> str:
-    return str(name).replace("ind_", "Industry ").replace("cty_", "Country ").replace(
-        "_", " ").strip().capitalize()
+    return (
+        str(name)
+        .replace("ind_", "Industry ")
+        .replace("cty_", "Country ")
+        .replace("_", " ")
+        .strip()
+        .capitalize()
+    )

@@ -135,9 +135,13 @@ def assign_bands(
             band, held = prev, True
 
         out[sec_id] = BandAssignment(
-            security_id=sec_id, band=band, cumulative_pct=cum,
-            float_market_cap=cap, previous_band=prev,
-            moved=prev is not None and band != prev, held_by_buffer=held,
+            security_id=sec_id,
+            band=band,
+            cumulative_pct=cum,
+            float_market_cap=cap,
+            previous_band=prev,
+            moved=prev is not None and band != prev,
+            held_by_buffer=held,
         )
     return out
 
@@ -269,9 +273,12 @@ def band_summary(assignments: dict[str, BandAssignment]) -> pd.DataFrame:
         return pd.DataFrame()
     rows = [
         {
-            "security_id": a.security_id, "band": str(a.band),
-            "float_market_cap": a.float_market_cap, "cumulative_pct": a.cumulative_pct,
-            "moved": a.moved, "held_by_buffer": a.held_by_buffer,
+            "security_id": a.security_id,
+            "band": str(a.band),
+            "float_market_cap": a.float_market_cap,
+            "cumulative_pct": a.cumulative_pct,
+            "moved": a.moved,
+            "held_by_buffer": a.held_by_buffer,
         }
         for a in assignments.values()
     ]
@@ -279,10 +286,12 @@ def band_summary(assignments: dict[str, BandAssignment]) -> pd.DataFrame:
     total = df["float_market_cap"].sum()
     return (
         df.groupby("band", as_index=False)
-        .agg(n=("security_id", "size"),
-             market_cap=("float_market_cap", "sum"),
-             n_moved=("moved", "sum"),
-             n_held_by_buffer=("held_by_buffer", "sum"))
+        .agg(
+            n=("security_id", "size"),
+            market_cap=("float_market_cap", "sum"),
+            n_moved=("moved", "sum"),
+            n_held_by_buffer=("held_by_buffer", "sum"),
+        )
         .assign(weight=lambda d: d["market_cap"] / total)
         .sort_values("market_cap", ascending=False)
         .reset_index(drop=True)
@@ -334,19 +343,22 @@ def buffer_study(
             moves += sum(1 for a in assignments.values() if a.moved)
             purity_samples.append(
                 np.mean([assignments[k].band == hard[k].band for k in assignments])
-                if assignments else 1.0
+                if assignments
+                else 1.0
             )
             previous = {k: a.band for k, a in assignments.items()}
             band_history.append(previous)
 
         turnover = _band_turnover(band_history, cap_history)
-        rows.append({
-            "buffer_width": width,
-            "annual_turnover": turnover,
-            "n_band_moves": moves,
-            "n_round_trips": _count_round_trips(band_history),
-            "mean_band_purity": float(np.mean(purity_samples)),
-        })
+        rows.append(
+            {
+                "buffer_width": width,
+                "annual_turnover": turnover,
+                "n_band_moves": moves,
+                "n_round_trips": _count_round_trips(band_history),
+                "mean_band_purity": float(np.mean(purity_samples)),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -357,13 +369,11 @@ def _band_turnover(
     if len(band_history) < 2:
         return 0.0
     total = 0.0
-    for (prev, curr), caps in zip(zip(band_history, band_history[1:], strict=False),
-        cap_history[1:], strict=False):
+    for (prev, curr), caps in zip(
+        zip(band_history, band_history[1:], strict=False), cap_history[1:], strict=False
+    ):
         denom = sum(caps.values()) or 1.0
-        moved = sum(
-            caps.get(k, 0.0) for k in curr
-            if k in prev and prev[k] != curr[k]
-        )
+        moved = sum(caps.get(k, 0.0) for k in curr if k in prev and prev[k] != curr[k])
         total += moved / denom
     return total / (len(band_history) - 1) * 4
 
@@ -379,7 +389,7 @@ def _count_round_trips(band_history: list[dict[str, SizeBand]], window: int = 4)
                 continue
             if path[i] == path[i + 1]:
                 continue
-            horizon = path[i + 2: i + 2 + window]
+            horizon = path[i + 2 : i + 2 + window]
             if path[i] in horizon:
                 count += 1
                 break

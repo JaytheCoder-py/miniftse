@@ -118,8 +118,9 @@ class TestDivisor:
         """
         state = make_state()
         engine = CorporateActionEngine()
-        event = RightsIssue("R", "S0", D, D, D, subscription_price=70.0,
-                            new_shares=1, per_held=4, cum_price=100.0)
+        event = RightsIssue(
+            "R", "S0", D, D, D, subscription_price=70.0, new_shares=1, per_held=4, cum_price=100.0
+        )
         result = engine.apply_event(event, state)
         assert result.state.constituents["S0"].price == pytest.approx(94.0)
         assert result.state.constituents["S0"].shares == pytest.approx(1250.0)
@@ -151,9 +152,7 @@ class TestDivisor:
     def test_uk_has_no_withholding(self) -> None:
         """A UK constituent's net contribution equals its gross - the Module 1
         self-check answer."""
-        constituents = {
-            "GB0": Constituent("GB0", price=100.0, shares=1000.0, country=Country.GB)
-        }
+        constituents = {"GB0": Constituent("GB0", price=100.0, shares=1000.0, country=Country.GB)}
         state = IndexState.initialise(D, constituents, base_level=1000.0)
         engine = CorporateActionEngine(withholding_tax={"GB": 0.0, "US": 0.30})
         result = engine.apply_event(CashDividend("D", "GB0", D, D, D, amount=2.0), state)
@@ -162,9 +161,18 @@ class TestDivisor:
     def test_spinoff_included_preserves_market_value(self) -> None:
         state = make_state()
         engine = CorporateActionEngine()
-        event = Spinoff("SP", "S0", D, D, D, spinco_security_id="S0-SPIN",
-                        shares_per_parent_share=0.5, value_per_parent_share=20.0,
-                        parent_cum_price=100.0, spinco_enters_index=True)
+        event = Spinoff(
+            "SP",
+            "S0",
+            D,
+            D,
+            D,
+            spinco_security_id="S0-SPIN",
+            shares_per_parent_share=0.5,
+            value_per_parent_share=20.0,
+            parent_cum_price=100.0,
+            spinco_enters_index=True,
+        )
         result = engine.apply_event(event, state)
         assert result.state.constituents["S0"].price == pytest.approx(80.0)
         # Spinco: 20/0.5 = 40 per share, 1000*0.5 = 500 shares, = 20,000.
@@ -177,9 +185,18 @@ class TestDivisor:
     def test_spinoff_excluded_rebases_divisor(self) -> None:
         state = make_state()
         engine = CorporateActionEngine()
-        event = Spinoff("SP", "S0", D, D, D, spinco_security_id="S0-SPIN",
-                        shares_per_parent_share=0.5, value_per_parent_share=20.0,
-                        parent_cum_price=100.0, spinco_enters_index=False)
+        event = Spinoff(
+            "SP",
+            "S0",
+            D,
+            D,
+            D,
+            spinco_security_id="S0-SPIN",
+            shares_per_parent_share=0.5,
+            value_per_parent_share=20.0,
+            parent_cum_price=100.0,
+            spinco_enters_index=False,
+        )
         result = engine.apply_event(event, state)
         assert "S0-SPIN" not in result.state.constituents
         assert result.state.level == pytest.approx(1000.0)  # continuous
@@ -195,11 +212,12 @@ class TestDivisor:
 
         engine = CorporateActionEngine(withholding_tax={})
         parent = Constituent("PARENT", price=100.0, shares=1000.0, adv=8_000_000.0)
-        state = IndexState(date=dt.date(2020, 1, 1), divisor=1.0,
-                            constituents={"PARENT": parent})
+        state = IndexState(date=dt.date(2020, 1, 1), divisor=1.0, constituents={"PARENT": parent})
         event = Spinoff(
-            event_id="SPIN-1", security_id="PARENT",
-            ex_date=dt.date(2020, 1, 1), announcement_date=dt.date(2019, 12, 1),
+            event_id="SPIN-1",
+            security_id="PARENT",
+            ex_date=dt.date(2020, 1, 1),
+            announcement_date=dt.date(2019, 12, 1),
             pay_date=dt.date(2020, 1, 1),
             spinco_security_id="CHILD",
             shares_per_parent_share=1.0,
@@ -219,8 +237,7 @@ class TestDivisor:
         """
         state = make_state()
         engine = CorporateActionEngine()
-        result = engine.apply_event(
-            CashMerger("M", "S0", D, D, D, cash_per_share=130.0), state)
+        result = engine.apply_event(CashMerger("M", "S0", D, D, D, cash_per_share=130.0), state)
         assert "S0" not in result.state.constituents
         assert result.state.level == pytest.approx(1100.0)
         assert result.change.realised_return_bps == pytest.approx(1000.0, rel=1e-6)
@@ -231,8 +248,7 @@ class TestDivisor:
         and then stay there."""
         state = make_state()
         engine = CorporateActionEngine()
-        result = engine.apply_event(
-            Delisting("X", "S0", D, D, D, final_price=0.0), state)
+        result = engine.apply_event(Delisting("X", "S0", D, D, D, final_price=0.0), state)
         assert "S0" not in result.state.constituents
         assert result.state.level == pytest.approx(200_000.0 / 300.0)
         assert abs(result.change.level_continuity_error_bps) < 1e-6
@@ -322,11 +338,15 @@ def test_to_constituent_carries_adv() -> None:
     from miniftse.config import global_all_cap
 
     calc = IndexCalculator(
-        config=global_all_cap(), fx=FxTable(base="USD"),
+        config=global_all_cap(),
+        fx=FxTable(base="USD"),
         engine=CorporateActionEngine(withholding_tax={}),
     )
     spec = ConstituentSpec(
-        security_id="S1", shares=1000.0, free_float_factor=1.0, adv=5_000_000.0,
+        security_id="S1",
+        shares=1000.0,
+        free_float_factor=1.0,
+        adv=5_000_000.0,
     )
     c = calc._to_constituent(spec, price=10.0, date=dt.date(2020, 1, 1))
     assert c.adv == 5_000_000.0
@@ -340,16 +360,24 @@ def test_mark_preserves_adv() -> None:
     from miniftse.config import global_all_cap
 
     calc = IndexCalculator(
-        config=global_all_cap(), fx=FxTable(base="USD"),
+        config=global_all_cap(),
+        fx=FxTable(base="USD"),
         engine=CorporateActionEngine(withholding_tax={}),
     )
     state = IndexState(
-        date=dt.date(2020, 1, 1), divisor=1.0,
+        date=dt.date(2020, 1, 1),
+        divisor=1.0,
         constituents={"S1": Constituent("S1", price=10.0, shares=1000.0, adv=5_000_000.0)},
     )
-    book = _PriceBook(pd.DataFrame({
-        "security_id": ["S1"], "date": [dt.date(2020, 1, 2)], "close": [11.0],
-    }))
+    book = _PriceBook(
+        pd.DataFrame(
+            {
+                "security_id": ["S1"],
+                "date": [dt.date(2020, 1, 2)],
+                "close": [11.0],
+            }
+        )
+    )
     rolled = calc._mark(state, dt.date(2020, 1, 2), book)
     assert rolled.constituents["S1"].adv == 5_000_000.0
     assert rolled.constituents["S1"].price == 11.0
@@ -502,8 +530,12 @@ class TestBandingDeterminism:
         from miniftse.universe.banding import assign_bands
 
         caps = {
-            "BIG": 600.0, "ON_CUT": 100.0,
-            "T0": 90.0, "T1": 90.0, "T2": 90.0, "T3": 30.0,
+            "BIG": 600.0,
+            "ON_CUT": 100.0,
+            "T0": 90.0,
+            "T1": 90.0,
+            "T2": 90.0,
+            "T3": 30.0,
         }
         config = BandingConfig(apply_buffers=False)
 

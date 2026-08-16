@@ -52,13 +52,15 @@ class FamaMacBethResult:
     se_method: str
 
     def summary(self) -> pd.DataFrame:
-        return pd.DataFrame({
-            "coefficient": self.means,
-            "std_error": self.std_errors,
-            "t_stat": self.t_stats,
-            "p_value": self.p_values,
-            "annualised": self.means * 12,
-        }).round(6)
+        return pd.DataFrame(
+            {
+                "coefficient": self.means,
+                "std_error": self.std_errors,
+                "t_stat": self.t_stats,
+                "p_value": self.p_values,
+                "annualised": self.means * 12,
+            }
+        ).round(6)
 
     def significant(self, threshold: float = 3.0) -> list[str]:
         """Names clearing a t-statistic threshold.
@@ -109,9 +111,7 @@ def white_se(x: np.ndarray, residuals: np.ndarray) -> np.ndarray:
     return np.sqrt(np.diag(xtx_inv @ meat @ xtx_inv))
 
 
-def cluster_se(
-    x: np.ndarray, residuals: np.ndarray, clusters: np.ndarray
-) -> np.ndarray:
+def cluster_se(x: np.ndarray, residuals: np.ndarray, clusters: np.ndarray) -> np.ndarray:
     """Cluster-robust standard errors.
 
     Allows arbitrary correlation within a cluster. Clustering by date handles the
@@ -163,8 +163,11 @@ def cross_sectional_regression(
     r2 = 1.0 - float((resid**2).sum()) / ss_tot if ss_tot > 0 else 0.0
 
     return RegressionResult(
-        date=None, params=pd.Series(beta, index=names), n_obs=len(frame),
-        r_squared=r2, residuals=pd.Series(resid, index=frame.index),
+        date=None,
+        params=pd.Series(beta, index=names),
+        n_obs=len(frame),
+        r_squared=r2,
+        residuals=pd.Series(resid, index=frame.index),
     )
 
 
@@ -232,10 +235,16 @@ def fama_macbeth(
     )
 
     return FamaMacBethResult(
-        coefficients=coefficients, means=means, std_errors=se_series,
-        t_stats=t_stats, p_values=p_values, n_periods=len(coefficients),
-        mean_n_obs=float(np.mean(n_obs)), mean_r_squared=float(np.mean(r2s)),
-        newey_west_lags=lags_used, se_method="Newey-West",
+        coefficients=coefficients,
+        means=means,
+        std_errors=se_series,
+        t_stats=t_stats,
+        p_values=p_values,
+        n_periods=len(coefficients),
+        mean_n_obs=float(np.mean(n_obs)),
+        mean_r_squared=float(np.mean(r2s)),
+        newey_west_lags=lags_used,
+        se_method="Newey-West",
     )
 
 
@@ -255,10 +264,12 @@ class TimeSeriesRegression:
     residual_vol: float
 
     def summary(self) -> pd.DataFrame:
-        return pd.DataFrame({
-            "coefficient": pd.concat([pd.Series({"alpha": self.alpha}), self.betas]),
-            "t_stat": pd.concat([pd.Series({"alpha": self.alpha_t}), self.beta_t]),
-        }).round(4)
+        return pd.DataFrame(
+            {
+                "coefficient": pd.concat([pd.Series({"alpha": self.alpha}), self.betas]),
+                "t_stat": pd.concat([pd.Series({"alpha": self.alpha_t}), self.beta_t]),
+            }
+        ).round(4)
 
 
 def time_series_regression(
@@ -285,8 +296,10 @@ def time_series_regression(
 
     # HAC standard errors on the coefficients, via the sandwich with a Bartlett kernel.
     t = len(y)
-    lags = newey_west_lags if newey_west_lags is not None else int(
-        np.floor(4 * (t / 100.0) ** (2.0 / 9.0))
+    lags = (
+        newey_west_lags
+        if newey_west_lags is not None
+        else int(np.floor(4 * (t / 100.0) ** (2.0 / 9.0)))
     )
     xtx_inv = np.linalg.pinv(x.T @ x)
     u = x * resid[:, None]
@@ -300,16 +313,17 @@ def time_series_regression(
     tstats = beta / np.where(se > 0, se, np.nan)
 
     return TimeSeriesRegression(
-        alpha=float(beta[0]), alpha_t=float(tstats[0]),
+        alpha=float(beta[0]),
+        alpha_t=float(tstats[0]),
         betas=pd.Series(beta[1:], index=names[1:]),
         beta_t=pd.Series(tstats[1:], index=names[1:]),
-        r_squared=r2, n_obs=t, residual_vol=float(resid.std() * np.sqrt(252)),
+        r_squared=r2,
+        n_obs=t,
+        residual_vol=float(resid.std() * np.sqrt(252)),
     )
 
 
-def grs_test(
-    portfolio_returns: pd.DataFrame, factor_returns: pd.DataFrame
-) -> dict[str, float]:
+def grs_test(portfolio_returns: pd.DataFrame, factor_returns: pd.DataFrame) -> dict[str, float]:
     """Gibbons-Ross-Shanken: are the alphas of N portfolios jointly zero?
 
     The right test when asking whether a factor model prices a set of portfolios.
@@ -333,9 +347,7 @@ def grs_test(
     mu_f = f.mean().to_numpy(float)
     omega = np.cov(f.to_numpy(float).T, ddof=1).reshape(k, k)
     sharpe_sq = float(mu_f @ np.linalg.pinv(omega) @ mu_f)
-    stat = (
-        (t - n - k) / n * (alphas @ np.linalg.pinv(sigma) @ alphas) / (1 + sharpe_sq)
-    )
+    stat = (t - n - k) / n * (alphas @ np.linalg.pinv(sigma) @ alphas) / (1 + sharpe_sq)
     p = 1 - stats.f.cdf(stat, n, t - n - k)
     return {
         "grs_statistic": float(stat),

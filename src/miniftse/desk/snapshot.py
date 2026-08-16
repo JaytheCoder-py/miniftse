@@ -76,8 +76,16 @@ EXPECTED_FILES: tuple[str, ...] = (
 against this same tuple at startup and refuses to serve half a desk."""
 
 REVIEW_COLUMNS: tuple[str, ...] = (
-    "date", "n_before", "n_after", "n_additions", "n_deletions", "one_way_turnover",
-    "additions_weight", "deletions_weight", "divisor_before", "divisor_after",
+    "date",
+    "n_before",
+    "n_after",
+    "n_additions",
+    "n_deletions",
+    "one_way_turnover",
+    "additions_weight",
+    "deletions_weight",
+    "divisor_before",
+    "divisor_after",
     "level_continuity_bps",
 )
 """The shape `IndexCalculator._apply_review` produces. Written explicitly so a build
@@ -165,11 +173,15 @@ def build_snapshot(out_dir: Path, spec: BuildSpec | None = None) -> SnapshotMani
     if levels.empty:
         raise SnapshotError("the build produced no index levels; nothing to serve")
     if weights.empty:
-        raise SnapshotError("the build produced no weight snapshots; the index screen "
-                            "and the chaos baseline both need them")
+        raise SnapshotError(
+            "the build produced no weight snapshots; the index screen "
+            "and the chaos baseline both need them"
+        )
     if audit.empty:
-        raise SnapshotError("the build produced no divisor events; the day screen "
-                            "exists to explain them, so an empty audit trail is a bug")
+        raise SnapshotError(
+            "the build produced no divisor events; the day screen "
+            "exists to explain them, so an empty audit trail is a bug"
+        )
 
     state = _final_state_file(result, index_id)
     constituents = _constituents(weights, state.constituents)
@@ -183,10 +195,10 @@ def build_snapshot(out_dir: Path, spec: BuildSpec | None = None) -> SnapshotMani
     (out_dir / "manifest.json").unlink(missing_ok=True)
 
     _days_frame(levels, audit, result.history.reviews).to_parquet(
-        out_dir / "days.parquet", index=False)
+        out_dir / "days.parquet", index=False
+    )
     _dated(audit).to_parquet(out_dir / "divisor_audit.parquet", index=False)
-    _reviews_frame(result.history.reviews).to_parquet(
-        out_dir / "reviews.parquet", index=False)
+    _reviews_frame(result.history.reviews).to_parquet(out_dir / "reviews.parquet", index=False)
 
     context = baseline_from_build(result)
     context.save(out_dir / "chaos_baseline")
@@ -196,17 +208,23 @@ def build_snapshot(out_dir: Path, spec: BuildSpec | None = None) -> SnapshotMani
     _write_json(out_dir / "evals.json", _evals_payload(corpus, eval_cases))
 
     _write_json(out_dir / "overview.json", _overview(result.history, index_id))
-    _write_json(out_dir / "constituents.json",
-                {"as_of": state.as_of, "constituents": constituents})
+    _write_json(out_dir / "constituents.json", {"as_of": state.as_of, "constituents": constituents})
     _write_json(out_dir / "capacity.json", _capacity(constituents))
-    _write_json(out_dir / "risk_attribution.json", {
-        "risk": _parse_onepager(onepagers["risk"]),
-        "attribution": _parse_onepager(onepagers["attribution"]),
-    })
+    _write_json(
+        out_dir / "risk_attribution.json",
+        {
+            "risk": _parse_onepager(onepagers["risk"]),
+            "attribution": _parse_onepager(onepagers["attribution"]),
+        },
+    )
 
     manifest = _manifest(
-        out_dir, spec, index_id, time.perf_counter() - started,
-        git_sha_value, git_dirty_value,
+        out_dir,
+        spec,
+        index_id,
+        time.perf_counter() - started,
+        git_sha_value,
+        git_dirty_value,
     )
     _write_json(out_dir / "manifest.json", manifest.to_dict())
     _assert_complete(out_dir)
@@ -221,8 +239,7 @@ def build_snapshot(out_dir: Path, spec: BuildSpec | None = None) -> SnapshotMani
 def _read_onepagers(directory: Path = ARTEFACTS_DIR) -> dict[str, str]:
     """The generated risk and attribution one-pagers, as markdown text."""
     out: dict[str, str] = {}
-    for key, name in (("risk", "risk_onepager.md"),
-                      ("attribution", "attribution_onepager.md")):
+    for key, name in (("risk", "risk_onepager.md"), ("attribution", "attribution_onepager.md")):
         path = directory / name
         if not path.exists():
             raise FileNotFoundError(
@@ -252,8 +269,7 @@ def _corpus_directories() -> tuple[Path, ...]:
     for directory in directories:
         if not directory.is_dir():
             raise FileNotFoundError(
-                f"{directory} is missing; the methodology assistant has no corpus "
-                "to answer from."
+                f"{directory} is missing; the methodology assistant has no corpus to answer from."
             )
     return directories
 
@@ -270,8 +286,7 @@ def _dated(frame: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _days_frame(levels: pd.DataFrame, audit: pd.DataFrame,
-                reviews: pd.DataFrame) -> pd.DataFrame:
+def _days_frame(levels: pd.DataFrame, audit: pd.DataFrame, reviews: pd.DataFrame) -> pd.DataFrame:
     """One row per session: the published levels, what the divisor did, and whether the
     day was a review effective date.
 
@@ -343,8 +358,9 @@ def _chaos_payload(context: ValidationContext) -> dict[str, Any]:
 # --------------------------------------------------------------------------------------
 
 
-def _golden_payload(levels: pd.DataFrame, directory: Path = GOLDEN_DIR,
-                    name: str = GOLDEN_NAME) -> dict[str, Any]:
+def _golden_payload(
+    levels: pd.DataFrame, directory: Path = GOLDEN_DIR, name: str = GOLDEN_NAME
+) -> dict[str, Any]:
     """The pinned master against this build. An unpinned master is a state the screen
     renders, not an error - a repository can legitimately have none yet."""
     if not (directory / f"{name}.json").exists():
@@ -464,14 +480,16 @@ def _constituents(weights: pd.DataFrame, state: dict[str, Any]) -> list[dict[str
     for _, row in latest.iterrows():
         sid = str(row["security_id"])
         meta = state.get(sid, {})
-        rows.append({
-            "security_id": sid,
-            "weight": float(row["weight"]),
-            "adv": float(meta.get("adv", 0.0)),
-            "sector": meta.get("icb_industry", ""),
-            "country": meta.get("country", ""),
-            "size_band": meta.get("size_band", ""),
-        })
+        rows.append(
+            {
+                "security_id": sid,
+                "weight": float(row["weight"]),
+                "adv": float(meta.get("adv", 0.0)),
+                "sector": meta.get("icb_industry", ""),
+                "country": meta.get("country", ""),
+                "size_band": meta.get("size_band", ""),
+            }
+        )
     rows.sort(key=lambda r: r["weight"], reverse=True)
     if rows and all(row["adv"] == 0.0 for row in rows):
         # One unmatched security id is a data wrinkle (that row shows adv 0.0); every
@@ -514,8 +532,7 @@ def _parse_onepager(text: str) -> dict[str, Any]:
         body_lines = section_parts[i + 1].splitlines()
 
         table_lines = [
-            ln for ln in body_lines
-            if ln.strip().startswith("|") and ln.strip().endswith("|")
+            ln for ln in body_lines if ln.strip().startswith("|") and ln.strip().endswith("|")
         ]
         table = None
         if len(table_lines) >= 2:
@@ -527,9 +544,9 @@ def _parse_onepager(text: str) -> dict[str, Any]:
             table = {"columns": columns, "rows": rows}
 
         prose_lines = [
-            ln for ln in body_lines
-            if ln.strip() and not ln.strip().startswith("|")
-            and not ln.strip().startswith("---")
+            ln
+            for ln in body_lines
+            if ln.strip() and not ln.strip().startswith("|") and not ln.strip().startswith("---")
         ]
         text_body = " ".join(prose_lines).replace("**", "")
 
@@ -548,20 +565,27 @@ def _final_state_file(result: BuildResult, index_id: str) -> IndexStateFile:
     the index screen reads one format whether it came from a snapshot or a daily run."""
     state = result.calculator.final_state
     if state is None:
-        raise SnapshotError("the build left no final state; the index screen needs the "
-                            "closing constituent set")
+        raise SnapshotError(
+            "the build left no final state; the index screen needs the closing constituent set"
+        )
     last = result.history.levels.iloc[-1]
     return IndexStateFile.from_state(
-        index_id, state,
+        index_id,
+        state,
         pr=float(last["price_return"]),
         gtr=float(last["gross_total_return"]),
         ntr=float(last["net_total_return"]),
     )
 
 
-def _manifest(out_dir: Path, spec: BuildSpec, index_id: str,
-              duration: float, git_sha_value: str, git_dirty_value: bool,
-              ) -> SnapshotManifest:
+def _manifest(
+    out_dir: Path,
+    spec: BuildSpec,
+    index_id: str,
+    duration: float,
+    git_sha_value: str,
+    git_dirty_value: bool,
+) -> SnapshotManifest:
     return SnapshotManifest(
         git_sha=git_sha_value,
         git_dirty=git_dirty_value,
@@ -584,8 +608,7 @@ def _file_hashes(out_dir: Path) -> dict[str, str]:
     """sha256 of every file written, so a tampered or truncated snapshot is detectable.
     `manifest.json` is excluded - it is the thing being written."""
     return {
-        path.relative_to(out_dir).as_posix():
-            hashlib.sha256(path.read_bytes()).hexdigest()
+        path.relative_to(out_dir).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(out_dir.rglob("*"))
         if path.is_file() and path.name != "manifest.json"
     }
@@ -594,9 +617,7 @@ def _file_hashes(out_dir: Path) -> dict[str, str]:
 def _assert_complete(out_dir: Path) -> None:
     missing = [name for name in EXPECTED_FILES if not (out_dir / name).exists()]
     if missing:
-        raise SnapshotError(
-            f"snapshot in {out_dir} is incomplete: {', '.join(missing)}"
-        )
+        raise SnapshotError(f"snapshot in {out_dir} is incomplete: {', '.join(missing)}")
 
 
 def _write_json(path: Path, payload: Any) -> None:

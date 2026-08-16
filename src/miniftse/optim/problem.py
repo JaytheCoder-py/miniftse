@@ -67,9 +67,11 @@ class ProblemData:
             factor_risk = cp.quad_form(b.T @ w, cp.psd_wrap(f))
             return factor_risk + cp.sum(cp.multiply(d, cp.square(w)))
         if self.covariance is not None:
-            sigma = self.covariance.reindex(
-                index=self.securities, columns=self.securities
-            ).fillna(0.0).to_numpy()
+            sigma = (
+                self.covariance.reindex(index=self.securities, columns=self.securities)
+                .fillna(0.0)
+                .to_numpy()
+            )
             return cp.quad_form(w, cp.psd_wrap(sigma))
         raise OptimisationError("no risk model supplied")
 
@@ -172,8 +174,7 @@ class TrackingError(Constraint):
         return [data.risk_quadratic_form(active) <= daily_var]
 
     def relaxed(self, factor: float) -> TrackingError:
-        return TrackingError(self.max_te * factor, self.name, self.is_hard,
-                             self.annualise)
+        return TrackingError(self.max_te * factor, self.name, self.is_hard, self.annualise)
 
     def describe(self) -> str:
         return f"Ex-ante tracking error at most {self.max_te:.2%} a year."
@@ -227,8 +228,9 @@ class GroupDeviation(Constraint):
         return out
 
     def relaxed(self, factor: float) -> GroupDeviation:
-        return GroupDeviation(self.group_column, self.max_deviation * factor,
-                              self.name, self.is_hard)
+        return GroupDeviation(
+            self.group_column, self.max_deviation * factor, self.name, self.is_hard
+        )
 
     def describe(self) -> str:
         return (
@@ -268,7 +270,9 @@ class FactorExposure(Constraint):
             self.attribute,
             self.minimum / factor if self.minimum is not None else None,
             self.maximum * factor if self.maximum is not None else None,
-            self.relative_to_benchmark, self.name, self.is_hard,
+            self.relative_to_benchmark,
+            self.name,
+            self.is_hard,
         )
 
     def describe(self) -> str:
@@ -304,13 +308,11 @@ class IntensityReduction(Constraint):
         return [cv @ w <= (1.0 - self.reduction) * benchmark_intensity]
 
     def relaxed(self, factor: float) -> IntensityReduction:
-        return IntensityReduction(self.attribute, self.reduction / factor, self.name,
-                                  self.is_hard)
+        return IntensityReduction(self.attribute, self.reduction / factor, self.name, self.is_hard)
 
     def describe(self) -> str:
         return (
-            f"Weighted-average {self.attribute} at least {self.reduction:.0%} below "
-            "the benchmark."
+            f"Weighted-average {self.attribute} at least {self.reduction:.0%} below the benchmark."
         )
 
 
@@ -341,8 +343,7 @@ class LiquidityCap(Constraint):
 
     def describe(self) -> str:
         return (
-            f"No holding above {self.multiple:.0f}x the security's share of universe "
-            "traded value."
+            f"No holding above {self.multiple:.0f}x the security's share of universe traded value."
         )
 
 
@@ -434,7 +435,5 @@ class TransactionCostPenalty:
             return self.weight * linear
         adv = data.align(data.adv, 1.0)
         scale = np.clip(adv / max(adv.sum(), 1e-12), 1e-8, None)
-        impact = self.impact_coefficient * cp.sum(
-            cp.power(trade, 1.5) / np.sqrt(scale)
-        )
+        impact = self.impact_coefficient * cp.sum(cp.power(trade, 1.5) / np.sqrt(scale))
         return self.weight * (linear + impact)

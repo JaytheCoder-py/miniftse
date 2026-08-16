@@ -153,8 +153,12 @@ class IndexState:
         total = sum(c.market_value for c in constituents.values())
         if total <= 0:
             raise ValueError("cannot initialise an index with zero market value")
-        return cls(date=date, divisor=total / base_level, constituents=constituents,
-                   base_currency=base_currency)
+        return cls(
+            date=date,
+            divisor=total / base_level,
+            constituents=constituents,
+            base_currency=base_currency,
+        )
 
 
 @dataclass(frozen=True, slots=True)

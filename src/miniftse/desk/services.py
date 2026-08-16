@@ -152,55 +152,62 @@ def notable_days(state: DeskState) -> list[dict[str, Any]]:
     corp_events = audit.loc[audit["event_type"] != "REVIEW"]
     if not corp_events.empty:
         row = _row(corp_events, corp_events["divisor_change_pct"].abs().idxmax())
-        notable.append({
-            "category": "largest_divisor_event",
-            "date": _as_date(row["date"]),
-            "reason": (
-                f"{row['event_type']} on {row['security_id']} moved the divisor "
-                f"{float(row['divisor_change_pct']):+.2%}."
-            ),
-            "value": float(row["divisor_change_pct"]),
-        })
+        notable.append(
+            {
+                "category": "largest_divisor_event",
+                "date": _as_date(row["date"]),
+                "reason": (
+                    f"{row['event_type']} on {row['security_id']} moved the divisor "
+                    f"{float(row['divisor_change_pct']):+.2%}."
+                ),
+                "value": float(row["divisor_change_pct"]),
+            }
+        )
 
     reviews = state.reviews
     if not reviews.empty:
         row = _row(reviews, reviews["one_way_turnover"].idxmax())
-        notable.append({
-            "category": "largest_review_turnover",
-            "date": _as_date(row["date"]),
-            "reason": (
-                f"the periodic review turned over "
-                f"{float(row['one_way_turnover']):.2%} of index weight one-way."
-            ),
-            "value": float(row["one_way_turnover"]),
-        })
+        notable.append(
+            {
+                "category": "largest_review_turnover",
+                "date": _as_date(row["date"]),
+                "reason": (
+                    f"the periodic review turned over "
+                    f"{float(row['one_way_turnover']):.2%} of index weight one-way."
+                ),
+                "value": float(row["one_way_turnover"]),
+            }
+        )
 
     if not audit.empty:
         row = _row(audit, audit["continuity_error_bps"].abs().idxmax())
-        notable.append({
-            "category": "largest_continuity_error",
-            "date": _as_date(row["date"]),
-            "reason": (
-                f"{row['event_type']} on {row['security_id']} carried a continuity "
-                f"error of {float(row['continuity_error_bps']):+.2f} bps."
-            ),
-            "value": float(row["continuity_error_bps"]),
-        })
+        notable.append(
+            {
+                "category": "largest_continuity_error",
+                "date": _as_date(row["date"]),
+                "reason": (
+                    f"{row['event_type']} on {row['security_id']} carried a continuity "
+                    f"error of {float(row['continuity_error_bps']):+.2f} bps."
+                ),
+                "value": float(row["continuity_error_bps"]),
+            }
+        )
 
     days = state.days.sort_values("date").reset_index(drop=True)
     if len(days) > 1:
         moves = days["price_return"].pct_change().map(_to_bps)
         idx = moves.abs().idxmax()
         row = _row(days, idx)
-        notable.append({
-            "category": "largest_single_day_move",
-            "date": _as_date(row["date"]),
-            "reason": (
-                f"the price-return level moved {float(moves.loc[idx]):+.1f} bps in "
-                "one session."
-            ),
-            "value": float(moves.loc[idx]),
-        })
+        notable.append(
+            {
+                "category": "largest_single_day_move",
+                "date": _as_date(row["date"]),
+                "reason": (
+                    f"the price-return level moved {float(moves.loc[idx]):+.1f} bps in one session."
+                ),
+                "value": float(moves.loc[idx]),
+            }
+        )
 
     return notable
 
@@ -281,7 +288,7 @@ DRAFT_QUESTIONS: tuple[DraftQuestion, ...] = (
         # a fixed lookback.
         period_days=1_000_000,
         guidance="Cover the full track record: annualised return, volatility, and the "
-                 "worst drawdown. No speculation about what comes next.",
+        "worst drawdown. No speculation about what comes next.",
     ),
 )
 """The hard-coded, closed set `/draft` and `/draft/render` (Task 10) validate a
@@ -341,8 +348,7 @@ def render_draft(state: DeskState, question_id: int, inject_bad_number: bool) ->
     """
     if not (0 <= question_id < len(DRAFT_QUESTIONS)):
         raise IndexError(
-            f"question_id {question_id} is out of range "
-            f"(0..{len(DRAFT_QUESTIONS) - 1})"
+            f"question_id {question_id} is out of range (0..{len(DRAFT_QUESTIONS) - 1})"
         )
     question = DRAFT_QUESTIONS[question_id]
     pack = performance_facts(_history_adapter(state), period_days=question.period_days)
@@ -358,8 +364,10 @@ def render_draft(state: DeskState, question_id: int, inject_bad_number: bool) ->
         response = replace(response, draft=full_text, guard=NumberGuard.check(full_text, pack))
 
     return DraftOutcome(
-        question=question, response=response,
-        base_draft=base_draft, injected_sentence=injected_sentence,
+        question=question,
+        response=response,
+        base_draft=base_draft,
+        injected_sentence=injected_sentence,
     )
 
 
@@ -546,9 +554,7 @@ def _event_dicts(divisor_audit: pd.DataFrame, date: pd.Timestamp) -> list[dict[s
         return []
     day_events["apply_order"] = day_events["event_type"].map(apply_order)
     day_events = day_events.sort_values(["apply_order", "security_id"])
-    return [
-        {str(k): v for k, v in record.items()} for record in day_events.to_dict("records")
-    ]
+    return [{str(k): v for k, v in record.items()} for record in day_events.to_dict("records")]
 
 
 def _review_dict(reviews: pd.DataFrame, date: pd.Timestamp) -> dict[str, Any] | None:

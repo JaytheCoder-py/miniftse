@@ -72,9 +72,7 @@ from typing import Any
 import pandas as pd
 
 SEC_TICKERS = "https://www.sec.gov/files/company_tickers.json"
-SEC_CONCEPT = (
-    "https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/{taxonomy}/{tag}.json"
-)
+SEC_CONCEPT = "https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/{taxonomy}/{tag}.json"
 SEC_SUBMISSIONS = "https://data.sec.gov/submissions/CIK{cik}.json"
 FRED_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
 
@@ -177,6 +175,7 @@ class RealDataError(RuntimeError):
 # SIC -> ICB level 1
 # --------------------------------------------------------------------------------------
 
+
 def sic_to_icb(sic: str | int | None) -> str:
     """Map a SEC SIC code to an ICB level-1 industry code.
 
@@ -192,29 +191,29 @@ def sic_to_icb(sic: str | int | None) -> str:
     major = code // 100
 
     if code in range(2833, 2837) or major == 80 or code in range(3840, 3852):
-        return "20"   # HEALTH_CARE - pharma, health services, medical instruments
+        return "20"  # HEALTH_CARE - pharma, health services, medical instruments
     if major == 13 or major == 29 or code in (1381, 1382, 1389):
-        return "60"   # ENERGY
+        return "60"  # ENERGY
     if major == 49:
-        return "65"   # UTILITIES
+        return "65"  # UTILITIES
     if major == 48:
-        return "15"   # TELECOMMUNICATIONS
+        return "15"  # TELECOMMUNICATIONS
     if code == 6798 or major == 65:
-        return "35"   # REAL_ESTATE - REITs and property
+        return "35"  # REAL_ESTATE - REITs and property
     if major in range(60, 68):
-        return "30"   # FINANCIALS
+        return "30"  # FINANCIALS
     if major in (35, 36, 38) or major == 73 or code == 7372:
-        return "10"   # TECHNOLOGY
+        return "10"  # TECHNOLOGY
     if major in (10, 12, 14, 24, 26, 28, 30, 32, 33) or major == 34:
-        return "55"   # BASIC_MATERIALS
+        return "55"  # BASIC_MATERIALS
     if major in (1, 2, 7, 9, 20, 21) or major == 54:
-        return "45"   # CONSUMER_STAPLES
+        return "45"  # CONSUMER_STAPLES
     if major in (22, 23, 25, 31, 39) or major in range(52, 60) or major in (70, 78, 79):
-        return "40"   # CONSUMER_DISCRETIONARY
+        return "40"  # CONSUMER_DISCRETIONARY
     if major == 37:
         # 371 motor vehicles is discretionary; 372/376 aerospace is industrial.
         return "40" if code // 10 == 371 else "50"
-    return "50"       # INDUSTRIALS
+    return "50"  # INDUSTRIALS
 
 
 US_GAAP_ITEMS: dict[str, str] = {
@@ -229,15 +228,22 @@ built on."""
 
 
 _MIC_BY_EXCHANGE: dict[str, str] = {
-    "Nasdaq": "XNAS", "NasdaqGS": "XNAS", "NasdaqCM": "XNAS", "NasdaqGM": "XNAS",
-    "NYSE": "XNYS", "NYSE American": "XASE", "NYSEAmerican": "XASE",
-    "CBOE": "XCBO", "OTC": "OTCM",
+    "Nasdaq": "XNAS",
+    "NasdaqGS": "XNAS",
+    "NasdaqCM": "XNAS",
+    "NasdaqGM": "XNAS",
+    "NYSE": "XNYS",
+    "NYSE American": "XASE",
+    "NYSEAmerican": "XASE",
+    "CBOE": "XCBO",
+    "OTC": "OTCM",
 }
 
 
 # --------------------------------------------------------------------------------------
 # Configuration
 # --------------------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class RealUniverseConfig:
@@ -286,6 +292,7 @@ class RealUniverseConfig:
 # --------------------------------------------------------------------------------------
 # The builder
 # --------------------------------------------------------------------------------------
+
 
 @dataclass
 class RealUniverseBuilder:
@@ -396,28 +403,52 @@ class RealUniverseBuilder:
             # One CIK with several tickers in the pool means a dual-class issuer.
             dual = bool((candidates["issuer_id"] == row.issuer_id).sum() > 1)
 
-            securities.append({
-                "security_id": security_id, "issuer_id": row.issuer_id,
-                "country": "US", "currency": "USD", "market_status": "DEVELOPED",
-                "icb_industry": icb, "security_type": "ORDINARY",
-                "listing_start": self.config.start, "listing_end": None,
-                "is_dual_class": dual, "foreign_ownership_limit": 1.0,
-            })
-            listings.append({
-                "listing_id": listing_id, "security_id": security_id, "mic": mic,
-                "currency": "USD", "country": "US",
-                "listing_start": self.config.start, "listing_end": None,
-            })
-            identifiers.append({
-                "security_id": security_id, "listing_id": listing_id,
-                "isin": None, "sedol": None, "ticker": row.ticker,
-                "valid_from": self.config.start, "valid_to": None,
-            })
-            classifications.append({
-                "security_id": security_id, "effective_date": self.config.start,
-                "knowledge_date": self.config.start, "icb_industry": icb,
-                "icb_supersector": f"{icb}10",
-            })
+            securities.append(
+                {
+                    "security_id": security_id,
+                    "issuer_id": row.issuer_id,
+                    "country": "US",
+                    "currency": "USD",
+                    "market_status": "DEVELOPED",
+                    "icb_industry": icb,
+                    "security_type": "ORDINARY",
+                    "listing_start": self.config.start,
+                    "listing_end": None,
+                    "is_dual_class": dual,
+                    "foreign_ownership_limit": 1.0,
+                }
+            )
+            listings.append(
+                {
+                    "listing_id": listing_id,
+                    "security_id": security_id,
+                    "mic": mic,
+                    "currency": "USD",
+                    "country": "US",
+                    "listing_start": self.config.start,
+                    "listing_end": None,
+                }
+            )
+            identifiers.append(
+                {
+                    "security_id": security_id,
+                    "listing_id": listing_id,
+                    "isin": None,
+                    "sedol": None,
+                    "ticker": row.ticker,
+                    "valid_from": self.config.start,
+                    "valid_to": None,
+                }
+            )
+            classifications.append(
+                {
+                    "security_id": security_id,
+                    "effective_date": self.config.start,
+                    "knowledge_date": self.config.start,
+                    "icb_industry": icb,
+                    "icb_supersector": f"{icb}10",
+                }
+            )
 
         if failed:
             self.defect_log["submissions_failed"] = failed
@@ -458,8 +489,13 @@ class RealUniverseBuilder:
             return None if frame.empty else frame
 
         frame = yf.download(
-            ticker, start=self.config.start, end=self.config.end,
-            auto_adjust=False, actions=True, progress=False, threads=False,
+            ticker,
+            start=self.config.start,
+            end=self.config.end,
+            auto_adjust=False,
+            actions=True,
+            progress=False,
+            threads=False,
             ignore_tz=True,
         )
         if frame is None or frame.empty:
@@ -475,9 +511,11 @@ class RealUniverseBuilder:
         frame.to_parquet(cached)
         return frame
 
-    def prices_and_actions(self, candidates: pd.DataFrame,
-                           listing_ids: dict[str, str],
-                           ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def prices_and_actions(
+        self,
+        candidates: pd.DataFrame,
+        listing_ids: dict[str, str],
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Prices and corporate actions from Yahoo, one ticker at a time and cached.
 
         Returns as-delivered: split-adjusted, survivors only. Tickers that come back
@@ -498,8 +536,9 @@ class RealUniverseBuilder:
 
         for n, ticker in enumerate(tickers, start=1):
             if n % 25 == 0:
-                self.log(f"      {n}/{len(tickers)} "
-                         f"({self._cache_hits} cached, {len(empty)} empty)")
+                self.log(
+                    f"      {n}/{len(tickers)} ({self._cache_hits} cached, {len(empty)} empty)"
+                )
 
             frame: pd.DataFrame | None = None
             for attempt in range(self.config.price_retries):
@@ -507,7 +546,8 @@ class RealUniverseBuilder:
                     frame = self._fetch_one(ticker)
                 except Exception as exc:  # noqa: BLE001 - transport errors are retryable
                     self.defect_log.setdefault("price_fetch_errors", []).append(
-                        f"{ticker}: {type(exc).__name__}")
+                        f"{ticker}: {type(exc).__name__}"
+                    )
                     frame = None
                 if frame is not None:
                     break
@@ -521,20 +561,24 @@ class RealUniverseBuilder:
                 continue
 
             index = pd.to_datetime(frame.index).date
-            frames.append(pd.DataFrame({
-                "security_id": ticker,
-                "listing_id": listing_ids[ticker],
-                "date": index,
-                "close": frame["Close"].to_numpy(dtype=float),
-                "volume": frame.get(
-                    "Volume", pd.Series(0.0, index=frame.index)
-                ).fillna(0.0).to_numpy(dtype=float),
-                "currency": "USD",
-                "is_suspended": False,
-                "open": frame.get("Open", frame["Close"]).to_numpy(dtype=float),
-                "high": frame.get("High", frame["Close"]).to_numpy(dtype=float),
-                "low": frame.get("Low", frame["Close"]).to_numpy(dtype=float),
-            }))
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "security_id": ticker,
+                        "listing_id": listing_ids[ticker],
+                        "date": index,
+                        "close": frame["Close"].to_numpy(dtype=float),
+                        "volume": frame.get("Volume", pd.Series(0.0, index=frame.index))
+                        .fillna(0.0)
+                        .to_numpy(dtype=float),
+                        "currency": "USD",
+                        "is_suspended": False,
+                        "open": frame.get("Open", frame["Close"]).to_numpy(dtype=float),
+                        "high": frame.get("High", frame["Close"]).to_numpy(dtype=float),
+                        "low": frame.get("Low", frame["Close"]).to_numpy(dtype=float),
+                    }
+                )
+            )
             actions.extend(self._actions_from_frame(ticker, frame))
 
         if empty:
@@ -557,12 +601,33 @@ class RealUniverseBuilder:
 
         prices = pd.concat(frames, ignore_index=True)
         prices = prices[
-            ["security_id", "listing_id", "date", "close", "volume", "currency",
-             "is_suspended", "open", "high", "low"]
+            [
+                "security_id",
+                "listing_id",
+                "date",
+                "close",
+                "volume",
+                "currency",
+                "is_suspended",
+                "open",
+                "high",
+                "low",
+            ]
         ]
-        corp_actions = pd.DataFrame(actions) if actions else pd.DataFrame(
-            columns=["event_id", "security_id", "event_type", "announcement_date",
-                     "ex_date", "pay_date", "payload"]
+        corp_actions = (
+            pd.DataFrame(actions)
+            if actions
+            else pd.DataFrame(
+                columns=[
+                    "event_id",
+                    "security_id",
+                    "event_type",
+                    "announcement_date",
+                    "ex_date",
+                    "pay_date",
+                    "payload",
+                ]
+            )
         )
         return prices, corp_actions
 
@@ -580,28 +645,39 @@ class RealUniverseBuilder:
         if "Dividends" in frame.columns:
             for when, amount in zip(dates, frame["Dividends"].fillna(0.0), strict=False):
                 if amount > 0:
-                    events.append({
-                        "event_id": f"DIV-{ticker}-{when}",
-                        "security_id": ticker, "event_type": "CASH_DIVIDEND",
-                        "announcement_date": when, "ex_date": when,
-                        "pay_date": when + dt.timedelta(days=28),
-                        "payload": json.dumps({
-                            "amount": float(amount), "currency": "USD",
-                            "gross_amount": float(amount), "is_special": False,
-                        }),
-                    })
+                    events.append(
+                        {
+                            "event_id": f"DIV-{ticker}-{when}",
+                            "security_id": ticker,
+                            "event_type": "CASH_DIVIDEND",
+                            "announcement_date": when,
+                            "ex_date": when,
+                            "pay_date": when + dt.timedelta(days=28),
+                            "payload": json.dumps(
+                                {
+                                    "amount": float(amount),
+                                    "currency": "USD",
+                                    "gross_amount": float(amount),
+                                    "is_special": False,
+                                }
+                            ),
+                        }
+                    )
 
         if "Stock Splits" in frame.columns:
-            for when, ratio in zip(dates, frame["Stock Splits"].fillna(0.0),
-                                   strict=False):
+            for when, ratio in zip(dates, frame["Stock Splits"].fillna(0.0), strict=False):
                 if ratio and ratio > 0:
-                    events.append({
-                        "event_id": f"SPL-{ticker}-{when}",
-                        "security_id": ticker,
-                        "event_type": "SPLIT" if ratio >= 1.0 else "REVERSE_SPLIT",
-                        "announcement_date": when, "ex_date": when, "pay_date": when,
-                        "payload": json.dumps({"ratio": float(ratio)}),
-                    })
+                    events.append(
+                        {
+                            "event_id": f"SPL-{ticker}-{when}",
+                            "security_id": ticker,
+                            "event_type": "SPLIT" if ratio >= 1.0 else "REVERSE_SPLIT",
+                            "announcement_date": when,
+                            "ex_date": when,
+                            "pay_date": when,
+                            "payload": json.dumps({"ratio": float(ratio)}),
+                        }
+                    )
         return events
 
     # ------------------------------------------------------------------ 4. shares
@@ -623,7 +699,8 @@ class RealUniverseBuilder:
             if n % 50 == 0:
                 self.log(f"      {n}/{len(candidates)}")
             url = SEC_CONCEPT.format(
-                cik=row.issuer_id, taxonomy="dei",
+                cik=row.issuer_id,
+                taxonomy="dei",
                 tag="EntityCommonStockSharesOutstanding",
             )
             try:
@@ -638,15 +715,17 @@ class RealUniverseBuilder:
                 effective = fact.get("end") or filed
                 if not filed or value is None:
                     continue
-                rows.append({
-                    "security_id": row.ticker,
-                    "effective_date": dt.date.fromisoformat(effective),
-                    "knowledge_date": dt.date.fromisoformat(filed),
-                    "shares_outstanding": float(value),
-                    "free_float_factor": 1.0,
-                    "reason": "SEC_COVER_PAGE",
-                    "foreign_ownership_limit": 1.0,
-                })
+                rows.append(
+                    {
+                        "security_id": row.ticker,
+                        "effective_date": dt.date.fromisoformat(effective),
+                        "knowledge_date": dt.date.fromisoformat(filed),
+                        "shares_outstanding": float(value),
+                        "free_float_factor": 1.0,
+                        "reason": "SEC_COVER_PAGE",
+                        "foreign_ownership_limit": 1.0,
+                    }
+                )
 
         if missing:
             self.defect_log["no_share_count"] = missing
@@ -693,8 +772,7 @@ class RealUniverseBuilder:
             if n % 25 == 0:
                 self.log(f"      {n}/{len(candidates)}")
             for tag, item in US_GAAP_ITEMS.items():
-                url = SEC_CONCEPT.format(
-                    cik=row.issuer_id, taxonomy="us-gaap", tag=tag)
+                url = SEC_CONCEPT.format(cik=row.issuer_id, taxonomy="us-gaap", tag=tag)
                 try:
                     payload = self._get_json(url)
                 except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
@@ -704,36 +782,49 @@ class RealUniverseBuilder:
                     if unit != "USD":
                         continue
                     for fact in facts:
-                        filed, end, value = (
-                            fact.get("filed"), fact.get("end"), fact.get("val"))
+                        filed, end, value = (fact.get("filed"), fact.get("end"), fact.get("val"))
                         if not filed or not end or value is None:
                             continue
                         key = (end, filed)
                         if key in seen:
                             continue
                         seen.add(key)
-                        rows.append({
-                            "security_id": row.ticker, "item": item,
-                            "period_end": dt.date.fromisoformat(end),
-                            "filed_date": dt.date.fromisoformat(filed),
-                            "value": float(value), "currency": "USD",
-                            "is_restatement": False,
-                        })
+                        rows.append(
+                            {
+                                "security_id": row.ticker,
+                                "item": item,
+                                "period_end": dt.date.fromisoformat(end),
+                                "filed_date": dt.date.fromisoformat(filed),
+                                "value": float(value),
+                                "currency": "USD",
+                                "is_restatement": False,
+                            }
+                        )
 
         if not rows:
             self.defect_log["no_fundamentals"] = True
-            return pd.DataFrame(columns=[
-                "security_id", "item", "period_end", "filed_date", "value",
-                "currency", "is_restatement"])
+            return pd.DataFrame(
+                columns=[
+                    "security_id",
+                    "item",
+                    "period_end",
+                    "filed_date",
+                    "value",
+                    "currency",
+                    "is_restatement",
+                ]
+            )
 
         frame = pd.DataFrame(rows)
         # The second and later filings of the same (security, item, period) are
         # restatements by definition. Flagging them is what makes the restatement
         # studies in `quality/` runnable on real data.
-        frame = frame.sort_values(
-            ["security_id", "item", "period_end", "filed_date"]).reset_index(drop=True)
+        frame = frame.sort_values(["security_id", "item", "period_end", "filed_date"]).reset_index(
+            drop=True
+        )
         frame["is_restatement"] = frame.duplicated(
-            subset=["security_id", "item", "period_end"], keep="first")
+            subset=["security_id", "item", "period_end"], keep="first"
+        )
         return frame
 
     # ------------------------------------------------------------------ 6. fx
@@ -749,8 +840,7 @@ class RealUniverseBuilder:
         self.log("[6/6] FX and deposit rates")
         rate_by_date: dict[dt.date, float] = {}
         try:
-            raw = self._get(
-                FRED_CSV.format(series=self.config.deposit_rate_series), throttle=False)
+            raw = self._get(FRED_CSV.format(series=self.config.deposit_rate_series), throttle=False)
             fred = pd.read_csv(io.StringIO(raw.decode()))
             date_col, value_col = fred.columns[0], fred.columns[1]
             fred[date_col] = pd.to_datetime(fred[date_col]).dt.date
@@ -759,8 +849,9 @@ class RealUniverseBuilder:
             self.log(f"      {self.config.deposit_rate_series}: {len(rate_by_date)} obs")
         except Exception as exc:  # noqa: BLE001 - a missing rate is a defect, not a crash
             self.defect_log["deposit_rate_source"] = f"{type(exc).__name__}: {exc}"
-            self.log(f"      ! FRED unavailable, using flat "
-                     f"{self.config.fallback_deposit_rate:.2%}")
+            self.log(
+                f"      ! FRED unavailable, using flat {self.config.fallback_deposit_rate:.2%}"
+            )
 
         last = self.config.fallback_deposit_rate
         rows = []
@@ -768,8 +859,9 @@ class RealUniverseBuilder:
             value = rate_by_date.get(when)
             if value is not None and value == value:  # not NaN
                 last = float(value)
-            rows.append({"date": when, "base": "USD", "quote": "USD",
-                         "rate": 1.0, "deposit_rate": last})
+            rows.append(
+                {"date": when, "base": "USD", "quote": "USD", "rate": 1.0, "deposit_rate": last}
+            )
         return pd.DataFrame(rows)
 
     # ------------------------------------------------------------------ assemble
@@ -793,8 +885,13 @@ class RealUniverseBuilder:
         reference = self.reference(candidates)
         # Prices must carry the same `listing_id` the listings table uses, or the two
         # tables silently fail to join and `get_prices(listing_ids=...)` matches nothing.
-        listing_ids = dict(zip(reference["listings"]["security_id"],
-                               reference["listings"]["listing_id"], strict=True))
+        listing_ids = dict(
+            zip(
+                reference["listings"]["security_id"],
+                reference["listings"]["listing_id"],
+                strict=True,
+            )
+        )
         prices, corp_actions = self.prices_and_actions(candidates, listing_ids)
 
         # Anything with no prices cannot be in the index. Drop it from every reference
@@ -807,30 +904,43 @@ class RealUniverseBuilder:
             self.defect_log["dropped_no_prices"] = dropped
         candidates = candidates[candidates["ticker"].isin(traded)].reset_index(drop=True)
         for name, table in reference.items():
-            reference[name] = table[table["security_id"].isin(traded)].reset_index(
-                drop=True)
+            reference[name] = table[table["security_id"].isin(traded)].reset_index(drop=True)
 
         shares = self.shares(candidates)
         shares = shares[shares["security_id"].isin(traded)].reset_index(drop=True)
         fundamentals = self.fundamentals(candidates)
         if not fundamentals.empty:
-            fundamentals = fundamentals[
-                fundamentals["security_id"].isin(traded)].reset_index(drop=True)
+            fundamentals = fundamentals[fundamentals["security_id"].isin(traded)].reset_index(
+                drop=True
+            )
 
         calendar = sorted(prices["date"].unique())
         fx = self.fx(list(calendar))
 
         tables: dict[str, pd.DataFrame] = {
-            "prices": prices, "shares": shares, "corp_actions": corp_actions,
-            "fundamentals": fundamentals, "fx": fx, **reference,
+            "prices": prices,
+            "shares": shares,
+            "corp_actions": corp_actions,
+            "fundamentals": fundamentals,
+            "fx": fx,
+            **reference,
         }
         for name, table in tables.items():
             out = table.copy()
             for column in out.columns:
                 if column in {
-                    "date", "effective_date", "knowledge_date", "filed_date",
-                    "period_end", "announcement_date", "ex_date", "pay_date",
-                    "listing_start", "listing_end", "valid_from", "valid_to",
+                    "date",
+                    "effective_date",
+                    "knowledge_date",
+                    "filed_date",
+                    "period_end",
+                    "announcement_date",
+                    "ex_date",
+                    "pay_date",
+                    "listing_start",
+                    "listing_end",
+                    "valid_from",
+                    "valid_to",
                 }:
                     out[column] = pd.to_datetime(out[column], errors="coerce")
             out.to_parquet(staging / f"{name}.parquet", index=False)
@@ -838,7 +948,7 @@ class RealUniverseBuilder:
         meta = {
             "name": f"real-{self.config.tier}",
             "source": "SEC EDGAR (reference, shares, fundamentals) + Yahoo (prices, "
-                      "actions) + FRED (deposit rate)",
+            "actions) + FRED (deposit rate)",
             "config": self.config.describe(),
             "start": str(min(calendar)),
             "end": str(max(calendar)),

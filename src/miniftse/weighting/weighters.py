@@ -64,8 +64,9 @@ class FloatCapWeighter:
     name: str = "float_cap"
     _last: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    def weights(self, inputs: Mapping[str, SecurityInputs],
-                context: WeightingContext) -> dict[str, float]:
+    def weights(
+        self, inputs: Mapping[str, SecurityInputs], context: WeightingContext
+    ) -> dict[str, float]:
         w = float_market_cap_weights(inputs)
         self._last = {"n_constituents": len(w), "max_weight": max(w.values(), default=0)}
         return w
@@ -89,8 +90,9 @@ class TiltWeighter:
     name: str = "tilt"
     _last: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    def weights(self, inputs: Mapping[str, SecurityInputs],
-                context: WeightingContext) -> dict[str, float]:
+    def weights(
+        self, inputs: Mapping[str, SecurityInputs], context: WeightingContext
+    ) -> dict[str, float]:
         w = score_tilt_weights(inputs, strength=self.strength)
         parent = float_market_cap_weights(inputs)
         self._last = {
@@ -120,10 +122,10 @@ class SelectionWeighter:
     name: str = "selection"
     _last: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    def weights(self, inputs: Mapping[str, SecurityInputs],
-                context: WeightingContext) -> dict[str, float]:
-        w = selection_weights(inputs, top_fraction=self.top_fraction,
-                              weight_by=self.weight_by)
+    def weights(
+        self, inputs: Mapping[str, SecurityInputs], context: WeightingContext
+    ) -> dict[str, float]:
+        w = selection_weights(inputs, top_fraction=self.top_fraction, weight_by=self.weight_by)
         parent = float_market_cap_weights(inputs)
         selected = {k: inputs[k] for k in w}
         self._last = {
@@ -160,29 +162,34 @@ class CapacityConstrainedWeighter:
     def __post_init__(self) -> None:
         self.name = f"{getattr(self.inner, 'name', 'inner')}+capacity"
 
-    def weights(self, inputs: Mapping[str, SecurityInputs],
-                context: WeightingContext) -> dict[str, float]:
+    def weights(
+        self, inputs: Mapping[str, SecurityInputs], context: WeightingContext
+    ) -> dict[str, float]:
         base = self.inner.weights(inputs, context)
         fund_size = context.fund_size or self.fund_size
         constrained = capacity_constrained_weights(
-            inputs, base, fund_size=fund_size,
-            max_days_to_trade=self.max_days_to_trade, participation=self.participation,
+            inputs,
+            base,
+            fund_size=fund_size,
+            max_days_to_trade=self.max_days_to_trade,
+            participation=self.participation,
         )
-        trimmed = sum(
-            1 for k in base if constrained.get(k, 0.0) < base[k] - 1e-9
-        )
+        trimmed = sum(1 for k in base if constrained.get(k, 0.0) < base[k] - 1e-9)
         self._last = {
             **self.inner.diagnostics(),
             "fund_size": fund_size,
             "n_trimmed_for_capacity": trimmed,
             "weighted_days_to_trade_before": weighted_average_days_to_trade(
-                base, inputs, fund_size, self.participation),
+                base, inputs, fund_size, self.participation
+            ),
             "weighted_days_to_trade_after": weighted_average_days_to_trade(
-                constrained, inputs, fund_size, self.participation),
+                constrained, inputs, fund_size, self.participation
+            ),
             "capacity_turnover": sum(
                 abs(constrained.get(k, 0.0) - base.get(k, 0.0))
                 for k in set(base) | set(constrained)
-            ) / 2,
+            )
+            / 2,
         }
         return constrained
 
@@ -232,8 +239,9 @@ class OptimisedWeighter:
     n_fallbacks: int = 0
     n_solves: int = 0
 
-    def weights(self, inputs: Mapping[str, SecurityInputs],
-                context: WeightingContext) -> dict[str, float]:
+    def weights(
+        self, inputs: Mapping[str, SecurityInputs], context: WeightingContext
+    ) -> dict[str, float]:
         from miniftse.optim.problem import (
             FullInvestment,
             GroupDeviation,
@@ -264,10 +272,13 @@ class OptimisedWeighter:
             return self._fallback(inputs, parent, f"covariance failed: {exc}")
 
         solve_ids = list(covariance.matrix.index)
-        attributes = pd.DataFrame({
-            "score": pd.Series({k: inputs[k].score for k in solve_ids}),
-            "industry": pd.Series({k: context.industry.get(k, "?") for k in solve_ids}),
-        }, index=solve_ids)
+        attributes = pd.DataFrame(
+            {
+                "score": pd.Series({k: inputs[k].score for k in solve_ids}),
+                "industry": pd.Series({k: context.industry.get(k, "?") for k in solve_ids}),
+            },
+            index=solve_ids,
+        )
 
         bench = self._benchmark(parent, solve_ids)
         if bench is None:
@@ -275,18 +286,22 @@ class OptimisedWeighter:
 
         initial = None
         if context.previous_weights:
-            prior = pd.Series({k: context.previous_weights.get(k, 0.0)
-                               for k in solve_ids})
+            prior = pd.Series({k: context.previous_weights.get(k, 0.0) for k in solve_ids})
             if prior.sum() > 0:
                 initial = prior / prior.sum()
 
         data = ProblemData(
-            securities=solve_ids, benchmark=bench, initial_weights=initial,
-            covariance=covariance.matrix, attributes=attributes,
+            securities=solve_ids,
+            benchmark=bench,
+            initial_weights=initial,
+            covariance=covariance.matrix,
+            attributes=attributes,
             adv=pd.Series({k: inputs[k].adv for k in solve_ids}),
         )
         constraints = [
-            FullInvestment(), LongOnly(), WeightBounds(self.max_weight),
+            FullInvestment(),
+            LongOnly(),
+            WeightBounds(self.max_weight),
             TrackingError(self.tracking_error_limit),
             GroupDeviation("industry", self.sector_deviation),
         ]
@@ -297,8 +312,7 @@ class OptimisedWeighter:
         self.n_solves += 1
 
         if not result.succeeded:
-            return self._fallback(inputs, parent,
-                                  f"optimiser status {result.status}")
+            return self._fallback(inputs, parent, f"optimiser status {result.status}")
 
         weights = {str(k): float(v) for k, v in result.weights.items() if v > 1e-9}
         total = sum(weights.values())
@@ -321,8 +335,7 @@ class OptimisedWeighter:
         }
         return weights
 
-    def _benchmark(self, parent: dict[str, float], solve_ids: list[str]
-                   ) -> pd.Series | None:
+    def _benchmark(self, parent: dict[str, float], solve_ids: list[str]) -> pd.Series | None:
         """The *capped* parent, restricted to the solvable set.
 
         Capping the benchmark is what guarantees the problem is feasible: the benchmark
@@ -350,8 +363,9 @@ class OptimisedWeighter:
         total = float(series.sum())
         return series / total if total > 0 else None
 
-    def _fallback(self, inputs: Mapping[str, SecurityInputs],
-                  parent: dict[str, float], reason: str) -> dict[str, float]:
+    def _fallback(
+        self, inputs: Mapping[str, SecurityInputs], parent: dict[str, float], reason: str
+    ) -> dict[str, float]:
         self.n_fallbacks += 1
         w = score_tilt_weights(inputs, strength=self.fallback_tilt_strength)
         self._last = {
@@ -365,8 +379,7 @@ class OptimisedWeighter:
         return w
 
     def diagnostics(self) -> dict[str, Any]:
-        return {**self._last, "n_solves": self.n_solves,
-                "n_fallbacks": self.n_fallbacks}
+        return {**self._last, "n_solves": self.n_solves, "n_fallbacks": self.n_fallbacks}
 
 
 # --------------------------------------------------------------------------------------

@@ -25,6 +25,9 @@ coverage:  ## Run tests with a coverage report
 
 lint:  ## Lint
 	$(UV) run ruff check src tests
+	# CI runs this too. Without it here, `make ci` passes on a tree GitHub rejects -
+	# which is exactly how 64 files drifted out of format behind a green local run.
+	$(UV) run ruff format --check src tests
 
 format:  ## Format
 	$(UV) run ruff format src tests

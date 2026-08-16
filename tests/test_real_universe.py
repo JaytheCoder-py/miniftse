@@ -46,27 +46,38 @@ def _config(tmp_path: Path, **overrides: Any) -> RealUniverseConfig:
 
 
 def _candidates() -> pd.DataFrame:
-    return pd.DataFrame({
-        "issuer_id": [str(n).zfill(10) for n in range(len(TICKERS))],
-        "ticker": TICKERS,
-        "name": [f"Company {t}" for t in TICKERS],
-        "rank": list(range(len(TICKERS))),
-    })
+    return pd.DataFrame(
+        {
+            "issuer_id": [str(n).zfill(10) for n in range(len(TICKERS))],
+            "ticker": TICKERS,
+            "name": [f"Company {t}" for t in TICKERS],
+            "rank": list(range(len(TICKERS))),
+        }
+    )
 
 
 def _price_frame() -> pd.DataFrame:
     index = pd.bdate_range("2020-01-01", "2020-03-31")
     return pd.DataFrame(
-        {"Close": 100.0, "Open": 100.0, "High": 101.0, "Low": 99.0, "Volume": 1000.0,
-         "Dividends": 0.0, "Stock Splits": 0.0},
+        {
+            "Close": 100.0,
+            "Open": 100.0,
+            "High": 101.0,
+            "Low": 99.0,
+            "Volume": 1000.0,
+            "Dividends": 0.0,
+            "Stock Splits": 0.0,
+        },
         index=index,
     )
 
 
 def _stub_prices(builder: RealUniverseBuilder, succeed: set[str]) -> None:
     """Make `_fetch_one` succeed only for `succeed`, as a throttled Yahoo would."""
+
     def fetch_one(ticker: str) -> pd.DataFrame | None:
         return _price_frame() if ticker in succeed else None
+
     builder._fetch_one = fetch_one  # type: ignore[method-assign]
 
 
@@ -97,14 +108,12 @@ def test_the_floor_is_where_the_config_puts_it(tmp_path: Path) -> None:
     survivors = set(TICKERS[:17])  # 85%
     listing_ids = {t: f"{t}.XNAS" for t in TICKERS}
 
-    lenient = RealUniverseBuilder(
-        config=_config(tmp_path, min_price_coverage=0.80), verbose=False)
+    lenient = RealUniverseBuilder(config=_config(tmp_path, min_price_coverage=0.80), verbose=False)
     _stub_prices(lenient, survivors)
     prices, _ = lenient.prices_and_actions(_candidates(), listing_ids)
     assert prices["security_id"].nunique() == 17
 
-    strict = RealUniverseBuilder(
-        config=_config(tmp_path, min_price_coverage=0.95), verbose=False)
+    strict = RealUniverseBuilder(config=_config(tmp_path, min_price_coverage=0.95), verbose=False)
     _stub_prices(strict, survivors)
     with pytest.raises(RealDataError, match="85.0%"):
         strict.prices_and_actions(_candidates(), listing_ids)
@@ -130,8 +139,9 @@ def test_a_failed_rebuild_leaves_the_previous_snapshot_intact(tmp_path: Path) ->
     builder.candidates = _candidates  # type: ignore[method-assign]
     builder.reference = lambda candidates: {  # type: ignore[method-assign, assignment]
         "securities": pd.DataFrame({"security_id": TICKERS}),
-        "listings": pd.DataFrame({"security_id": TICKERS,
-                                  "listing_id": [f"{t}.XNAS" for t in TICKERS]}),
+        "listings": pd.DataFrame(
+            {"security_id": TICKERS, "listing_id": [f"{t}.XNAS" for t in TICKERS]}
+        ),
         "identifiers": pd.DataFrame({"security_id": TICKERS}),
         "classifications": pd.DataFrame({"security_id": TICKERS}),
     }
@@ -150,8 +160,9 @@ def test_no_staging_directory_is_left_behind_on_failure(tmp_path: Path) -> None:
     builder.candidates = _candidates  # type: ignore[method-assign]
     builder.reference = lambda candidates: {  # type: ignore[method-assign, assignment]
         "securities": pd.DataFrame({"security_id": TICKERS}),
-        "listings": pd.DataFrame({"security_id": TICKERS,
-                                  "listing_id": [f"{t}.XNAS" for t in TICKERS]}),
+        "listings": pd.DataFrame(
+            {"security_id": TICKERS, "listing_id": [f"{t}.XNAS" for t in TICKERS]}
+        ),
         "identifiers": pd.DataFrame({"security_id": TICKERS}),
         "classifications": pd.DataFrame({"security_id": TICKERS}),
     }
@@ -168,17 +179,17 @@ def test_no_staging_directory_is_left_behind_on_failure(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("sic", "icb"),
     [
-        (2834, "20"),   # pharmaceutical preparations -> health care
-        (8000, "20"),   # health services
-        (1311, "60"),   # crude petroleum -> energy
-        (4911, "65"),   # electric services -> utilities
-        (4813, "15"),   # telephone communications
-        (6798, "35"),   # REIT -> real estate, not financials
-        (6021, "30"),   # national commercial banks -> financials
-        (7372, "10"),   # prepackaged software -> technology
-        (3711, "40"),   # motor vehicles -> consumer discretionary
-        (3721, "50"),   # aircraft -> industrials
-        (None, "50"),   # unclassifiable falls back to industrials
+        (2834, "20"),  # pharmaceutical preparations -> health care
+        (8000, "20"),  # health services
+        (1311, "60"),  # crude petroleum -> energy
+        (4911, "65"),  # electric services -> utilities
+        (4813, "15"),  # telephone communications
+        (6798, "35"),  # REIT -> real estate, not financials
+        (6021, "30"),  # national commercial banks -> financials
+        (7372, "10"),  # prepackaged software -> technology
+        (3711, "40"),  # motor vehicles -> consumer discretionary
+        (3721, "50"),  # aircraft -> industrials
+        (None, "50"),  # unclassifiable falls back to industrials
     ],
 )
 def test_sic_maps_to_the_expected_icb_industry(sic: int | None, icb: str) -> None:

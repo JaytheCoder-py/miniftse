@@ -201,17 +201,19 @@ class IndexCalculator:
                 gtr *= (pr + div_points) / pr_prev
                 ntr *= (pr + net_points) / pr_prev
 
-            pr_series.append({
-                "date": date,
-                "price_return": pr,
-                "gross_total_return": gtr,
-                "net_total_return": ntr,
-                "divisor": state.divisor,
-                "n_constituents": state.n_constituents,
-                "total_market_value": state.total_market_value,
-                "dividend_points": div_points,
-                "net_dividend_points": net_points,
-            })
+            pr_series.append(
+                {
+                    "date": date,
+                    "price_return": pr,
+                    "gross_total_return": gtr,
+                    "net_total_return": ntr,
+                    "divisor": state.divisor,
+                    "n_constituents": state.n_constituents,
+                    "total_market_value": state.total_market_value,
+                    "dividend_points": div_points,
+                    "net_dividend_points": net_points,
+                }
+            )
             pr_prev = pr
 
             if self._should_snapshot(date, calendar, i, review_dates):
@@ -232,9 +234,7 @@ class IndexCalculator:
 
     # ------------------------------------------------------------------ internals
 
-    def _seed(
-        self, date: dt.date, universe: UniverseSource, price_book: _PriceBook
-    ) -> IndexState:
+    def _seed(self, date: dt.date, universe: UniverseSource, price_book: _PriceBook) -> IndexState:
         specs = universe.constituents_for(date)
         constituents = {}
         for sec_id, spec in specs.items():
@@ -248,9 +248,7 @@ class IndexCalculator:
             date, constituents, self.config.base_level, self.config.base_currency
         )
 
-    def _to_constituent(
-        self, spec: ConstituentSpec, price: float, date: dt.date
-    ) -> Constituent:
+    def _to_constituent(self, spec: ConstituentSpec, price: float, date: dt.date) -> Constituent:
         return Constituent(
             security_id=spec.security_id,
             price=price,
@@ -277,15 +275,25 @@ class IndexCalculator:
                 # quality layer, not silently smoothed over here.
                 price = c.price
             updated[sec_id] = Constituent(
-                security_id=c.security_id, price=price, shares=c.shares,
-                free_float_factor=c.free_float_factor, capping_factor=c.capping_factor,
-                fx_rate=self.fx.rate(date, str(c.currency)), currency=c.currency,
-                country=c.country, icb_industry=c.icb_industry, size_band=c.size_band,
+                security_id=c.security_id,
+                price=price,
+                shares=c.shares,
+                free_float_factor=c.free_float_factor,
+                capping_factor=c.capping_factor,
+                fx_rate=self.fx.rate(date, str(c.currency)),
+                currency=c.currency,
+                country=c.country,
+                icb_industry=c.icb_industry,
+                size_band=c.size_band,
                 is_suspended=price_book.is_suspended(sec_id, date),
                 adv=c.adv,
             )
-        return IndexState(date=date, divisor=state.divisor, constituents=updated,
-                          base_currency=state.base_currency)
+        return IndexState(
+            date=date,
+            divisor=state.divisor,
+            constituents=updated,
+            base_currency=state.base_currency,
+        )
 
     def _apply_review(
         self,
@@ -338,26 +346,34 @@ class IndexCalculator:
         if not new_constituents:
             raise IndexCalculationError(f"review on {date} produced an empty universe")
 
-        new_state = IndexState(date=date, divisor=state.divisor,
-                               constituents=new_constituents,
-                               base_currency=state.base_currency).rebase_divisor(mv_before)
+        new_state = IndexState(
+            date=date,
+            divisor=state.divisor,
+            constituents=new_constituents,
+            base_currency=state.base_currency,
+        ).rebase_divisor(mv_before)
 
         new_weights = new_state.weights()
         keys = set(old_weights) | set(new_weights)
-        turnover = sum(
-            abs(new_weights.get(k, 0.0) - old_weights.get(k, 0.0)) for k in keys
-        ) / 2.0
+        turnover = sum(abs(new_weights.get(k, 0.0) - old_weights.get(k, 0.0)) for k in keys) / 2.0
         additions = sorted(set(new_weights) - set(old_weights))
         deletions = sorted(set(old_weights) - set(new_weights))
 
-        self.engine.audit.append(DivisorChange(
-            date=date, event_id=f"REVIEW-{date.isoformat()}", event_type="REVIEW",
-            security_id="*", divisor_before=state.divisor,
-            divisor_after=new_state.divisor, market_value_before=mv_before,
-            market_value_after=new_state.total_market_value,
-            level_before=level_before, level_after=new_state.level,
-            reason=f"periodic review: {len(additions)} in, {len(deletions)} out",
-        ))
+        self.engine.audit.append(
+            DivisorChange(
+                date=date,
+                event_id=f"REVIEW-{date.isoformat()}",
+                event_type="REVIEW",
+                security_id="*",
+                divisor_before=state.divisor,
+                divisor_after=new_state.divisor,
+                market_value_before=mv_before,
+                market_value_after=new_state.total_market_value,
+                level_before=level_before,
+                level_after=new_state.level,
+                reason=f"periodic review: {len(additions)} in, {len(deletions)} out",
+            )
+        )
 
         return new_state, {
             "date": date,
@@ -469,12 +485,14 @@ def decompose_total_return(history: IndexHistory) -> pd.DataFrame:
     series.
     """
     lv = history.levels.set_index("date")
-    out = pd.DataFrame({
-        "price_return": lv["price_return"].pct_change(),
-        "gross_total_return": lv["gross_total_return"].pct_change(),
-        "net_total_return": lv["net_total_return"].pct_change(),
-        "dividend_points": lv["dividend_points"],
-    })
+    out = pd.DataFrame(
+        {
+            "price_return": lv["price_return"].pct_change(),
+            "gross_total_return": lv["gross_total_return"].pct_change(),
+            "net_total_return": lv["net_total_return"].pct_change(),
+            "dividend_points": lv["dividend_points"],
+        }
+    )
     out["income_contribution"] = out["gross_total_return"] - out["price_return"]
     out["withholding_drag"] = out["gross_total_return"] - out["net_total_return"]
     return out.dropna()
@@ -490,9 +508,7 @@ def annual_income_check(history: IndexHistory) -> pd.DataFrame:
     lv = history.levels.copy()
     lv["date"] = pd.to_datetime(lv["date"])
     lv = lv.set_index("date")
-    yearly = lv[["price_return", "gross_total_return", "net_total_return"]].resample(
-        "YE"
-    ).last()
+    yearly = lv[["price_return", "gross_total_return", "net_total_return"]].resample("YE").last()
     rets = yearly.pct_change().dropna()
     rets["income_yield"] = rets["gross_total_return"] - rets["price_return"]
     rets["withholding_cost"] = rets["gross_total_return"] - rets["net_total_return"]

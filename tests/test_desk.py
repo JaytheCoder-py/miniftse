@@ -1,4 +1,5 @@
 """Tests for the ops desk: context persistence, snapshot build, and the app."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -15,9 +16,13 @@ from miniftse.quality.rules import ValidationContext
 
 def _context() -> ValidationContext:
     as_of = dt.date(2020, 6, 30)
-    prices = pd.DataFrame({
-        "security_id": ["S1", "S2"], "date": [as_of, as_of], "close": [10.0, 20.0],
-    })
+    prices = pd.DataFrame(
+        {
+            "security_id": ["S1", "S2"],
+            "date": [as_of, as_of],
+            "close": [10.0, 20.0],
+        }
+    )
     return ValidationContext(
         as_of=as_of,
         prices=prices,
@@ -159,7 +164,8 @@ def test_build_snapshot_writes_every_expected_file(tmp_path):
 
     spec = BuildSpec(
         universe_config=SyntheticConfig(n_securities=100, seed=20260809),
-        start=dt.date(2019, 1, 2), end=dt.date(2019, 12, 31),
+        start=dt.date(2019, 1, 2),
+        end=dt.date(2019, 12, 31),
     )
     build_snapshot(tmp_path, spec)
     for name in EXPECTED_FILES:
@@ -174,11 +180,13 @@ def test_constituents_raises_when_every_adv_is_zero():
     so it must raise rather than emit a plausible-looking useless file."""
     from miniftse.desk.snapshot import SnapshotError, _constituents
 
-    weights = pd.DataFrame({
-        "date": [dt.date(2020, 6, 30)] * 2,
-        "security_id": ["S1", "S2"],
-        "weight": [0.6, 0.4],
-    })
+    weights = pd.DataFrame(
+        {
+            "date": [dt.date(2020, 6, 30)] * 2,
+            "security_id": ["S1", "S2"],
+            "weight": [0.6, 0.4],
+        }
+    )
 
     with pytest.raises(SnapshotError, match="adv"):
         _constituents(weights, {"WRONG-KEY": {"adv": 1_000.0}})
@@ -189,11 +197,13 @@ def test_constituents_tolerates_a_partial_state_mismatch():
     exists for - that constituent carries adv 0.0 and the build proceeds."""
     from miniftse.desk.snapshot import _constituents
 
-    weights = pd.DataFrame({
-        "date": [dt.date(2020, 6, 30)] * 2,
-        "security_id": ["S1", "S2"],
-        "weight": [0.6, 0.4],
-    })
+    weights = pd.DataFrame(
+        {
+            "date": [dt.date(2020, 6, 30)] * 2,
+            "security_id": ["S1", "S2"],
+            "weight": [0.6, 0.4],
+        }
+    )
 
     rows = _constituents(weights, {"S1": {"adv": 1_000.0}})
 
@@ -218,8 +228,12 @@ def test_jsonable_renders_nat_as_null_not_the_string_nat():
 def test_build_snapshot_fails_loudly_on_missing_artefact(tmp_path, monkeypatch):
     """A partial snapshot must never be written."""
     from miniftse.desk import snapshot as snap
-    monkeypatch.setattr(snap, "_read_onepagers", lambda *a, **k: (_ for _ in ()).throw(
-        FileNotFoundError("risk_onepager.md")))
+
+    monkeypatch.setattr(
+        snap,
+        "_read_onepagers",
+        lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("risk_onepager.md")),
+    )
     with pytest.raises(FileNotFoundError, match="risk_onepager"):
         snap.build_snapshot(tmp_path)
     assert not (tmp_path / "manifest.json").exists()
@@ -241,14 +255,18 @@ def test_failed_rerun_leaves_no_stale_manifest(tmp_path, monkeypatch):
 
     spec = BuildSpec(
         universe_config=SyntheticConfig(n_securities=100, seed=20260809),
-        start=dt.date(2019, 1, 2), end=dt.date(2019, 12, 31),
+        start=dt.date(2019, 1, 2),
+        end=dt.date(2019, 12, 31),
     )
     snap.build_snapshot(tmp_path, spec)
     assert (tmp_path / "manifest.json").exists()
 
     # Fail at a late artefact, after the parquet files have already been rewritten.
-    monkeypatch.setattr(snap, "_evals_payload", lambda *a, **k: (_ for _ in ()).throw(
-        RuntimeError("the eval harness fell over")))
+    monkeypatch.setattr(
+        snap,
+        "_evals_payload",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("the eval harness fell over")),
+    )
     with pytest.raises(RuntimeError, match="eval harness"):
         snap.build_snapshot(tmp_path, spec)
 
@@ -277,10 +295,14 @@ def desk_data_dir(tmp_path_factory):
     from miniftse.production.build import BuildSpec
 
     data = tmp_path_factory.mktemp("desk-data")
-    build_snapshot(data, BuildSpec(
-        universe_config=SyntheticConfig(n_securities=100, seed=20260809),
-        start=dt.date(2019, 1, 2), end=dt.date(2019, 12, 31),
-    ))
+    build_snapshot(
+        data,
+        BuildSpec(
+            universe_config=SyntheticConfig(n_securities=100, seed=20260809),
+            start=dt.date(2019, 1, 2),
+            end=dt.date(2019, 12, 31),
+        ),
+    )
     return data
 
 
@@ -447,9 +469,7 @@ def test_explain_day_review_date_carries_turnover(desk_state):
     explanation = explain_day(desk_state, date)
 
     assert explanation.review is not None
-    assert explanation.review["one_way_turnover"] == pytest.approx(
-        float(row["one_way_turnover"])
-    )
+    assert explanation.review["one_way_turnover"] == pytest.approx(float(row["one_way_turnover"]))
     assert explanation.review["n_additions"] == row["n_additions"]
 
 
@@ -699,11 +719,20 @@ def test_run_drill_does_not_mutate_the_shared_baseline(desk_state):
     from miniftse.desk.services import run_drill
 
     baseline = desk_state.chaos_baseline
-    frame_fields = ("prices", "prior_prices", "shares", "corp_actions", "weights",
-                    "fx", "prior_fx", "divisor_audit")
+    frame_fields = (
+        "prices",
+        "prior_prices",
+        "shares",
+        "corp_actions",
+        "weights",
+        "fx",
+        "prior_fx",
+        "divisor_audit",
+    )
     before = {
         name: getattr(baseline, name).copy()
-        for name in frame_fields if getattr(baseline, name) is not None
+        for name in frame_fields
+        if getattr(baseline, name) is not None
     }
     assert before, "fixture baseline must carry at least one frame for this test to mean anything"
 
@@ -771,9 +800,7 @@ def test_chaos_seed_input_default_value_is_within_its_own_bounds(client):
             if tag == "input" and attr_dict.get("id") == "seed-input":
                 self.attrs = attr_dict
 
-        def handle_startendtag(
-            self, tag: str, attrs: list[tuple[str, str | None]]
-        ) -> None:
+        def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
             self.handle_starttag(tag, attrs)
 
     response = client.get("/chaos")
@@ -815,10 +842,15 @@ def test_chaos_get_marks_wrong_rule_row_deterministically(desk_data_dir, monkeyp
     from miniftse.desk import app as app_module
 
     synthetic_row = {
-        "fault_id": "F01", "fault_name": "price off by 10x", "detected": True,
-        "detected_by": "ohlc_consistency", "expected_detector": "price_outliers",
-        "caught_by_expected": False, "highest_severity": "BLOCK",
-        "blocked_publication": True, "detail": "synthetic row for this test",
+        "fault_id": "F01",
+        "fault_name": "price off by 10x",
+        "detected": True,
+        "detected_by": "ohlc_consistency",
+        "expected_detector": "price_outliers",
+        "caught_by_expected": False,
+        "highest_severity": "BLOCK",
+        "blocked_publication": True,
+        "detail": "synthetic row for this test",
         "realism": "n/a",
     }
     monkeypatch.setattr(app_module, "chaos_drill_rows", lambda desk: [synthetic_row])
@@ -893,14 +925,18 @@ def test_chaos_run_marks_wrong_rule_deterministically(desk_data_dir, monkeypatch
     from miniftse.desk.services import DrillOutcome
 
     synthetic_outcome = DrillOutcome(
-        fault_id="F01", fault_name="price off by 10x", detected=True,
-        detected_by=("ohlc_consistency",), expected_detector="price_outliers",
-        severity="BLOCK", publication_blocked=True, realism="n/a",
-        detail="synthetic outcome for this test", coverage_gap=None,
+        fault_id="F01",
+        fault_name="price off by 10x",
+        detected=True,
+        detected_by=("ohlc_consistency",),
+        expected_detector="price_outliers",
+        severity="BLOCK",
+        publication_blocked=True,
+        realism="n/a",
+        detail="synthetic outcome for this test",
+        coverage_gap=None,
     )
-    monkeypatch.setattr(
-        app_module, "run_drill", lambda state, fault_id, seed: synthetic_outcome
-    )
+    monkeypatch.setattr(app_module, "run_drill", lambda state, fault_id, seed: synthetic_outcome)
 
     with TestClient(app_module.create_app(data_dir=desk_data_dir)) as c:
         response = c.post("/chaos/run", data={"fault_id": "F01", "seed": "1"})
@@ -926,9 +962,7 @@ def test_chaos_run_shows_wrong_rule_finding_for_a_live_mismatch(client, desk_sta
     if mismatch is None:
         pytest.skip("no fault in this fixture is caught by the wrong rule at this seed")
 
-    response = client.post(
-        "/chaos/run", data={"fault_id": mismatch.fault_id, "seed": str(seed)}
-    )
+    response = client.post("/chaos/run", data={"fault_id": mismatch.fault_id, "seed": str(seed)})
 
     assert response.status_code == 200
     assert "caught by the wrong rule" in response.text.lower()
@@ -1082,8 +1116,7 @@ def test_evals_get_shows_all_four_headline_metrics_and_failures_heading(client):
 
     assert response.status_code == 200
     body = response.text
-    for label in ("Accuracy", "Citation precision", "Abstention accuracy",
-                  "Hallucination rate"):
+    for label in ("Accuracy", "Citation precision", "Abstention accuracy", "Hallucination rate"):
         assert label in body
     assert "failures" in body.lower()
 
@@ -1125,7 +1158,7 @@ def test_evals_get_does_not_collapse_the_failures_section(client):
     assert response.status_code == 200
     body = response.text
     section_start = body.lower().index('data-testid="failures-section"')
-    section = body[section_start:section_start + 2000]
+    section = body[section_start : section_start + 2000]
     assert "<details" not in section.lower()
 
 
@@ -1215,9 +1248,7 @@ def test_draft_get_fact_pack_shows_every_fact_with_its_source(client):
 
 @pytest.mark.slow
 def test_draft_render_inject_false_guard_passes(client):
-    response = client.post(
-        "/draft/render", data={"question_id": "0", "inject_bad_number": "false"}
-    )
+    response = client.post("/draft/render", data={"question_id": "0", "inject_bad_number": "false"})
 
     assert response.status_code == 200
     body = response.text
@@ -1232,9 +1263,7 @@ def test_draft_render_inject_true_guard_does_not_pass(client):
     """The concrete demonstration the whole screen exists for: appending a fabricated
     figure to the draft makes `NumberGuard` reject it - the guard's own verification,
     not desk-side fakery (see `services._fabricate_unverified_sentence`)."""
-    response = client.post(
-        "/draft/render", data={"question_id": "0", "inject_bad_number": "true"}
-    )
+    response = client.post("/draft/render", data={"question_id": "0", "inject_bad_number": "true"})
 
     assert response.status_code == 200
     body = response.text
@@ -1341,9 +1370,7 @@ def _unpinned_snapshot(source, destination):
     import shutil
 
     shutil.copytree(source, destination, dirs_exist_ok=True)
-    (destination / "golden_diff.json").write_text(
-        json.dumps({"pinned": False}), encoding="utf-8"
-    )
+    (destination / "golden_diff.json").write_text(json.dumps({"pinned": False}), encoding="utf-8")
     return destination
 
 
@@ -1387,9 +1414,7 @@ def test_reproducibility_shows_max_diff_and_column_diffs(client, desk_state):
 
 
 @pytest.mark.slow
-def test_reproducibility_unpinned_master_renders_a_state_not_an_error(
-    desk_data_dir, tmp_path
-):
+def test_reproducibility_unpinned_master_renders_a_state_not_an_error(desk_data_dir, tmp_path):
     """`{"pinned": false}` is a state the screen renders, not a 500 - see
     `snapshot._golden_payload`'s docstring. The incident section must still be there:
     it is a written record, not a function of the current comparison."""
@@ -1436,7 +1461,7 @@ def _incident_section(body: str) -> str:
     would pass on a coincidence in the panel, so every incident assertion is scoped to
     the section that is supposed to carry them.
     """
-    return body[body.index('data-testid="incident-section"'):]
+    return body[body.index('data-testid="incident-section"') :]
 
 
 def _collapse(text: str) -> str:
@@ -1472,9 +1497,7 @@ def test_reproducibility_incident_carries_the_agreed_numbers(client):
         "divergent_dates",
         "total_dates",
     ):
-        assert str(incident[key]) in section, (
-            f"incident section must state {key} ({incident[key]})"
-        )
+        assert str(incident[key]) in section, f"incident section must state {key} ({incident[key]})"
 
 
 @pytest.mark.slow
@@ -1541,9 +1564,7 @@ def test_reproducibility_repin_is_not_framed_as_a_knife_edge(client):
 
 
 @pytest.mark.slow
-def test_index_get_200_with_return_stat_constituents_header_and_six_schemes(
-    client, desk_state
-):
+def test_index_get_200_with_return_stat_constituents_header_and_six_schemes(client, desk_state):
     """Brief Step 1: `GET /index` is 200 and contains the annualised-return stat, the
     constituents table header, and the six scheme names.
 
@@ -1561,7 +1582,7 @@ def test_index_get_200_with_return_stat_constituents_header_and_six_schemes(
     body = response.text
 
     stats = desk_state.overview["stats"]
-    assert f'{stats["annualised_return"] * 100:.1f}%' in body
+    assert f"{stats['annualised_return'] * 100:.1f}%" in body
 
     assert "Security" in body  # constituents table header
     assert "Weight" in body
@@ -1593,7 +1614,7 @@ def test_index_references_capacity_js_and_it_is_served(client):
     response = client.get("/index")
 
     assert response.status_code == 200
-    assert '/static/capacity.js' in response.text
+    assert "/static/capacity.js" in response.text
 
     js_response = client.get("/static/capacity.js")
     assert js_response.status_code == 200
@@ -1673,9 +1694,9 @@ def test_index_stat_tiles_show_all_four_overview_stats(client, desk_state):
     body = response.text
     stats = desk_state.overview["stats"]
 
-    assert f'{stats["annualised_return"] * 100:.1f}%' in body
-    assert f'{stats["annualised_vol"] * 100:.1f}%' in body
-    assert f'{stats["max_drawdown"] * 100:.1f}%' in body
+    assert f"{stats['annualised_return'] * 100:.1f}%" in body
+    assert f"{stats['annualised_vol'] * 100:.1f}%" in body
+    assert f"{stats['max_drawdown'] * 100:.1f}%" in body
     assert str(stats["divisor_events"]) in body
 
 
@@ -1695,9 +1716,7 @@ def test_index_scheme_table_shows_every_scheme_property(client, desk_state):
 
 
 @pytest.mark.slow
-def test_index_risk_and_attribution_onepagers_render_title_and_a_table_cell(
-    client, desk_state
-):
+def test_index_risk_and_attribution_onepagers_render_title_and_a_table_cell(client, desk_state):
     """Both parsed one-pagers (`state.risk_attribution["risk"]`/`["attribution"]`)
     render their title and at least one real table cell from their sections - proof the
     payload's `sections`/`table` shape is actually walked, not just its top-level keys."""
@@ -2008,14 +2027,14 @@ def test_validate_date_rejects_unparseable_and_out_of_set_dates():
 
 
 _INDEX_ARITHMETIC = re.compile(
-    r"\*\s*100\b|\b100\s*\*"            # percent recomputation, either operand order:
-                                         # ratio * 100 or 100 * ratio
-    r"|/\s*10_?000\b"                   # bps -> fraction: x / 10000 or x / 10_000
-    r"|\*\s*10_?000\b|\b10_?000\s*\*"   # fraction -> bps, either operand order:
-                                         # x * 10000/10_000 or 10000/10_000 * x
-    r"|\*\s*252\b|\b252\s*\*"           # annualisation factor, either operand order
-    r"|\*\*\s*\(\s*1\s*/"               # nth root: x ** (1 / n)
-    r"|\*\*\s*0\.5\b"                   # the sqrt idiom: x ** 0.5
+    r"\*\s*100\b|\b100\s*\*"  # percent recomputation, either operand order:
+    # ratio * 100 or 100 * ratio
+    r"|/\s*10_?000\b"  # bps -> fraction: x / 10000 or x / 10_000
+    r"|\*\s*10_?000\b|\b10_?000\s*\*"  # fraction -> bps, either operand order:
+    # x * 10000/10_000 or 10000/10_000 * x
+    r"|\*\s*252\b|\b252\s*\*"  # annualisation factor, either operand order
+    r"|\*\*\s*\(\s*1\s*/"  # nth root: x ** (1 / n)
+    r"|\*\*\s*0\.5\b"  # the sqrt idiom: x ** 0.5
 )
 # Every operator is required to sit adjacent to its number - a bare `252` (a line
 # count, a port, an HTTP status) never matches on its own, only `252 *`/`* 252`. Every
@@ -2134,9 +2153,7 @@ def test_desk_arithmetic_allowlist_marker_is_actually_present_on_to_bps():
     reason would, so this also requires non-whitespace text after the colon - the
     marker has to force someone to write down *why*, not just to type the token."""
     source = pathlib.Path("src/miniftse/desk/services.py").read_text()
-    to_bps_line = next(
-        line for line in source.splitlines() if "ratio * 10_000" in line
-    )
+    to_bps_line = next(line for line in source.splitlines() if "ratio * 10_000" in line)
     assert _ALLOWLIST_MARKER in to_bps_line
     reason = to_bps_line.split(_ALLOWLIST_MARKER, 1)[1].strip()
     assert reason, "the allowlist marker must carry a reason, not a bare colon"
@@ -2163,14 +2180,14 @@ orders where multiplication makes that meaningful (`* 100`/`100 *`, not `/ 10000
 since division isn't commutative and only one order is a bps->fraction conversion)."""
 
 _KNOWN_GOOD_NON_ARITHMETIC: tuple[str, ...] = (
-    'f"{x:.2%}"',                # percent formatting, not a percent recomputation
-    "# HTTP 100 Continue",       # a bare number, no adjacent operator
-    "port = 7860",               # an unrelated integer
-    "SESSIONS_PER_YEAR = 252",   # a bare 252, no adjacent operator - see the module
-                                  # docstring's note on why this containment matters
-    "weight * 10",               # an unrelated small multiplier, not 100/10000/252
-    "self.value * other.factor", # generic multiplication, no banned literal at all
-    "compounded ** 2",           # squaring, not the `** 0.5`/`** (1/n)` root idiom
+    'f"{x:.2%}"',  # percent formatting, not a percent recomputation
+    "# HTTP 100 Continue",  # a bare number, no adjacent operator
+    "port = 7860",  # an unrelated integer
+    "SESSIONS_PER_YEAR = 252",  # a bare 252, no adjacent operator - see the module
+    # docstring's note on why this containment matters
+    "weight * 10",  # an unrelated small multiplier, not 100/10000/252
+    "self.value * other.factor",  # generic multiplication, no banned literal at all
+    "compounded ** 2",  # squaring, not the `** 0.5`/`** (1/n)` root idiom
 )
 """Snippets that must *not* match - each one exercises a specific way the pattern
 could over-match if a future edit widened it carelessly (a bare number, an unrelated

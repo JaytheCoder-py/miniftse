@@ -155,9 +155,7 @@ class SyntheticConfig:
         and including it would make the same data hash differently on two machines.
         """
         payload = {
-            f.name: (
-                v.isoformat() if isinstance(v := getattr(self, f.name), dt.date) else v
-            )
+            f.name: (v.isoformat() if isinstance(v := getattr(self, f.name), dt.date) else v)
             for f in fields(self)
             if f.name != "cache_dir"
         }
@@ -194,9 +192,7 @@ class SyntheticUniverse:
         modelled.
         """
         days = pd.bdate_range(self.config.start, self.config.end)
-        holidays = {
-            (m, d) for m, d in [(1, 1), (12, 25), (12, 26), (7, 4), (5, 1), (12, 31)]
-        }
+        holidays = {(m, d) for m, d in [(1, 1), (12, 25), (12, 26), (7, 4), (5, 1), (12, 31)]}
         return pd.DatetimeIndex([d for d in days if (d.month, d.day) not in holidays])
 
     @property
@@ -294,9 +290,10 @@ class SyntheticUniverse:
             {
                 "security_id": sec_ids,
                 "issuer_id": issuer_ids,
-                "listing_id": [f"{s}.{MARKETS[countries[c]][2]}" for s, c in zip(sec_ids,
-                                                                                 country_idx,
-                                                                                     strict=False)],
+                "listing_id": [
+                    f"{s}.{MARKETS[countries[c]][2]}"
+                    for s, c in zip(sec_ids, country_idx, strict=False)
+                ],
                 "country": [countries[c].value for c in country_idx],
                 "currency": [MARKETS[countries[c]][0].value for c in country_idx],
                 "market_status": [MARKETS[countries[c]][1].value for c in country_idx],
@@ -456,9 +453,7 @@ class SyntheticUniverse:
         float_events: list[dict[str, Any]] = []
         spinoffs: list[dict[str, Any]] = []
 
-        start_idx = np.searchsorted(
-            np.array(cal_dates), secs["listing_start"].to_numpy()
-        )
+        start_idx = np.searchsorted(np.array(cal_dates), secs["listing_start"].to_numpy())
         end_idx = np.array(
             [
                 t if e is None else int(np.searchsorted(np.array(cal_dates), e))
@@ -483,9 +478,14 @@ class SyntheticUniverse:
 
             # Dividend policy: a payout yield tied to quality, paid on a fixed cycle.
             ann_yield = float(
-                np.clip(0.021 + 0.010 * secs["expo_quality"].iloc[i]
-                        - 0.008 * secs["expo_growth"].iloc[i]
-                        + rng.normal(0, 0.008), 0.0, 0.085)
+                np.clip(
+                    0.021
+                    + 0.010 * secs["expo_quality"].iloc[i]
+                    - 0.008 * secs["expo_growth"].iloc[i]
+                    + rng.normal(0, 0.008),
+                    0.0,
+                    0.085,
+                )
             )
             div_months = {1: (5,), 2: (5, 11), 4: (2, 5, 8, 11)}[div_freq]
 
@@ -520,27 +520,42 @@ class SyntheticUniverse:
                     prev = cal_dates[j - 1] if j else None
                     if prev is None or prev.month != d.month:
                         amt = p * ann_yield / div_freq
-                        actions.append({
-                            "event_id": f"DIV-{sec_id}-{d.isoformat()}",
-                            "security_id": sec_id, "event_type": "CASH_DIVIDEND",
-                            "announcement_date": d - dt.timedelta(days=21),
-                            "ex_date": d,
-                            "pay_date": d + dt.timedelta(days=28),
-                            "payload": {"amount": round(amt, 6), "currency": ccy,
-                                        "gross_amount": round(amt, 6), "is_special": False},
-                        })
+                        actions.append(
+                            {
+                                "event_id": f"DIV-{sec_id}-{d.isoformat()}",
+                                "security_id": sec_id,
+                                "event_type": "CASH_DIVIDEND",
+                                "announcement_date": d - dt.timedelta(days=21),
+                                "ex_date": d,
+                                "pay_date": d + dt.timedelta(days=28),
+                                "payload": {
+                                    "amount": round(amt, 6),
+                                    "currency": ccy,
+                                    "gross_amount": round(amt, 6),
+                                    "is_special": False,
+                                },
+                            }
+                        )
                         p -= amt
 
                 if rng.random() < self.config.p_special_div_per_year * year_frac:
                     amt = p * float(rng.uniform(0.01, 0.06))
-                    actions.append({
-                        "event_id": f"SPC-{sec_id}-{d.isoformat()}",
-                        "security_id": sec_id, "event_type": "SPECIAL_DIVIDEND",
-                        "announcement_date": d - dt.timedelta(days=14),
-                        "ex_date": d, "pay_date": d + dt.timedelta(days=21),
-                        "payload": {"amount": round(amt, 6), "currency": ccy,
-                                    "gross_amount": round(amt, 6), "is_special": True},
-                    })
+                    actions.append(
+                        {
+                            "event_id": f"SPC-{sec_id}-{d.isoformat()}",
+                            "security_id": sec_id,
+                            "event_type": "SPECIAL_DIVIDEND",
+                            "announcement_date": d - dt.timedelta(days=14),
+                            "ex_date": d,
+                            "pay_date": d + dt.timedelta(days=21),
+                            "payload": {
+                                "amount": round(amt, 6),
+                                "currency": ccy,
+                                "gross_amount": round(amt, 6),
+                                "is_special": True,
+                            },
+                        }
+                    )
                     p -= amt
 
                 # --- splits -------------------------------------------------------
@@ -549,36 +564,56 @@ class SyntheticUniverse:
                     and rng.random() < self.config.p_split_per_year * year_frac
                 ):
                     ratio = float(rng.choice([2.0, 3.0, 4.0, 5.0, 10.0]))
-                    actions.append({
-                        "event_id": f"SPL-{sec_id}-{d.isoformat()}",
-                        "security_id": sec_id, "event_type": "SPLIT",
-                        "announcement_date": d - dt.timedelta(days=30),
-                        "ex_date": d, "pay_date": d,
-                        "payload": {"ratio": ratio},
-                    })
+                    actions.append(
+                        {
+                            "event_id": f"SPL-{sec_id}-{d.isoformat()}",
+                            "security_id": sec_id,
+                            "event_type": "SPLIT",
+                            "announcement_date": d - dt.timedelta(days=30),
+                            "ex_date": d,
+                            "pay_date": d,
+                            "payload": {"ratio": ratio},
+                        }
+                    )
                     p /= ratio
                     sh *= ratio
-                    share_events.append({"security_id": sec_id, "effective_date": d,
-                                         "knowledge_date": d, "shares_outstanding": sh,
-                                         "reason": "SPLIT"})
+                    share_events.append(
+                        {
+                            "security_id": sec_id,
+                            "effective_date": d,
+                            "knowledge_date": d,
+                            "shares_outstanding": sh,
+                            "reason": "SPLIT",
+                        }
+                    )
 
                 elif (
                     p < self.config.reverse_split_price_threshold
                     and rng.random() < self.config.p_reverse_split_per_year * year_frac
                 ):
                     ratio = float(rng.choice([0.1, 0.125, 0.2, 0.25]))
-                    actions.append({
-                        "event_id": f"RSP-{sec_id}-{d.isoformat()}",
-                        "security_id": sec_id, "event_type": "REVERSE_SPLIT",
-                        "announcement_date": d - dt.timedelta(days=30),
-                        "ex_date": d, "pay_date": d,
-                        "payload": {"ratio": ratio},
-                    })
+                    actions.append(
+                        {
+                            "event_id": f"RSP-{sec_id}-{d.isoformat()}",
+                            "security_id": sec_id,
+                            "event_type": "REVERSE_SPLIT",
+                            "announcement_date": d - dt.timedelta(days=30),
+                            "ex_date": d,
+                            "pay_date": d,
+                            "payload": {"ratio": ratio},
+                        }
+                    )
                     p /= ratio
                     sh *= ratio
-                    share_events.append({"security_id": sec_id, "effective_date": d,
-                                         "knowledge_date": d, "shares_outstanding": sh,
-                                         "reason": "REVERSE_SPLIT"})
+                    share_events.append(
+                        {
+                            "security_id": sec_id,
+                            "effective_date": d,
+                            "knowledge_date": d,
+                            "shares_outstanding": sh,
+                            "reason": "REVERSE_SPLIT",
+                        }
+                    )
 
                 # --- rights issue ---------------------------------------------------
                 if rng.random() < self.config.p_rights_issue_per_year * year_frac:
@@ -586,21 +621,35 @@ class SyntheticUniverse:
                     discount = float(rng.uniform(0.15, 0.40))
                     sub_price = p * (1 - discount)
                     terp = (n_held * p + n_new * sub_price) / (n_held + n_new)
-                    actions.append({
-                        "event_id": f"RTS-{sec_id}-{d.isoformat()}",
-                        "security_id": sec_id, "event_type": "RIGHTS_ISSUE",
-                        "announcement_date": d - dt.timedelta(days=25),
-                        "ex_date": d, "pay_date": d + dt.timedelta(days=30),
-                        "payload": {"new_shares": n_new, "per_held": n_held,
-                                    "subscription_price": round(sub_price, 6),
-                                    "cum_price": round(p, 6), "terp": round(terp, 6),
-                                    "currency": ccy},
-                    })
+                    actions.append(
+                        {
+                            "event_id": f"RTS-{sec_id}-{d.isoformat()}",
+                            "security_id": sec_id,
+                            "event_type": "RIGHTS_ISSUE",
+                            "announcement_date": d - dt.timedelta(days=25),
+                            "ex_date": d,
+                            "pay_date": d + dt.timedelta(days=30),
+                            "payload": {
+                                "new_shares": n_new,
+                                "per_held": n_held,
+                                "subscription_price": round(sub_price, 6),
+                                "cum_price": round(p, 6),
+                                "terp": round(terp, 6),
+                                "currency": ccy,
+                            },
+                        }
+                    )
                     p = terp
                     sh *= 1 + n_new / n_held
-                    share_events.append({"security_id": sec_id, "effective_date": d,
-                                         "knowledge_date": d, "shares_outstanding": sh,
-                                         "reason": "RIGHTS_ISSUE"})
+                    share_events.append(
+                        {
+                            "security_id": sec_id,
+                            "effective_date": d,
+                            "knowledge_date": d,
+                            "shares_outstanding": sh,
+                            "reason": "RIGHTS_ISSUE",
+                        }
+                    )
 
                 # --- spin-off ---------------------------------------------------------
                 if (
@@ -612,47 +661,67 @@ class SyntheticUniverse:
                     spin_id = f"{sec_id}-SPIN{len(spinoffs):03d}"
                     ratio = float(rng.choice([0.25, 0.5, 1.0]))
                     spin_value = p * frac
-                    actions.append({
-                        "event_id": f"SPN-{sec_id}-{d.isoformat()}",
-                        "security_id": sec_id, "event_type": "SPINOFF",
-                        "announcement_date": d - dt.timedelta(days=120),
-                        "ex_date": d, "pay_date": d,
-                        "payload": {"spinco_security_id": spin_id,
-                                    "shares_per_parent_share": ratio,
-                                    "value_per_parent_share": round(spin_value, 6),
-                                    "parent_cum_price": round(p, 6), "currency": ccy},
-                    })
-                    spinoffs.append({"parent": sec_id, "spin_id": spin_id, "ex_index": j,
-                                     "value_per_share": spin_value, "ratio": ratio,
-                                     "parent_shares": sh, "country": country,
-                                     "currency": ccy, "parent_row": i})
+                    actions.append(
+                        {
+                            "event_id": f"SPN-{sec_id}-{d.isoformat()}",
+                            "security_id": sec_id,
+                            "event_type": "SPINOFF",
+                            "announcement_date": d - dt.timedelta(days=120),
+                            "ex_date": d,
+                            "pay_date": d,
+                            "payload": {
+                                "spinco_security_id": spin_id,
+                                "shares_per_parent_share": ratio,
+                                "value_per_parent_share": round(spin_value, 6),
+                                "parent_cum_price": round(p, 6),
+                                "currency": ccy,
+                            },
+                        }
+                    )
+                    spinoffs.append(
+                        {
+                            "parent": sec_id,
+                            "spin_id": spin_id,
+                            "ex_index": j,
+                            "value_per_share": spin_value,
+                            "ratio": ratio,
+                            "parent_shares": sh,
+                            "country": country,
+                            "currency": ccy,
+                            "parent_row": i,
+                        }
+                    )
                     p -= spin_value
 
                 # --- share count drift --------------------------------------------
                 if rng.random() < self.config.p_buyback_per_year * year_frac:
                     delta = float(rng.normal(-0.012, 0.018))
                     sh *= 1 + delta
-                    share_events.append({
-                        "security_id": sec_id, "effective_date": d,
-                        # Share counts are known from a filing, which lags the event.
-                        "knowledge_date": d + dt.timedelta(days=int(rng.integers(5, 45))),
-                        "shares_outstanding": sh,
-                        "reason": "BUYBACK" if delta < 0 else "ISSUANCE",
-                    })
+                    share_events.append(
+                        {
+                            "security_id": sec_id,
+                            "effective_date": d,
+                            # Share counts are known from a filing, which lags the event.
+                            "knowledge_date": d + dt.timedelta(days=int(rng.integers(5, 45))),
+                            "shares_outstanding": sh,
+                            "reason": "BUYBACK" if delta < 0 else "ISSUANCE",
+                        }
+                    )
 
                 if rng.random() < self.config.p_float_change_per_year * year_frac:
                     flt = float(np.clip(flt + rng.normal(0, 0.035), 0.02, 1.0))
-                    float_events.append({
-                        "security_id": sec_id, "effective_date": d,
-                        "knowledge_date": d + dt.timedelta(days=int(rng.integers(2, 20))),
-                        "free_float_factor": round(flt, 4),
-                    })
+                    float_events.append(
+                        {
+                            "security_id": sec_id,
+                            "effective_date": d,
+                            "knowledge_date": d + dt.timedelta(days=int(rng.integers(2, 20))),
+                            "free_float_factor": round(flt, 4),
+                        }
+                    )
 
                 price[i, j] = p
                 shares_mat[i, j] = sh
-                volume[i, j] = max(
-                    0.0, adv_base / p * float(rng.lognormal(0, 0.55))
-                )
+                volume[i, j] = max(0.0, adv_base / p * float(rng.lognormal(0, 0.55)))
 
             # --- terminal event ----------------------------------------------------
             # Three ways a constituent leaves: bought for cash (weight exits as cash),
@@ -663,28 +732,43 @@ class SyntheticUniverse:
                 roll = rng.random()
                 premium = float(rng.uniform(0.10, 0.45))
                 if roll < 0.70 * (1 - self.config.frac_mergers_stock):
-                    kind, payload = "MERGER_CASH", {
-                        "cash_per_share": round(p * (1 + premium), 6), "currency": ccy,
-                    }
+                    kind, payload = (
+                        "MERGER_CASH",
+                        {
+                            "cash_per_share": round(p * (1 + premium), 6),
+                            "currency": ccy,
+                        },
+                    )
                 elif roll < 0.70:
-                    kind, payload = "MERGER_STOCK", {
-                        # Acquirer resolved after generation, once survivors are known.
-                        "acquirer_security_id": None,
-                        "exchange_ratio": round(float(rng.uniform(0.15, 2.5)), 6),
-                        "implied_value_per_share": round(p * (1 + premium), 6),
-                        "currency": ccy,
-                    }
+                    kind, payload = (
+                        "MERGER_STOCK",
+                        {
+                            # Acquirer resolved after generation, once survivors are known.
+                            "acquirer_security_id": None,
+                            "exchange_ratio": round(float(rng.uniform(0.15, 2.5)), 6),
+                            "implied_value_per_share": round(p * (1 + premium), 6),
+                            "currency": ccy,
+                        },
+                    )
                 else:
-                    kind, payload = "DELISTING", {
-                        "reason": "DELISTED", "final_price": round(p, 6),
+                    kind, payload = (
+                        "DELISTING",
+                        {
+                            "reason": "DELISTED",
+                            "final_price": round(p, 6),
+                        },
+                    )
+                actions.append(
+                    {
+                        "event_id": f"END-{sec_id}-{end_date.isoformat()}",
+                        "security_id": sec_id,
+                        "event_type": kind,
+                        "announcement_date": end_date - dt.timedelta(days=75),
+                        "ex_date": end_date,
+                        "pay_date": end_date,
+                        "payload": payload,
                     }
-                actions.append({
-                    "event_id": f"END-{sec_id}-{end_date.isoformat()}",
-                    "security_id": sec_id, "event_type": kind,
-                    "announcement_date": end_date - dt.timedelta(days=75),
-                    "ex_date": end_date, "pay_date": end_date,
-                    "payload": payload,
-                })
+                )
 
         # --- spin-off children get their own price series ------------------------
         spin_rows: list[dict[str, Any]] = []
@@ -708,16 +792,28 @@ class SyntheticUniverse:
             for j in range(j0, t):
                 pp *= math.exp(float(rets.iat[i, j]) + float(srng.normal(0, 0.012)))
                 pp = max(pp, 0.05)
-                spin_rows.append({
-                    "security_id": spin["spin_id"], "date": cal_dates[j],
-                    "close": pp, "shares": spin_shares,
-                    "volume": spin_shares * 0.004 * float(srng.lognormal(0, 0.6)),
-                    "currency": spin["currency"], "country": spin["country"],
-                })
+                spin_rows.append(
+                    {
+                        "security_id": spin["spin_id"],
+                        "date": cal_dates[j],
+                        "close": pp,
+                        "shares": spin_shares,
+                        "volume": spin_shares * 0.004 * float(srng.lognormal(0, 0.6)),
+                        "currency": spin["currency"],
+                        "country": spin["country"],
+                    }
+                )
 
         self._tables = self._assemble(
-            price, volume, shares_mat, suspended, actions, share_events,
-            float_events, spin_rows, cal_dates,
+            price,
+            volume,
+            shares_mat,
+            suspended,
+            actions,
+            share_events,
+            float_events,
+            spin_rows,
+            cal_dates,
         )
         return self._tables
 
@@ -742,15 +838,17 @@ class SyntheticUniverse:
         mask = ~np.isnan(price)
         sec_ix, date_ix = np.nonzero(mask)
         closes = price[mask]
-        prices = pd.DataFrame({
-            "security_id": secs["security_id"].to_numpy()[sec_ix],
-            "listing_id": secs["listing_id"].to_numpy()[sec_ix],
-            "date": np.array(cal_dates, dtype=object)[date_ix],
-            "close": closes,
-            "volume": volume[mask],
-            "currency": secs["currency"].to_numpy()[sec_ix],
-            "is_suspended": suspended[mask],
-        })
+        prices = pd.DataFrame(
+            {
+                "security_id": secs["security_id"].to_numpy()[sec_ix],
+                "listing_id": secs["listing_id"].to_numpy()[sec_ix],
+                "date": np.array(cal_dates, dtype=object)[date_ix],
+                "close": closes,
+                "volume": volume[mask],
+                "currency": secs["currency"].to_numpy()[sec_ix],
+                "is_suspended": suspended[mask],
+            }
+        )
         # Intraday range around the close. Not used by the index (which is a close-based
         # calculation) but the quality layer's range checks need it.
         # High and low must bracket both open and close by construction. Scaling
@@ -772,8 +870,23 @@ class SyntheticUniverse:
             spin_df["high"] = spin_df["close"] * 1.004
             spin_df["low"] = spin_df["close"] * 0.996
             prices = pd.concat(
-                [prices, spin_df[["security_id", "listing_id", "date", "close", "volume",
-                                  "currency", "is_suspended", "open", "high", "low"]]],
+                [
+                    prices,
+                    spin_df[
+                        [
+                            "security_id",
+                            "listing_id",
+                            "date",
+                            "close",
+                            "volume",
+                            "currency",
+                            "is_suspended",
+                            "open",
+                            "high",
+                            "low",
+                        ]
+                    ],
+                ],
                 ignore_index=True,
             )
 
@@ -784,21 +897,25 @@ class SyntheticUniverse:
         for i, sid in enumerate(secs["security_id"]):
             row = np.flatnonzero(~np.isnan(shares_mat[i]))
             if row.size:
-                initial_shares.append({
-                    "security_id": sid,
-                    "effective_date": cal_dates[int(row[0])],
-                    "knowledge_date": cal_dates[int(row[0])],
-                    "shares_outstanding": float(shares_mat[i, row[0]]),
-                    "reason": "INITIAL",
-                })
+                initial_shares.append(
+                    {
+                        "security_id": sid,
+                        "effective_date": cal_dates[int(row[0])],
+                        "knowledge_date": cal_dates[int(row[0])],
+                        "shares_outstanding": float(shares_mat[i, row[0]]),
+                        "reason": "INITIAL",
+                    }
+                )
         shares_df = pd.DataFrame(initial_shares + share_events)
 
-        float_initial = pd.DataFrame({
-            "security_id": secs["security_id"],
-            "effective_date": secs["listing_start"],
-            "knowledge_date": secs["listing_start"],
-            "free_float_factor": secs["initial_float"],
-        })
+        float_initial = pd.DataFrame(
+            {
+                "security_id": secs["security_id"],
+                "effective_date": secs["listing_start"],
+                "knowledge_date": secs["listing_start"],
+                "free_float_factor": secs["initial_float"],
+            }
+        )
         float_df = pd.concat([float_initial, pd.DataFrame(float_events)], ignore_index=True)
 
         # Share-count events and free-float events arrive independently, each carrying
@@ -813,12 +930,17 @@ class SyntheticUniverse:
         float_part["shares_outstanding"] = np.nan
         float_part["reason"] = "FLOAT_CHANGE"
 
-        cols = ["security_id", "effective_date", "knowledge_date",
-                "shares_outstanding", "free_float_factor", "reason"]
+        cols = [
+            "security_id",
+            "effective_date",
+            "knowledge_date",
+            "shares_outstanding",
+            "free_float_factor",
+            "reason",
+        ]
         shares_final = (
             pd.concat([shares_part[cols], float_part[cols]], ignore_index=True)
-            .sort_values(["security_id", "effective_date", "knowledge_date"],
-                         kind="mergesort")
+            .sort_values(["security_id", "effective_date", "knowledge_date"], kind="mergesort")
             .reset_index(drop=True)
         )
         grouped = shares_final.groupby("security_id", sort=False)
@@ -828,9 +950,7 @@ class SyntheticUniverse:
         # A float observation before the first share count has nothing to attach to.
         shares_final = shares_final.dropna(subset=["shares_outstanding"]).copy()
         shares_final["free_float_factor"] = shares_final["free_float_factor"].fillna(1.0)
-        shares_final["foreign_ownership_limit"] = (
-            shares_final["security_id"].map(fol).fillna(1.0)
-        )
+        shares_final["foreign_ownership_limit"] = shares_final["security_id"].map(fol).fillna(1.0)
         shares_final = shares_final.reset_index(drop=True)
 
         # ---- corporate actions ----------------------------------------------------
@@ -844,8 +964,10 @@ class SyntheticUniverse:
                 continue
             ex = action["ex_date"]
             candidates = [
-                s for s, start in alive_from.items()
-                if start <= ex and (alive_to[s] is None or alive_to[s] > ex)
+                s
+                for s, start in alive_from.items()
+                if start <= ex
+                and (alive_to[s] is None or alive_to[s] > ex)
                 and s != action["security_id"]
             ]
             if candidates:
@@ -902,8 +1024,9 @@ class SyntheticUniverse:
             # book equity level. Quality drives margin; growth drives revenue trend.
             btp = float(np.clip(0.55 * math.exp(0.45 * sec["expo_value"]), 0.03, 4.0))
             book = cap * btp
-            margin = float(np.clip(0.085 + 0.035 * sec["expo_quality"]
-                                   + rng.normal(0, 0.02), -0.10, 0.42))
+            margin = float(
+                np.clip(0.085 + 0.035 * sec["expo_quality"] + rng.normal(0, 0.02), -0.10, 0.42)
+            )
             asset_turn = float(np.clip(0.70 + 0.20 * rng.standard_normal(), 0.15, 2.5))
             growth = float(np.clip(0.03 + 0.055 * sec["expo_growth"], -0.12, 0.35))
 
@@ -938,9 +1061,17 @@ class SyntheticUniverse:
                     "DIVIDENDS_PAID": -max(0.0, ni * float(rng.uniform(0.0, 0.6))),
                 }
                 for item, val in values.items():
-                    rows.append({"security_id": sid, "item": item, "period_end": pe,
-                                 "filed_date": filed, "value": float(val), "currency": ccy,
-                                 "is_restatement": False})
+                    rows.append(
+                        {
+                            "security_id": sid,
+                            "item": item,
+                            "period_end": pe,
+                            "filed_date": filed,
+                            "value": float(val),
+                            "currency": ccy,
+                            "is_restatement": False,
+                        }
+                    )
 
                 # Restatement: same period, filed later, different number.
                 if k > 2 and rng.random() < self.config.p_restatement:
@@ -949,15 +1080,23 @@ class SyntheticUniverse:
                     if refiled <= self.config.end:
                         shift = float(rng.normal(0, 0.07))
                         for item in ("BOOK_EQUITY", "NET_INCOME", "TOTAL_ASSETS"):
-                            rows.append({
-                                "security_id": sid, "item": item, "period_end": pe,
-                                "filed_date": refiled,
-                                "value": float(values[item] * (1 + shift)),
-                                "currency": ccy, "is_restatement": True,
-                            })
+                            rows.append(
+                                {
+                                    "security_id": sid,
+                                    "item": item,
+                                    "period_end": pe,
+                                    "filed_date": refiled,
+                                    "value": float(values[item] * (1 + shift)),
+                                    "currency": ccy,
+                                    "is_restatement": True,
+                                }
+                            )
 
-        return pd.DataFrame(rows).sort_values(
-            ["security_id", "item", "period_end", "filed_date"]).reset_index(drop=True)
+        return (
+            pd.DataFrame(rows)
+            .sort_values(["security_id", "item", "period_end", "filed_date"])
+            .reset_index(drop=True)
+        )
 
     # ---------------------------------------------------------------- FX
 
@@ -969,14 +1108,30 @@ class SyntheticUniverse:
         rows: list[dict[str, Any]] = []
         sqrt_dt = 1.0 / math.sqrt(252.0)
 
-        levels = {Currency.GBP: 1.30, Currency.EUR: 1.10, Currency.JPY: 0.0080,
-                  Currency.CHF: 1.05, Currency.CAD: 0.76, Currency.AUD: 0.70,
-                  Currency.HKD: 0.128, Currency.SEK: 0.105, Currency.KRW: 0.00082,
-                  Currency.USD: 1.0}
-        rates = {Currency.USD: 0.030, Currency.GBP: 0.032, Currency.EUR: 0.018,
-                 Currency.JPY: 0.002, Currency.CHF: 0.008, Currency.CAD: 0.028,
-                 Currency.AUD: 0.031, Currency.HKD: 0.029, Currency.SEK: 0.020,
-                 Currency.KRW: 0.027}
+        levels = {
+            Currency.GBP: 1.30,
+            Currency.EUR: 1.10,
+            Currency.JPY: 0.0080,
+            Currency.CHF: 1.05,
+            Currency.CAD: 0.76,
+            Currency.AUD: 0.70,
+            Currency.HKD: 0.128,
+            Currency.SEK: 0.105,
+            Currency.KRW: 0.00082,
+            Currency.USD: 1.0,
+        }
+        rates = {
+            Currency.USD: 0.030,
+            Currency.GBP: 0.032,
+            Currency.EUR: 0.018,
+            Currency.JPY: 0.002,
+            Currency.CHF: 0.008,
+            Currency.CAD: 0.028,
+            Currency.AUD: 0.031,
+            Currency.HKD: 0.029,
+            Currency.SEK: 0.020,
+            Currency.KRW: 0.027,
+        }
 
         for ccy, lvl in levels.items():
             vol = 0.0 if ccy == Currency.USD else float(rng.uniform(0.05, 0.13))
@@ -984,11 +1139,19 @@ class SyntheticUniverse:
             x = lvl
             for j, d in enumerate(self.calendar):
                 if ccy != Currency.USD:
-                    x *= math.exp(-0.5 * vol**2 / 252 + vol * sqrt_dt
-                                  * float(rng.standard_normal()))
+                    x *= math.exp(
+                        -0.5 * vol**2 / 252 + vol * sqrt_dt * float(rng.standard_normal())
+                    )
                     r = float(np.clip(r + rng.normal(0, 0.00012), 0.0, 0.10))
-                rows.append({"date": d.date(), "base": base, "quote": ccy.value,
-                             "rate": x, "deposit_rate": r})
+                rows.append(
+                    {
+                        "date": d.date(),
+                        "base": base,
+                        "quote": ccy.value,
+                        "rate": x,
+                        "deposit_rate": r,
+                    }
+                )
                 del j
         return pd.DataFrame(rows)
 
@@ -1044,8 +1207,9 @@ class SyntheticUniverse:
 
     # ---------------------------------------------------------------- provider API
 
-    def get_prices(self, listing_ids: list[str] | None, start: dt.date, end: dt.date
-                   ) -> pd.DataFrame:
+    def get_prices(
+        self, listing_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         df = self._generated["prices"]
         out = df[(df["date"] >= start) & (df["date"] <= end)]
         if listing_ids is not None:
@@ -1064,16 +1228,22 @@ class SyntheticUniverse:
             .reset_index(drop=True)
         )
 
-    def get_shares_history(self, security_ids: list[str] | None, start: dt.date,
-                           end: dt.date) -> pd.DataFrame:
+    def get_shares_history(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         df = self._generated["shares"]
         out = df[(df["effective_date"] >= start) & (df["effective_date"] <= end)]
         if security_ids is not None:
             out = out[out["security_id"].isin(security_ids)]
         return out.reset_index(drop=True)
 
-    def get_fundamentals(self, security_ids: list[str] | None, items: list[str],
-                         as_of: dt.date, max_staleness_days: int = 550) -> pd.DataFrame:
+    def get_fundamentals(
+        self,
+        security_ids: list[str] | None,
+        items: list[str],
+        as_of: dt.date,
+        max_staleness_days: int = 550,
+    ) -> pd.DataFrame:
         df = self._fundamentals
         # The contract: nothing filed after as_of, ever.
         known = df[(df["filed_date"] <= as_of) & (df["item"].isin(items))]
@@ -1088,8 +1258,9 @@ class SyntheticUniverse:
             .reset_index(drop=True)
         )
 
-    def get_fundamentals_ttm(self, security_ids: list[str] | None, item: str,
-                             as_of: dt.date) -> pd.DataFrame:
+    def get_fundamentals_ttm(
+        self, security_ids: list[str] | None, item: str, as_of: dt.date
+    ) -> pd.DataFrame:
         """Trailing four quarters of a flow item, using only filings known on `as_of`."""
         df = self._fundamentals
         known = df[(df["filed_date"] <= as_of) & (df["item"] == item)]
@@ -1103,7 +1274,8 @@ class SyntheticUniverse:
         latest = latest.sort_values(["security_id", "period_end"])
         top4 = latest.groupby("security_id").tail(4)
         agg = top4.groupby("security_id", as_index=False).agg(
-            value=("value", "sum"), n_periods=("value", "size"),
+            value=("value", "sum"),
+            n_periods=("value", "size"),
             latest_period=("period_end", "max"),
         )
         return agg[agg["n_periods"] == 4].reset_index(drop=True)
@@ -1117,8 +1289,9 @@ class SyntheticUniverse:
         """
         return self._fundamentals
 
-    def get_corp_actions(self, security_ids: list[str] | None, start: dt.date,
-                         end: dt.date) -> pd.DataFrame:
+    def get_corp_actions(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         df = self._generated["corp_actions"]
         if df.empty:
             return df
@@ -1127,21 +1300,23 @@ class SyntheticUniverse:
             out = out[out["security_id"].isin(security_ids)]
         return out.reset_index(drop=True)
 
-    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
-               ) -> pd.DataFrame:
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date) -> pd.DataFrame:
         df = self._fx
         out = df[(df["date"] >= start) & (df["date"] <= end) & (df["quote"].isin(quotes))]
         return out[["date", "base", "quote", "rate"]].reset_index(drop=True)
 
-    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
-                          ) -> pd.DataFrame:
+    def get_deposit_rates(
+        self, currencies: list[str], start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         df = self._fx
         out = df[(df["date"] >= start) & (df["date"] <= end) & (df["quote"].isin(currencies))]
-        return out[["date", "quote", "deposit_rate"]].rename(
-            columns={"quote": "currency"}).reset_index(drop=True)
+        return (
+            out[["date", "quote", "deposit_rate"]]
+            .rename(columns={"quote": "currency"})
+            .reset_index(drop=True)
+        )
 
-    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
-                            ) -> pd.DataFrame:
+    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
         secs = self._security_frame
         out = secs[["security_id", "icb_industry"]].copy()
         out["effective_date"] = self.config.start
@@ -1154,18 +1329,38 @@ class SyntheticUniverse:
 
     def get_issuers(self) -> pd.DataFrame:
         secs = self._security_frame
-        return secs[["issuer_id", "country", "market_status"]].drop_duplicates(
-            "issuer_id").reset_index(drop=True)
+        return (
+            secs[["issuer_id", "country", "market_status"]]
+            .drop_duplicates("issuer_id")
+            .reset_index(drop=True)
+        )
 
     def get_securities(self) -> pd.DataFrame:
-        cols = ["security_id", "issuer_id", "country", "currency", "market_status",
-                "icb_industry", "security_type", "listing_start", "listing_end",
-                "is_dual_class", "foreign_ownership_limit"]
+        cols = [
+            "security_id",
+            "issuer_id",
+            "country",
+            "currency",
+            "market_status",
+            "icb_industry",
+            "security_type",
+            "listing_start",
+            "listing_end",
+            "is_dual_class",
+            "foreign_ownership_limit",
+        ]
         return self._security_frame[cols].copy()
 
     def get_listings(self) -> pd.DataFrame:
-        cols = ["listing_id", "security_id", "mic", "currency", "country",
-                "listing_start", "listing_end"]
+        cols = [
+            "listing_id",
+            "security_id",
+            "mic",
+            "currency",
+            "country",
+            "listing_start",
+            "listing_end",
+        ]
         return self._security_frame[cols].copy()
 
     def get_identifier_map(self) -> pd.DataFrame:
@@ -1182,13 +1377,17 @@ class SyntheticUniverse:
         for i, (sid, country, lid) in enumerate(
             zip(secs["security_id"], secs["country"], secs["listing_id"], strict=False)
         ):
-            rows.append({
-                "security_id": sid, "listing_id": lid,
-                "isin": make_isin(str(country), i),
-                "sedol": make_sedol(i),
-                "ticker": f"SY{i:04d}",
-                "valid_from": self.config.start, "valid_to": None,
-            })
+            rows.append(
+                {
+                    "security_id": sid,
+                    "listing_id": lid,
+                    "isin": make_isin(str(country), i),
+                    "sedol": make_sedol(i),
+                    "ticker": f"SY{i:04d}",
+                    "valid_from": self.config.start,
+                    "valid_to": None,
+                }
+            )
         return pd.DataFrame(rows)
 
     # ---------------------------------------------------------------- caching
@@ -1213,18 +1412,27 @@ class SyntheticUniverse:
             dest = path / f"{name}.parquet"
             out = df.copy()
             for col in out.columns:
-                if out[col].dtype == object and len(out) and isinstance(
-                    out[col].dropna().iloc[0] if out[col].notna().any() else None, dt.date
+                if (
+                    out[col].dtype == object
+                    and len(out)
+                    and isinstance(
+                        out[col].dropna().iloc[0] if out[col].notna().any() else None, dt.date
+                    )
                 ):
                     out[col] = pd.to_datetime(out[col])
             out.to_parquet(dest, index=False)
             written[name] = dest
         (path / "config.json").write_text(
-            json.dumps({"fingerprint": self.config.fingerprint(),
-                        "seed": self.config.seed,
-                        "n_securities": self.config.n_securities,
-                        "start": self.config.start.isoformat(),
-                        "end": self.config.end.isoformat()}, indent=2)
+            json.dumps(
+                {
+                    "fingerprint": self.config.fingerprint(),
+                    "seed": self.config.seed,
+                    "n_securities": self.config.n_securities,
+                    "start": self.config.start.isoformat(),
+                    "end": self.config.end.isoformat(),
+                },
+                indent=2,
+            )
         )
         return written
 
@@ -1237,11 +1445,8 @@ class SyntheticUniverse:
             "trading_days": self.n_days,
             "price_rows": int(len(g["prices"])),
             "delisted": int(self._security_frame["listing_end"].notna().sum()),
-            "late_listings": int(
-                (self._security_frame["listing_start"] > self.config.start).sum()),
-            "corp_actions": (
-                ca["event_type"].value_counts().to_dict() if not ca.empty else {}
-            ),
+            "late_listings": int((self._security_frame["listing_start"] > self.config.start).sum()),
+            "corp_actions": (ca["event_type"].value_counts().to_dict() if not ca.empty else {}),
             "fundamental_rows": int(len(self._fundamentals)),
             "restatements": int(self._fundamentals["is_restatement"].sum()),
         }

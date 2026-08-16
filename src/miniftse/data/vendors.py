@@ -120,8 +120,20 @@ class YFinanceProvider:
             df["currency"] = "USD"
             df["is_suspended"] = False
             frames.append(
-                df[["security_id", "listing_id", "date", "open", "high", "low",
-                    "close", "volume", "currency", "is_suspended"]]
+                df[
+                    [
+                        "security_id",
+                        "listing_id",
+                        "date",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "currency",
+                        "is_suspended",
+                    ]
+                ]
             )
 
         if missing:
@@ -155,25 +167,38 @@ class YFinanceProvider:
                 if not (start <= d <= end):
                     continue
                 if row.get("Dividends", 0):
-                    rows.append({
-                        "event_id": f"YF-DIV-{ticker}-{d}", "security_id": ticker,
-                        "event_type": "CASH_DIVIDEND", "announcement_date": d,
-                        "ex_date": d, "pay_date": d,
-                        "payload": json.dumps({"amount": float(row["Dividends"]),
-                                               "currency": "USD", "is_special": False}),
-                    })
+                    rows.append(
+                        {
+                            "event_id": f"YF-DIV-{ticker}-{d}",
+                            "security_id": ticker,
+                            "event_type": "CASH_DIVIDEND",
+                            "announcement_date": d,
+                            "ex_date": d,
+                            "pay_date": d,
+                            "payload": json.dumps(
+                                {
+                                    "amount": float(row["Dividends"]),
+                                    "currency": "USD",
+                                    "is_special": False,
+                                }
+                            ),
+                        }
+                    )
                 if row.get("Stock Splits", 0):
-                    rows.append({
-                        "event_id": f"YF-SPL-{ticker}-{d}", "security_id": ticker,
-                        "event_type": "SPLIT", "announcement_date": d,
-                        "ex_date": d, "pay_date": d,
-                        "payload": json.dumps({"ratio": float(row["Stock Splits"])}),
-                    })
+                    rows.append(
+                        {
+                            "event_id": f"YF-SPL-{ticker}-{d}",
+                            "security_id": ticker,
+                            "event_type": "SPLIT",
+                            "announcement_date": d,
+                            "ex_date": d,
+                            "pay_date": d,
+                            "payload": json.dumps({"ratio": float(row["Stock Splits"])}),
+                        }
+                    )
         return pd.DataFrame(rows)
 
-
-# --------------------------------------------------------------------------------------
-
+    # --------------------------------------------------------------------------------------
 
     # ------------------------------------------------------------------ reference
 
@@ -195,34 +220,37 @@ class YFinanceProvider:
         for ticker in security_ids:
             try:
                 series = yf.Ticker(ticker).get_shares_full(
-                    start=as_of - dt.timedelta(days=730), end=as_of)
+                    start=as_of - dt.timedelta(days=730), end=as_of
+                )
             except Exception as exc:  # noqa: BLE001
                 raise ProviderUnavailableError(f"{ticker}: {exc}") from exc
             if series is None or len(series) == 0:
                 continue
             frame = series.to_frame("shares_outstanding").reset_index()
             frame.columns = ["effective_date", "shares_outstanding"]
-            frame["effective_date"] = pd.to_datetime(
-                frame["effective_date"], utc=True).dt.date
+            frame["effective_date"] = pd.to_datetime(frame["effective_date"], utc=True).dt.date
             latest = frame[frame["effective_date"] <= as_of].tail(1)
             if latest.empty:
                 continue
-            rows.append({
-                "security_id": ticker,
-                "effective_date": latest["effective_date"].iloc[0],
-                # No filing date is published with the series, so knowledge date is set
-                # equal to effective date. That is optimistic and is a real PIT hole.
-                "knowledge_date": latest["effective_date"].iloc[0],
-                "shares_outstanding": float(latest["shares_outstanding"].iloc[0]),
-                "free_float_factor": 1.0,
-                "foreign_ownership_limit": 1.0,
-            })
+            rows.append(
+                {
+                    "security_id": ticker,
+                    "effective_date": latest["effective_date"].iloc[0],
+                    # No filing date is published with the series, so knowledge date is set
+                    # equal to effective date. That is optimistic and is a real PIT hole.
+                    "knowledge_date": latest["effective_date"].iloc[0],
+                    "shares_outstanding": float(latest["shares_outstanding"].iloc[0]),
+                    "free_float_factor": 1.0,
+                    "foreign_ownership_limit": 1.0,
+                }
+            )
         if not rows:
             raise ProviderUnavailableError(f"no share data for {security_ids}")
         return pd.DataFrame(rows)
 
-    def get_shares_history(self, security_ids: list[str] | None, start: dt.date,
-                           end: dt.date) -> pd.DataFrame:
+    def get_shares_history(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         if security_ids is None:
             raise ProviderUnavailableError("yfinance cannot enumerate a universe")
 
@@ -235,8 +263,7 @@ class YFinanceProvider:
                 continue
             frame = series.to_frame("shares_outstanding").reset_index()
             frame.columns = ["effective_date", "shares_outstanding"]
-            frame["effective_date"] = pd.to_datetime(
-                frame["effective_date"], utc=True).dt.date
+            frame["effective_date"] = pd.to_datetime(frame["effective_date"], utc=True).dt.date
             frame["knowledge_date"] = frame["effective_date"]
             frame["security_id"] = ticker
             frame["free_float_factor"] = 1.0
@@ -246,8 +273,7 @@ class YFinanceProvider:
             raise ProviderUnavailableError("no share history available")
         return pd.concat(frames, ignore_index=True)
 
-    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
-               ) -> pd.DataFrame:
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date) -> pd.DataFrame:
         """FX from Yahoo's currency pairs (`GBPUSD=X` and friends).
 
         Returned in the repo's convention: units of base per one unit of quote. Yahoo
@@ -261,10 +287,16 @@ class YFinanceProvider:
         for quote in quotes:
             if quote == base:
                 dates = pd.bdate_range(start, end)
-                frames.append(pd.DataFrame({
-                    "date": [d.date() for d in dates], "base": base, "quote": quote,
-                    "rate": 1.0,
-                }))
+                frames.append(
+                    pd.DataFrame(
+                        {
+                            "date": [d.date() for d in dates],
+                            "base": base,
+                            "quote": quote,
+                            "rate": 1.0,
+                        }
+                    )
+                )
                 continue
             hist = yf.Ticker(f"{quote}{base}=X").history(start=start, end=end)
             inverted = False
@@ -276,22 +308,28 @@ class YFinanceProvider:
             rate = hist["Close"]
             if inverted:
                 rate = 1.0 / rate
-            frames.append(pd.DataFrame({
-                "date": pd.to_datetime(rate.index, utc=True).date,
-                "base": base, "quote": quote, "rate": rate.to_numpy(dtype=float),
-            }))
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "date": pd.to_datetime(rate.index, utc=True).date,
+                        "base": base,
+                        "quote": quote,
+                        "rate": rate.to_numpy(dtype=float),
+                    }
+                )
+            )
         return pd.concat(frames, ignore_index=True)
 
-    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
-                          ) -> pd.DataFrame:
+    def get_deposit_rates(
+        self, currencies: list[str], start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         raise ProviderUnavailableError(
             "yfinance publishes no deposit or money-market rates, so covered interest "
             "parity forwards cannot be synthesised from it. Use FRED for USD/EUR/GBP "
             "short rates, or a quoted forward curve."
         )
 
-    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
-                            ) -> pd.DataFrame:
+    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
         """Sector from Yahoo's profile data.
 
         Not ICB, and not point-in-time: `info` returns the classification as it stands
@@ -311,18 +349,26 @@ class YFinanceProvider:
             except Exception:  # noqa: BLE001
                 continue
             sector = str(info.get("sector") or "UNKNOWN")
-            rows.append({
-                "security_id": ticker,
-                "effective_date": as_of, "knowledge_date": as_of,
-                "icb_industry": YAHOO_SECTOR_TO_ICB.get(sector, "UNKNOWN"),
-                "icb_supersector": sector,
-            })
+            rows.append(
+                {
+                    "security_id": ticker,
+                    "effective_date": as_of,
+                    "knowledge_date": as_of,
+                    "icb_industry": YAHOO_SECTOR_TO_ICB.get(sector, "UNKNOWN"),
+                    "icb_supersector": sector,
+                }
+            )
         if not rows:
             raise ProviderUnavailableError("no classification data available")
         return pd.DataFrame(rows)
 
-    def get_fundamentals(self, security_ids: list[str] | None, items: list[str],
-                         as_of: dt.date, max_staleness_days: int = 550) -> pd.DataFrame:
+    def get_fundamentals(
+        self,
+        security_ids: list[str] | None,
+        items: list[str],
+        as_of: dt.date,
+        max_staleness_days: int = 550,
+    ) -> pd.DataFrame:
         """Refused, deliberately.
 
         Yahoo publishes quarterly financials but no filing dates, so there is no way to
@@ -428,14 +474,18 @@ class EdgarProvider:
         path = self.download_quarter(year, quarter)
         with zipfile.ZipFile(path) as zf:
             sub = pd.read_csv(
-                io.BytesIO(zf.read("sub.txt")), sep="\t",
+                io.BytesIO(zf.read("sub.txt")),
+                sep="\t",
                 usecols=["adsh", "cik", "name", "filed", "period", "fy", "fp"],
-                dtype={"adsh": str, "cik": int}, low_memory=False,
+                dtype={"adsh": str, "cik": int},
+                low_memory=False,
             )
             num = pd.read_csv(
-                io.BytesIO(zf.read("num.txt")), sep="\t",
+                io.BytesIO(zf.read("num.txt")),
+                sep="\t",
                 usecols=["adsh", "tag", "ddate", "qtrs", "uom", "value"],
-                dtype={"adsh": str, "tag": str}, low_memory=False,
+                dtype={"adsh": str, "tag": str},
+                low_memory=False,
             )
 
         num = num[num["tag"].isin(self.TAG_MAP) & (num["uom"] == "USD")]
@@ -443,23 +493,23 @@ class EdgarProvider:
         merged["item"] = merged["tag"].map(self.TAG_MAP)
         merged["filed_date"] = pd.to_datetime(merged["filed"], format="%Y%m%d").dt.date
         merged["period_end"] = pd.to_datetime(
-            merged["ddate"], format="%Y%m%d", errors="coerce").dt.date
+            merged["ddate"], format="%Y%m%d", errors="coerce"
+        ).dt.date
         merged["security_id"] = merged["cik"].astype(str).str.zfill(10)
         merged["currency"] = "USD"
         out = merged[
             ["security_id", "item", "period_end", "filed_date", "value", "currency", "adsh"]
         ].dropna(subset=["period_end", "value"])
         return out.drop_duplicates(
-            subset=["security_id", "item", "period_end", "adsh"]).reset_index(drop=True)
+            subset=["security_id", "item", "period_end", "adsh"]
+        ).reset_index(drop=True)
 
     def build_pit_store(self, start_year: int, end_year: int, dest: Path) -> Path:
         """Partition several years of filings to parquet, partitioned by filing year so
         the ``filed_date <= as_of`` predicate can be pushed down."""
         dest.mkdir(parents=True, exist_ok=True)
         frames = [
-            self.parse_quarter(y, q)
-            for y in range(start_year, end_year + 1)
-            for q in (1, 2, 3, 4)
+            self.parse_quarter(y, q) for y in range(start_year, end_year + 1) for q in (1, 2, 3, 4)
         ]
         all_data = pd.concat(frames, ignore_index=True)
         all_data["filed_year"] = pd.to_datetime(all_data["filed_date"]).dt.year
@@ -467,14 +517,15 @@ class EdgarProvider:
         return dest
 
     def get_fundamentals(
-        self, security_ids: list[str] | None, items: list[str], as_of: dt.date,
+        self,
+        security_ids: list[str] | None,
+        items: list[str],
+        as_of: dt.date,
         max_staleness_days: int = 550,
     ) -> pd.DataFrame:
         store = self.cache_dir / "pit.parquet"
         if not store.exists():
-            raise ProviderUnavailableError(
-                f"no PIT store at {store} - run build_pit_store() first"
-            )
+            raise ProviderUnavailableError(f"no PIT store at {store} - run build_pit_store() first")
         df = pd.read_parquet(store)
         known = df[(df["filed_date"] <= as_of) & (df["item"].isin(items))]
         known = known[known["period_end"] >= as_of - dt.timedelta(days=max_staleness_days)]
@@ -482,12 +533,12 @@ class EdgarProvider:
             known = known[known["security_id"].isin(security_ids)]
         return (
             known.sort_values(["security_id", "item", "period_end", "filed_date"])
-            .groupby(["security_id", "item"], as_index=False).last().reset_index(drop=True)
+            .groupby(["security_id", "item"], as_index=False)
+            .last()
+            .reset_index(drop=True)
         )
 
-
-# --------------------------------------------------------------------------------------
-
+    # --------------------------------------------------------------------------------------
 
     # ------------------------------------------------------------------ reference
 
@@ -504,8 +555,9 @@ class EdgarProvider:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         dest = self.cache_dir / "company_tickers.json"
         if not dest.exists():
-            resp = requests.get(self.COMPANY_TICKERS,
-                                headers={"User-Agent": self.contact}, timeout=60)
+            resp = requests.get(
+                self.COMPANY_TICKERS, headers={"User-Agent": self.contact}, timeout=60
+            )
             resp.raise_for_status()
             dest.write_bytes(resp.content)
         raw = json.loads(dest.read_text(encoding="utf-8"))
@@ -528,42 +580,76 @@ class EdgarProvider:
         # Several tickers under one CIK means several share classes under one issuer.
         counts = frame.groupby("security_id")["ticker"].transform("size")
         return frame.assign(
-            issuer_id=frame["security_id"], currency="USD", country="US",
-            market_status="DEVELOPED", icb_industry="UNKNOWN",
-            security_type="ORDINARY", is_dual_class=counts > 1,
-            foreign_ownership_limit=1.0, listing_start=None, listing_end=None,
-        )[["security_id", "issuer_id", "name", "ticker", "country", "currency",
-           "market_status", "icb_industry", "security_type", "is_dual_class",
-           "foreign_ownership_limit", "listing_start", "listing_end"]]
+            issuer_id=frame["security_id"],
+            currency="USD",
+            country="US",
+            market_status="DEVELOPED",
+            icb_industry="UNKNOWN",
+            security_type="ORDINARY",
+            is_dual_class=counts > 1,
+            foreign_ownership_limit=1.0,
+            listing_start=None,
+            listing_end=None,
+        )[
+            [
+                "security_id",
+                "issuer_id",
+                "name",
+                "ticker",
+                "country",
+                "currency",
+                "market_status",
+                "icb_industry",
+                "security_type",
+                "is_dual_class",
+                "foreign_ownership_limit",
+                "listing_start",
+                "listing_end",
+            ]
+        ]
 
     def get_listings(self) -> pd.DataFrame:
         frame = self.fetch_company_tickers()
         exchange = frame.get("exchange", pd.Series("XNAS", index=frame.index))
-        return pd.DataFrame({
-            "listing_id": frame["ticker"], "security_id": frame["security_id"],
-            "mic": exchange.fillna("XNAS"), "currency": "USD", "country": "US",
-            "listing_start": None, "listing_end": None,
-        })
+        return pd.DataFrame(
+            {
+                "listing_id": frame["ticker"],
+                "security_id": frame["security_id"],
+                "mic": exchange.fillna("XNAS"),
+                "currency": "USD",
+                "country": "US",
+                "listing_start": None,
+                "listing_end": None,
+            }
+        )
 
     def get_identifier_map(self) -> pd.DataFrame:
         frame = self.fetch_company_tickers()
-        return pd.DataFrame({
-            "security_id": frame["security_id"], "listing_id": frame["ticker"],
-            "ticker": frame["ticker"], "cik": frame["security_id"],
-            "isin": None, "sedol": None,
-            "valid_from": dt.date(1993, 1, 1), "valid_to": None,
-        })
+        return pd.DataFrame(
+            {
+                "security_id": frame["security_id"],
+                "listing_id": frame["ticker"],
+                "ticker": frame["ticker"],
+                "cik": frame["security_id"],
+                "isin": None,
+                "sedol": None,
+                "valid_from": dt.date(1993, 1, 1),
+                "valid_to": None,
+            }
+        )
 
-    def get_prices(self, listing_ids: list[str] | None, start: dt.date, end: dt.date
-                   ) -> pd.DataFrame:
+    def get_prices(
+        self, listing_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         raise ProviderUnavailableError(
             "EDGAR carries filings, not market data. Compose it with a price provider "
             "via CompositeProvider - that separation is the normal shape of a real "
             "platform, not a limitation."
         )
 
-    def get_corp_actions(self, security_ids: list[str] | None, start: dt.date,
-                         end: dt.date) -> pd.DataFrame:
+    def get_corp_actions(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         raise ProviderUnavailableError(
             "corporate action detail is not in the Financial Statement Data Sets. "
             "8-K and S-1 filings describe them in prose, which is a structured-"
@@ -588,42 +674,66 @@ class EdgarProvider:
             raise ProviderUnavailableError("no share counts in the PIT store")
         latest = (
             shares.sort_values(["security_id", "period_end", "filed_date"])
-            .groupby("security_id", as_index=False).last()
+            .groupby("security_id", as_index=False)
+            .last()
         )
         return latest.assign(
-            effective_date=latest["period_end"], knowledge_date=latest["filed_date"],
-            shares_outstanding=latest["value"], free_float_factor=1.0,
+            effective_date=latest["period_end"],
+            knowledge_date=latest["filed_date"],
+            shares_outstanding=latest["value"],
+            free_float_factor=1.0,
             foreign_ownership_limit=1.0,
-        )[["security_id", "effective_date", "knowledge_date", "shares_outstanding",
-           "free_float_factor", "foreign_ownership_limit"]]
+        )[
+            [
+                "security_id",
+                "effective_date",
+                "knowledge_date",
+                "shares_outstanding",
+                "free_float_factor",
+                "foreign_ownership_limit",
+            ]
+        ]
 
-    def get_shares_history(self, security_ids: list[str] | None, start: dt.date,
-                           end: dt.date) -> pd.DataFrame:
+    def get_shares_history(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         store = self.cache_dir / "pit.parquet"
         if not store.exists():
             raise ProviderUnavailableError(f"no PIT store at {store}")
         df = pd.read_parquet(store)
-        shares = df[(df["item"] == "SHARES_OUTSTANDING")
-                    & (df["period_end"] >= start) & (df["period_end"] <= end)]
+        shares = df[
+            (df["item"] == "SHARES_OUTSTANDING")
+            & (df["period_end"] >= start)
+            & (df["period_end"] <= end)
+        ]
         if security_ids is not None:
             shares = shares[shares["security_id"].isin(security_ids)]
         return shares.assign(
-            effective_date=shares["period_end"], knowledge_date=shares["filed_date"],
-            shares_outstanding=shares["value"], free_float_factor=1.0,
+            effective_date=shares["period_end"],
+            knowledge_date=shares["filed_date"],
+            shares_outstanding=shares["value"],
+            free_float_factor=1.0,
             foreign_ownership_limit=1.0,
-        )[["security_id", "effective_date", "knowledge_date", "shares_outstanding",
-           "free_float_factor", "foreign_ownership_limit"]]
+        )[
+            [
+                "security_id",
+                "effective_date",
+                "knowledge_date",
+                "shares_outstanding",
+                "free_float_factor",
+                "foreign_ownership_limit",
+            ]
+        ]
 
-    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
-               ) -> pd.DataFrame:
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date) -> pd.DataFrame:
         raise ProviderUnavailableError("EDGAR publishes no exchange rates")
 
-    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
-                          ) -> pd.DataFrame:
+    def get_deposit_rates(
+        self, currencies: list[str], start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         raise ProviderUnavailableError("EDGAR publishes no interest rates")
 
-    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
-                            ) -> pd.DataFrame:
+    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
         """SIC code from the submissions file, mapped onto ICB level 1.
 
         SIC is coarse and dated — it was designed in the 1930s and has no concept of a
@@ -631,12 +741,16 @@ class EdgarProvider:
         classification is.
         """
         frame = self.fetch_company_tickers()
-        rows = [{
-            "security_id": r.security_id, "effective_date": as_of,
-            "knowledge_date": as_of,
-            "icb_industry": SIC_TO_ICB.get(str(getattr(r, "sic", ""))[:2], "UNKNOWN"),
-            "icb_supersector": str(getattr(r, "sic", "")),
-        } for r in frame.itertuples(index=False)]
+        rows = [
+            {
+                "security_id": r.security_id,
+                "effective_date": as_of,
+                "knowledge_date": as_of,
+                "icb_industry": SIC_TO_ICB.get(str(getattr(r, "sic", ""))[:2], "UNKNOWN"),
+                "icb_supersector": str(getattr(r, "sic", "")),
+            }
+            for r in frame.itertuples(index=False)
+        ]
         out = pd.DataFrame(rows)
         if security_ids is not None:
             out = out[out["security_id"].isin(security_ids)]
@@ -646,10 +760,27 @@ class EdgarProvider:
 #: SIC division prefix -> ICB level 1. Lossy, and honestly so: SIC predates most of the
 #: economy it is being asked to classify.
 SIC_TO_ICB: dict[str, str] = {
-    "73": "10", "35": "10", "36": "10", "48": "15", "28": "20", "80": "20",
-    "60": "30", "61": "30", "62": "30", "63": "30", "65": "35", "59": "40",
-    "58": "40", "20": "45", "54": "45", "37": "50", "34": "50", "33": "55",
-    "29": "60", "13": "60", "49": "65",
+    "73": "10",
+    "35": "10",
+    "36": "10",
+    "48": "15",
+    "28": "20",
+    "80": "20",
+    "60": "30",
+    "61": "30",
+    "62": "30",
+    "63": "30",
+    "65": "35",
+    "59": "40",
+    "58": "40",
+    "20": "45",
+    "54": "45",
+    "37": "50",
+    "34": "50",
+    "33": "55",
+    "29": "60",
+    "13": "60",
+    "49": "65",
 }
 
 
@@ -741,7 +872,8 @@ class ISharesProvider:
         if not dest.exists():
             resp = requests.get(
                 self.holdings_url(ticker, as_of),
-                headers={"User-Agent": USER_AGENT}, timeout=60,
+                headers={"User-Agent": USER_AGENT},
+                timeout=60,
             )
             resp.raise_for_status()
             dest.write_bytes(resp.content)
@@ -817,8 +949,9 @@ class ISharesProvider:
             out[ticker] = self.cache_dir / f"{ticker}_{key}.csv"
         return out
 
-    def implied_float_factors(self, ticker: str, prices: pd.DataFrame,
-                              shares_outstanding: pd.DataFrame) -> pd.DataFrame:
+    def implied_float_factors(
+        self, ticker: str, prices: pd.DataFrame, shares_outstanding: pd.DataFrame
+    ) -> pd.DataFrame:
         """Back out each holding's implied free-float factor from its index weight.
 
         If the index is float-weighted then weight_i is proportional to
@@ -829,11 +962,13 @@ class ISharesProvider:
         defensible relative scale.
         """
         h = self.fetch_holdings(ticker)
-        h = h[h["asset_class"].astype(str).str.upper().eq("EQUITY")] if "asset_class" \
-            in h.columns else h
-        merged = (
-            h.merge(prices, left_on="ticker", right_on="security_id", how="inner")
-            .merge(shares_outstanding, on="security_id", how="inner")
+        h = (
+            h[h["asset_class"].astype(str).str.upper().eq("EQUITY")]
+            if "asset_class" in h.columns
+            else h
+        )
+        merged = h.merge(prices, left_on="ticker", right_on="security_id", how="inner").merge(
+            shares_outstanding, on="security_id", how="inner"
         )
         merged["full_cap"] = merged["close"] * merged["shares_outstanding"]
         merged["full_cap_weight"] = merged["full_cap"] / merged["full_cap"].sum()
@@ -842,9 +977,11 @@ class ISharesProvider:
         merged["implied_float"] = (
             merged["implied_float_ratio"] / merged["implied_float_ratio"].max()
         ).clip(0.0, 1.0)
-        return merged[
-            ["ticker", "name", "index_weight", "full_cap_weight", "implied_float"]
-        ].sort_values("index_weight", ascending=False).reset_index(drop=True)
+        return (
+            merged[["ticker", "name", "index_weight", "full_cap_weight", "implied_float"]]
+            .sort_values("index_weight", ascending=False)
+            .reset_index(drop=True)
+        )
 
     @staticmethod
     def reconstitution_diff(before: pd.DataFrame, after: pd.DataFrame) -> dict[str, Any]:
@@ -916,19 +1053,21 @@ class LsegDataProvider:
     #: with the underlying Worldscope item in the comment. Kept as data rather than
     #: buried in each method so the mapping is reviewable in one place - and so the
     #: vocabulary map in docs/ can be generated from it rather than transcribed.
-    FIELD_MAP: dict[str, str] = field(default_factory=lambda: {
-        "BOOK_EQUITY": "TR.F.TotShHoldEq",          # WC03501
-        "NET_INCOME": "TR.F.NetIncAfterTax",        # WC01751
-        "REVENUE": "TR.F.TotRevenue",               # WC01001
-        "TOTAL_ASSETS": "TR.F.TotAssets",           # WC02999
-        "TOTAL_DEBT": "TR.F.TotDebt",               # WC03255
-        "GROSS_PROFIT": "TR.F.GrossProfIndPropTot",  # WC01100
-        "OPERATING_CASHFLOW": "TR.F.NetCashFlowOp",  # WC04860
-        "CAPEX": "TR.F.CAPEXTot",                   # WC04601
-        "DIVIDENDS_PAID": "TR.F.DivPaidTot",        # WC04551
-        "SHARES_OUTSTANDING": "TR.F.ComShrOutsTot",  # WC05301
-        "FREE_FLOAT": "TR.FreeFloatPct",
-    })
+    FIELD_MAP: dict[str, str] = field(
+        default_factory=lambda: {
+            "BOOK_EQUITY": "TR.F.TotShHoldEq",  # WC03501
+            "NET_INCOME": "TR.F.NetIncAfterTax",  # WC01751
+            "REVENUE": "TR.F.TotRevenue",  # WC01001
+            "TOTAL_ASSETS": "TR.F.TotAssets",  # WC02999
+            "TOTAL_DEBT": "TR.F.TotDebt",  # WC03255
+            "GROSS_PROFIT": "TR.F.GrossProfIndPropTot",  # WC01100
+            "OPERATING_CASHFLOW": "TR.F.NetCashFlowOp",  # WC04860
+            "CAPEX": "TR.F.CAPEXTot",  # WC04601
+            "DIVIDENDS_PAID": "TR.F.DivPaidTot",  # WC04551
+            "SHARES_OUTSTANDING": "TR.F.ComShrOutsTot",  # WC05301
+            "FREE_FLOAT": "TR.FreeFloatPct",
+        }
+    )
 
     @property
     def name(self) -> str:
@@ -966,8 +1105,9 @@ class LsegDataProvider:
         self._session = ld
         return ld
 
-    def get_prices(self, listing_ids: list[str] | None, start: dt.date, end: dt.date
-                   ) -> pd.DataFrame:
+    def get_prices(
+        self, listing_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         """Daily closes from Datastream, keyed on RIC."""
         if listing_ids is None:
             raise ProviderUnavailableError(
@@ -977,9 +1117,17 @@ class LsegDataProvider:
         ld = self._open()
         raw = ld.get_history(
             universe=listing_ids,
-            fields=["TR.PriceClose", "TR.PriceOpen", "TR.PriceHigh", "TR.PriceLow",
-                    "TR.Volume", "TR.PriceCloseCurrency"],
-            start=start.isoformat(), end=end.isoformat(), interval="daily",
+            fields=[
+                "TR.PriceClose",
+                "TR.PriceOpen",
+                "TR.PriceHigh",
+                "TR.PriceLow",
+                "TR.Volume",
+                "TR.PriceCloseCurrency",
+            ],
+            start=start.isoformat(),
+            end=end.isoformat(),
+            interval="daily",
         )
         return self._normalise_prices(raw)
 
@@ -994,22 +1142,40 @@ class LsegDataProvider:
         frame = raw.reset_index()
         frame.columns = [str(c).strip().lower().replace(" ", "_") for c in frame.columns]
         rename = {
-            "instrument": "listing_id", "price_close": "close", "price_open": "open",
-            "price_high": "high", "price_low": "low", "volume": "volume",
+            "instrument": "listing_id",
+            "price_close": "close",
+            "price_open": "open",
+            "price_high": "high",
+            "price_low": "low",
+            "volume": "volume",
             "price_close_currency": "currency",
         }
-        frame = frame.rename(columns={k: v for k, v in rename.items()
-                                      if k in frame.columns})
+        frame = frame.rename(columns={k: v for k, v in rename.items() if k in frame.columns})
         if "date" in frame.columns:
             frame["date"] = pd.to_datetime(frame["date"], utc=True).dt.date
         frame["security_id"] = frame.get("listing_id")
         frame["is_suspended"] = False
-        wanted = ["security_id", "listing_id", "date", "open", "high", "low", "close",
-                  "volume", "currency", "is_suspended"]
+        wanted = [
+            "security_id",
+            "listing_id",
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "currency",
+            "is_suspended",
+        ]
         return frame[[c for c in wanted if c in frame.columns]]
 
-    def get_fundamentals(self, security_ids: list[str] | None, items: list[str],
-                         as_of: dt.date, max_staleness_days: int = 550) -> pd.DataFrame:
+    def get_fundamentals(
+        self,
+        security_ids: list[str] | None,
+        items: list[str],
+        as_of: dt.date,
+        max_staleness_days: int = 550,
+    ) -> pd.DataFrame:
         """Worldscope fundamentals as they stood on `as_of`.
 
         `SDate` plus `Period="FY0"` is what makes this point-in-time. Omit them and the
@@ -1025,19 +1191,19 @@ class LsegDataProvider:
 
         raw = ld.get_data(
             universe=security_ids,
-            fields=[self.FIELD_MAP[i] for i in items] + ["TR.F.PeriodEndDate",
-                                                         "TR.F.OriginalAnnounceDate"],
+            fields=[self.FIELD_MAP[i] for i in items]
+            + ["TR.F.PeriodEndDate", "TR.F.OriginalAnnounceDate"],
             parameters={"Period": "FY0", "SDate": as_of.isoformat(), "Scale": 0},
         )
         return self._normalise_fundamentals(raw, items, as_of)
 
-    def _normalise_fundamentals(self, raw: pd.DataFrame, items: list[str],
-                                as_of: dt.date) -> pd.DataFrame:
+    def _normalise_fundamentals(
+        self, raw: pd.DataFrame, items: list[str], as_of: dt.date
+    ) -> pd.DataFrame:
         inverse = {self.FIELD_MAP[i]: i for i in items}
         frame = raw.reset_index()
         frame.columns = [str(c).strip() for c in frame.columns]
-        id_col = next((c for c in frame.columns if c.lower() == "instrument"),
-                      frame.columns[0])
+        id_col = next((c for c in frame.columns if c.lower() == "instrument"), frame.columns[0])
 
         rows: list[dict[str, Any]] = []
         for row in frame.itertuples(index=False):
@@ -1048,13 +1214,16 @@ class LsegDataProvider:
                 value = record.get(field_name)
                 if value is None or (isinstance(value, float) and pd.isna(value)):
                     continue
-                rows.append({
-                    "security_id": record.get(id_col), "item": item,
-                    "period_end": pd.Timestamp(period_end).date() if period_end
-                    else None,
-                    "filed_date": pd.Timestamp(filed).date() if filed else as_of,
-                    "value": float(value), "currency": record.get("Currency", "USD"),
-                })
+                rows.append(
+                    {
+                        "security_id": record.get(id_col),
+                        "item": item,
+                        "period_end": pd.Timestamp(period_end).date() if period_end else None,
+                        "filed_date": pd.Timestamp(filed).date() if filed else as_of,
+                        "value": float(value),
+                        "currency": record.get("Currency", "USD"),
+                    }
+                )
         out = pd.DataFrame(rows)
         # Enforce the contract locally rather than trusting the vendor's SDate handling.
         # A defensive filter costs nothing and catches a configuration mistake that is
@@ -1071,8 +1240,13 @@ class LsegDataProvider:
         ld = self._open()
         raw = ld.get_data(
             universe=security_ids,
-            fields=["TR.EPSMean", "TR.EPSNumberOfEstimates", "TR.EPSMeanEstDate",
-                    "TR.EPSMean(Period=FY1)", "TR.EPSMean(Period=FY2)"],
+            fields=[
+                "TR.EPSMean",
+                "TR.EPSNumberOfEstimates",
+                "TR.EPSMeanEstDate",
+                "TR.EPSMean(Period=FY1)",
+                "TR.EPSMean(Period=FY2)",
+            ],
             parameters={"SDate": as_of.isoformat(), "Period": "FY1"},
         )
         frame = raw.reset_index()
@@ -1089,8 +1263,11 @@ class LsegDataProvider:
         ld = self._open()
         return ld.get_data(
             universe=[f"0#{index_ric.lstrip('0#')}"],
-            fields=["TR.IndexConstituentRIC", "TR.IndexConstituentWeightPercent",
-                    "TR.IndexConstituentName"],
+            fields=[
+                "TR.IndexConstituentRIC",
+                "TR.IndexConstituentWeightPercent",
+                "TR.IndexConstituentName",
+            ],
             parameters={"SDate": as_of.isoformat()},
         )
 
@@ -1099,56 +1276,71 @@ class LsegDataProvider:
         if frame.empty:
             raise ProviderUnavailableError("no share counts returned")
         free_float = self.get_fundamentals(security_ids, ["FREE_FLOAT"], as_of)
-        floats = (free_float.set_index("security_id")["value"] / 100.0
-                  if not free_float.empty else pd.Series(dtype=float))
-        return pd.DataFrame({
-            "security_id": frame["security_id"],
-            "effective_date": frame["period_end"],
-            "knowledge_date": frame["filed_date"],
-            "shares_outstanding": frame["value"],
-            "free_float_factor": frame["security_id"].map(floats).fillna(1.0),
-            "foreign_ownership_limit": 1.0,
-        })
+        floats = (
+            free_float.set_index("security_id")["value"] / 100.0
+            if not free_float.empty
+            else pd.Series(dtype=float)
+        )
+        return pd.DataFrame(
+            {
+                "security_id": frame["security_id"],
+                "effective_date": frame["period_end"],
+                "knowledge_date": frame["filed_date"],
+                "shares_outstanding": frame["value"],
+                "free_float_factor": frame["security_id"].map(floats).fillna(1.0),
+                "foreign_ownership_limit": 1.0,
+            }
+        )
 
-    def get_shares_history(self, security_ids: list[str] | None, start: dt.date,
-                           end: dt.date) -> pd.DataFrame:
+    def get_shares_history(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         raise ProviderUnavailableError(
             "share-count history needs a Datastream time-series request per security "
             "(WC05301 with a date range) rather than a point-in-time snapshot"
         )
 
-    def get_corp_actions(self, security_ids: list[str] | None, start: dt.date,
-                         end: dt.date) -> pd.DataFrame:
+    def get_corp_actions(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         ld = self._open()
         raw = ld.get_data(
             universe=security_ids or [],
-            fields=["TR.CAAdjustmentType", "TR.CAAdjustmentFactor",
-                    "TR.CAExDate", "TR.CAPayDate", "TR.CAGrossDivAmount"],
+            fields=[
+                "TR.CAAdjustmentType",
+                "TR.CAAdjustmentFactor",
+                "TR.CAExDate",
+                "TR.CAPayDate",
+                "TR.CAGrossDivAmount",
+            ],
             parameters={"SDate": start.isoformat(), "EDate": end.isoformat()},
         )
         return raw.reset_index()
 
-    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
-               ) -> pd.DataFrame:
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date) -> pd.DataFrame:
         ld = self._open()
         raw = ld.get_history(
             universe=[f"{q}{base}=R" for q in quotes if q != base],
-            fields=["TR.PriceClose"], start=start.isoformat(), end=end.isoformat(),
+            fields=["TR.PriceClose"],
+            start=start.isoformat(),
+            end=end.isoformat(),
         )
         frame = raw.reset_index()
         frame["base"] = base
         return frame
 
-    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
-                          ) -> pd.DataFrame:
+    def get_deposit_rates(
+        self, currencies: list[str], start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         ld = self._open()
         return ld.get_history(
-            universe=[f"{c}1MD=" for c in currencies], fields=["TR.PriceClose"],
-            start=start.isoformat(), end=end.isoformat(),
+            universe=[f"{c}1MD=" for c in currencies],
+            fields=["TR.PriceClose"],
+            start=start.isoformat(),
+            end=end.isoformat(),
         ).reset_index()
 
-    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
-                            ) -> pd.DataFrame:
+    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
         """ICB directly, which is the point — this is FTSE Russell's own scheme."""
         ld = self._open()
         raw = ld.get_data(
@@ -1176,8 +1368,8 @@ class LsegDataProvider:
     def get_identifier_map(self) -> pd.DataFrame:
         ld = self._open()
         return ld.get_data(
-            universe=[], fields=["TR.ISIN", "TR.SEDOL", "TR.CUSIP", "TR.RIC",
-                                 "TR.OrganizationID"],
+            universe=[],
+            fields=["TR.ISIN", "TR.SEDOL", "TR.CUSIP", "TR.RIC", "TR.OrganizationID"],
         ).reset_index()
 
 
@@ -1197,24 +1389,29 @@ class PermIdProvider:
     def name(self) -> str:
         return "permid"
 
-    def match_organisations(self, names: list[str], countries: list[str] | None = None
-                            ) -> pd.DataFrame:
+    def match_organisations(
+        self, names: list[str], countries: list[str] | None = None
+    ) -> pd.DataFrame:
         """Resolve company names to PermIDs via the record-matching endpoint."""
         if not self.api_key:
-            raise ProviderUnavailableError(
-                "PermID needs a free API key from developers.lseg.com"
-            )
+            raise ProviderUnavailableError("PermID needs a free API key from developers.lseg.com")
         countries = countries or ["" for _ in names]
         payload = "\n".join(
             ["LocalID,Standard,Name,Country"]
-            + [f"{i},Organization,{n},{c}" for i, (n, c) in enumerate(zip(names, countries,
-                strict=False))]
+            + [
+                f"{i},Organization,{n},{c}"
+                for i, (n, c) in enumerate(zip(names, countries, strict=False))
+            ]
         )
         resp = requests.post(
             f"{self.BASE}/file",
-            headers={"x-ag-access-token": self.api_key, "Content-Type": "text/plain",
-                     "x-openmatch-numberOfMatchesPerRecord": "1"},
-            data=payload.encode(), timeout=60,
+            headers={
+                "x-ag-access-token": self.api_key,
+                "Content-Type": "text/plain",
+                "x-openmatch-numberOfMatchesPerRecord": "1",
+            },
+            data=payload.encode(),
+            timeout=60,
         )
         resp.raise_for_status()
         return pd.DataFrame(resp.json().get("outputContentResponse", []))
@@ -1250,20 +1447,22 @@ class CompositeProvider:
     #: Which backend serves each Protocol method. Explicit rather than implicit so the
     #: routing can be inspected - by `provider_capability_matrix`, and by whoever is
     #: debugging why a number came from the vendor they did not expect.
-    ROUTING: dict[str, str] = field(default_factory=lambda: {
-        "get_prices": "prices",
-        "get_corp_actions": "corp_actions_or_prices",
-        "get_fundamentals": "fundamentals",
-        "get_shares": "reference",
-        "get_shares_history": "reference",
-        "get_fx": "fx_or_reference",
-        "get_deposit_rates": "fx_or_reference",
-        "get_classifications": "reference",
-        "get_issuers": "reference",
-        "get_securities": "reference",
-        "get_listings": "reference",
-        "get_identifier_map": "reference",
-    })
+    ROUTING: dict[str, str] = field(
+        default_factory=lambda: {
+            "get_prices": "prices",
+            "get_corp_actions": "corp_actions_or_prices",
+            "get_fundamentals": "fundamentals",
+            "get_shares": "reference",
+            "get_shares_history": "reference",
+            "get_fx": "fx_or_reference",
+            "get_deposit_rates": "fx_or_reference",
+            "get_classifications": "reference",
+            "get_issuers": "reference",
+            "get_securities": "reference",
+            "get_listings": "reference",
+            "get_identifier_map": "reference",
+        }
+    )
 
     def route(self, method: str) -> Any:
         """The backend that would actually serve `method`."""
@@ -1274,39 +1473,45 @@ class CompositeProvider:
             return self.fx or self.reference
         return getattr(self, target)
 
-    def get_prices(self, listing_ids: list[str] | None, start: dt.date, end: dt.date
-                   ) -> pd.DataFrame:
+    def get_prices(
+        self, listing_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         return self.prices.get_prices(listing_ids, start, end)
 
-    def get_fundamentals(self, security_ids: list[str] | None, items: list[str],
-                         as_of: dt.date, max_staleness_days: int = 550) -> pd.DataFrame:
-        return self.fundamentals.get_fundamentals(
-            security_ids, items, as_of, max_staleness_days)
+    def get_fundamentals(
+        self,
+        security_ids: list[str] | None,
+        items: list[str],
+        as_of: dt.date,
+        max_staleness_days: int = 550,
+    ) -> pd.DataFrame:
+        return self.fundamentals.get_fundamentals(security_ids, items, as_of, max_staleness_days)
 
-    def get_corp_actions(self, security_ids: list[str] | None, start: dt.date,
-                         end: dt.date) -> pd.DataFrame:
+    def get_corp_actions(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         source = self.corp_actions or self.prices
         return source.get_corp_actions(security_ids, start, end)
 
     def get_shares(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
         return self.reference.get_shares(security_ids, as_of)
 
-    def get_shares_history(self, security_ids: list[str] | None, start: dt.date,
-                           end: dt.date) -> pd.DataFrame:
+    def get_shares_history(
+        self, security_ids: list[str] | None, start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         return self.reference.get_shares_history(security_ids, start, end)
 
-    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
-               ) -> pd.DataFrame:
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date) -> pd.DataFrame:
         source = self.fx or self.reference
         return source.get_fx(base, quotes, start, end)
 
-    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
-                          ) -> pd.DataFrame:
+    def get_deposit_rates(
+        self, currencies: list[str], start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         source = self.fx or self.reference
         return source.get_deposit_rates(currencies, start, end)
 
-    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
-                            ) -> pd.DataFrame:
+    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date) -> pd.DataFrame:
         return self.reference.get_classifications(security_ids, as_of)
 
     def get_issuers(self) -> pd.DataFrame:
@@ -1359,7 +1564,8 @@ class PermIdEnrichment:
                 failures[reason] = failures.get(reason, 0) + 1
 
         return {
-            "attempted": len(issuers), "matched": matched,
+            "attempted": len(issuers),
+            "matched": matched,
             "match_rate": matched / len(issuers),
             "failures": failures,
             "note": (
@@ -1403,29 +1609,45 @@ class FredProvider:
     #: Currency -> FRED series for a short money-market rate. Not perfectly comparable
     #: instruments across currencies, which matters: a CIP forward built from mismatched
     #: tenors carries a basis that looks like hedge error.
-    RATE_SERIES: dict[str, str] = field(default_factory=lambda: {
-        "USD": "DGS3MO", "EUR": "IR3TIB01EZM156N", "GBP": "IR3TIB01GBM156N",
-        "JPY": "IR3TIB01JPM156N", "CHF": "IR3TIB01CHM156N", "CAD": "IR3TIB01CAM156N",
-        "AUD": "IR3TIB01AUM156N", "SEK": "IR3TIB01SEM156N", "KRW": "IR3TIB01KRM156N",
-        # HKD has no OECD three-month series on FRED. The Hong Kong dollar is pegged to
-        # the US dollar under the Linked Exchange Rate System, so HIBOR tracks the USD
-        # curve closely and the USD series is the standard proxy. Not free: the peg is
-        # a policy choice, and HIBOR has decoupled from USD rates during liquidity
-        # squeezes - so a hedged index carrying material HKD exposure should be priced
-        # off quoted HKD forwards rather than this.
-        "HKD": "DGS3MO",
-    })
+    RATE_SERIES: dict[str, str] = field(
+        default_factory=lambda: {
+            "USD": "DGS3MO",
+            "EUR": "IR3TIB01EZM156N",
+            "GBP": "IR3TIB01GBM156N",
+            "JPY": "IR3TIB01JPM156N",
+            "CHF": "IR3TIB01CHM156N",
+            "CAD": "IR3TIB01CAM156N",
+            "AUD": "IR3TIB01AUM156N",
+            "SEK": "IR3TIB01SEM156N",
+            "KRW": "IR3TIB01KRM156N",
+            # HKD has no OECD three-month series on FRED. The Hong Kong dollar is pegged to
+            # the US dollar under the Linked Exchange Rate System, so HIBOR tracks the USD
+            # curve closely and the USD series is the standard proxy. Not free: the peg is
+            # a policy choice, and HIBOR has decoupled from USD rates during liquidity
+            # squeezes - so a hedged index carrying material HKD exposure should be priced
+            # off quoted HKD forwards rather than this.
+            "HKD": "DGS3MO",
+        }
+    )
 
     PROXIED_RATES: frozenset[str] = frozenset({"HKD"})
     """Currencies served by another currency's series. Declared so the substitution is
     visible in a report rather than buried in a mapping."""
 
-    FX_SERIES: dict[str, tuple[str, bool]] = field(default_factory=lambda: {
-        # series id, and whether it is quoted as USD-per-unit (False means inverted)
-        "GBP": ("DEXUSUK", True), "EUR": ("DEXUSEU", True), "AUD": ("DEXUSAL", True),
-        "JPY": ("DEXJPUS", False), "CHF": ("DEXSZUS", False), "CAD": ("DEXCAUS", False),
-        "SEK": ("DEXSDUS", False), "HKD": ("DEXHKUS", False), "KRW": ("DEXKOUS", False),
-    })
+    FX_SERIES: dict[str, tuple[str, bool]] = field(
+        default_factory=lambda: {
+            # series id, and whether it is quoted as USD-per-unit (False means inverted)
+            "GBP": ("DEXUSUK", True),
+            "EUR": ("DEXUSEU", True),
+            "AUD": ("DEXUSAL", True),
+            "JPY": ("DEXJPUS", False),
+            "CHF": ("DEXSZUS", False),
+            "CAD": ("DEXCAUS", False),
+            "SEK": ("DEXSDUS", False),
+            "HKD": ("DEXHKUS", False),
+            "KRW": ("DEXKOUS", False),
+        }
+    )
 
     @property
     def name(self) -> str:
@@ -1435,8 +1657,9 @@ class FredProvider:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         dest = self.cache_dir / f"{series_id}.csv"
         if not dest.exists():
-            resp = requests.get(self.BASE, params={"id": series_id},
-                                headers={"User-Agent": USER_AGENT}, timeout=60)
+            resp = requests.get(
+                self.BASE, params={"id": series_id}, headers={"User-Agent": USER_AGENT}, timeout=60
+            )
             resp.raise_for_status()
             dest.write_bytes(resp.content)
         frame = pd.read_csv(dest)
@@ -1447,8 +1670,9 @@ class FredProvider:
         frame["value"] = pd.to_numeric(frame["value"], errors="coerce")
         return frame.dropna(subset=["value"])
 
-    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
-                          ) -> pd.DataFrame:
+    def get_deposit_rates(
+        self, currencies: list[str], start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         frames: list[pd.DataFrame] = []
         for ccy in currencies:
             series_id = self.RATE_SERIES.get(ccy)
@@ -1456,17 +1680,21 @@ class FredProvider:
                 raise ProviderUnavailableError(f"no FRED rate series mapped for {ccy}")
             frame = self._series(series_id)
             frame = frame[(frame["date"] >= start) & (frame["date"] <= end)]
-            frames.append(pd.DataFrame({
-                "date": frame["date"], "currency": ccy,
-                "deposit_rate": frame["value"] / 100.0,  # FRED quotes percent
-                "is_proxied": ccy in self.PROXIED_RATES,
-            }))
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "date": frame["date"],
+                        "currency": ccy,
+                        "deposit_rate": frame["value"] / 100.0,  # FRED quotes percent
+                        "is_proxied": ccy in self.PROXIED_RATES,
+                    }
+                )
+            )
         if not frames:
             raise ProviderUnavailableError("no deposit rates retrieved")
         return pd.concat(frames, ignore_index=True)
 
-    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date
-               ) -> pd.DataFrame:
+    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date) -> pd.DataFrame:
         if base != "USD":
             raise ProviderUnavailableError(
                 "FRED quotes everything against USD; cross rates must be triangulated"
@@ -1483,9 +1711,16 @@ class FredProvider:
             frame = frame[(frame["date"] >= start) & (frame["date"] <= end)]
             # Normalise to the repo convention: base per one unit of quote.
             rate = frame["value"] if usd_per_unit else 1.0 / frame["value"]
-            frames.append(pd.DataFrame({
-                "date": frame["date"], "base": base, "quote": quote, "rate": rate,
-            }))
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "date": frame["date"],
+                        "base": base,
+                        "quote": quote,
+                        "rate": rate,
+                    }
+                )
+            )
         if not frames:
             raise ProviderUnavailableError("no FX series retrieved")
         return pd.concat(frames, ignore_index=True)
@@ -1509,8 +1744,9 @@ def build_free_composite(
     fundamentals = fundamental_source or EdgarProvider()
     reference = reference_source or fundamentals
     fx = fx_source or FredProvider()
-    return CompositeProvider(prices=prices, fundamentals=fundamentals,
-                             reference=reference, corp_actions=prices, fx=fx)
+    return CompositeProvider(
+        prices=prices, fundamentals=fundamentals, reference=reference, corp_actions=prices, fx=fx
+    )
 
 
 def provider_capability_matrix(providers: dict[str, Any]) -> pd.DataFrame:
@@ -1522,9 +1758,18 @@ def provider_capability_matrix(providers: dict[str, Any]) -> pd.DataFrame:
     free float, corporate action detail, and analyst estimates, every time.
     """
     methods = [
-        "get_prices", "get_corp_actions", "get_shares", "get_shares_history",
-        "get_fundamentals", "get_fx", "get_deposit_rates", "get_classifications",
-        "get_issuers", "get_securities", "get_listings", "get_identifier_map",
+        "get_prices",
+        "get_corp_actions",
+        "get_shares",
+        "get_shares_history",
+        "get_fundamentals",
+        "get_fx",
+        "get_deposit_rates",
+        "get_classifications",
+        "get_issuers",
+        "get_securities",
+        "get_listings",
+        "get_identifier_map",
     ]
     rows: list[dict[str, Any]] = []
     for label, provider in providers.items():
@@ -1561,8 +1806,11 @@ def _supports(provider: Any, method: str) -> str:
     # A body that does nothing but raise is a legitimate implementation - it states the
     # limit rather than returning an empty frame - but it is not coverage.
     body = source.split('"""')[-1] if '"""' in source else source
-    return "unsupported" if "raise ProviderUnavailableError" in body \
-        and "return " not in body else "yes"
+    return (
+        "unsupported"
+        if "raise ProviderUnavailableError" in body and "return " not in body
+        else "yes"
+    )
 
 
 def default_provider(n_securities: int = 500, seed: int = 20260809) -> MarketDataProvider:

@@ -568,18 +568,25 @@ def parse_event(row: dict[str, Any], *, cum_price: float | None = None) -> Corpo
 
     match kind:
         case "CASH_DIVIDEND":
-            return CashDividend(**base, amount=float(payload["amount"]),
-                                currency=payload.get("currency", "USD"), is_special=False)
+            return CashDividend(
+                **base,
+                amount=float(payload["amount"]),
+                currency=payload.get("currency", "USD"),
+                is_special=False,
+            )
         case "SPECIAL_DIVIDEND":
             amount = float(payload["amount"])
             if cum_price and amount / cum_price > _SPECIAL_DIVIDEND_ROC_THRESHOLD:
-                return ReturnOfCapital(**base, amount=amount,
-                                       currency=payload.get("currency", "USD"))
-            return CashDividend(**base, amount=amount,
-                                currency=payload.get("currency", "USD"), is_special=True)
+                return ReturnOfCapital(
+                    **base, amount=amount, currency=payload.get("currency", "USD")
+                )
+            return CashDividend(
+                **base, amount=amount, currency=payload.get("currency", "USD"), is_special=True
+            )
         case "RETURN_OF_CAPITAL":
-            return ReturnOfCapital(**base, amount=float(payload["amount"]),
-                                   currency=payload.get("currency", "USD"))
+            return ReturnOfCapital(
+                **base, amount=float(payload["amount"]), currency=payload.get("currency", "USD")
+            )
         case "SPLIT" | "REVERSE_SPLIT" | "BONUS_ISSUE":
             return Split(**base, ratio=float(payload["ratio"]))
         case "RIGHTS_ISSUE":
@@ -602,8 +609,11 @@ def parse_event(row: dict[str, Any], *, cum_price: float | None = None) -> Corpo
                 currency=payload.get("currency", "USD"),
             )
         case "MERGER_CASH":
-            return CashMerger(**base, cash_per_share=float(payload["cash_per_share"]),
-                              currency=payload.get("currency", "USD"))
+            return CashMerger(
+                **base,
+                cash_per_share=float(payload["cash_per_share"]),
+                currency=payload.get("currency", "USD"),
+            )
         case "MERGER_STOCK":
             return StockMerger(
                 **base,
@@ -613,14 +623,21 @@ def parse_event(row: dict[str, Any], *, cum_price: float | None = None) -> Corpo
                 currency=payload.get("currency", "USD"),
             )
         case "DELISTING":
-            return Delisting(**base, final_price=float(payload.get("final_price", 0.0)),
-                             reason=str(payload.get("reason", "DELISTED")))
+            return Delisting(
+                **base,
+                final_price=float(payload.get("final_price", 0.0)),
+                reason=str(payload.get("reason", "DELISTED")),
+            )
         case "SHARES_CHANGE":
-            return SharesChange(**base, new_shares=float(payload["new_shares"]),
-                                old_shares=float(payload["old_shares"]))
+            return SharesChange(
+                **base,
+                new_shares=float(payload["new_shares"]),
+                old_shares=float(payload["old_shares"]),
+            )
         case "FLOAT_CHANGE":
-            return FloatChange(**base, new_float=float(payload["new_float"]),
-                               old_float=float(payload["old_float"]))
+            return FloatChange(
+                **base, new_float=float(payload["new_float"]), old_float=float(payload["old_float"])
+            )
         case _:
             raise ValueError(f"unhandled event type {kind!r}")
 
@@ -636,8 +653,9 @@ def parse_events(
         parse_event(row, cum_price=prices.get(str(row["security_id"])))
         for row in frame.to_dict("records")
     ]
-    return sorted(events, key=lambda e: (e.ex_date, _APPLY_ORDER.get(e.event_type, 50),
-                                         e.security_id))
+    return sorted(
+        events, key=lambda e: (e.ex_date, _APPLY_ORDER.get(e.event_type, 50), e.security_id)
+    )
 
 
 _APPLY_ORDER: dict[EventType, int] = {

@@ -46,7 +46,8 @@ class TestDeterminism:
         b = SyntheticUniverse(SyntheticConfig(n_securities=40, seed=7))
         assert a.summary() == b.summary()
         assert a._generated["prices"]["close"].sum() == pytest.approx(
-            b._generated["prices"]["close"].sum())
+            b._generated["prices"]["close"].sum()
+        )
 
     def test_different_seeds_give_different_universes(self) -> None:
         a = SyntheticUniverse(SyntheticConfig(n_securities=40, seed=7))
@@ -59,7 +60,8 @@ class TestDeterminism:
         one = build_index(SMALL, verbose=False)
         two = build_index(SMALL, verbose=False)
         assert one.history.levels["gross_total_return"].iloc[-1] == pytest.approx(
-            two.history.levels["gross_total_return"].iloc[-1], rel=1e-12)
+            two.history.levels["gross_total_return"].iloc[-1], rel=1e-12
+        )
 
 
 class TestIndexIntegrity:
@@ -75,8 +77,7 @@ class TestIndexIntegrity:
 
     def test_levels_are_positive_and_finite(self, built) -> None:  # type: ignore[no-untyped-def]
         levels = built.history.levels
-        for column in ("price_return", "gross_total_return", "net_total_return",
-                       "divisor"):
+        for column in ("price_return", "gross_total_return", "net_total_return", "divisor"):
             assert (levels[column] > 0).all()
             assert levels[column].notna().all()
 
@@ -87,8 +88,7 @@ class TestIndexIntegrity:
 
     def test_net_sits_between_price_and_gross(self, built) -> None:  # type: ignore[no-untyped-def]
         levels = built.history.levels.iloc[-1]
-        assert (levels["price_return"] <= levels["net_total_return"]
-                <= levels["gross_total_return"])
+        assert levels["price_return"] <= levels["net_total_return"] <= levels["gross_total_return"]
 
     def test_income_yield_is_plausible(self, built) -> None:  # type: ignore[no-untyped-def]
         """GTR minus PR over a full year should look like a dividend yield.
@@ -138,7 +138,10 @@ class TestIndexIntegrity:
         spot = {c: fx.rate(config.base_date, c) for c in fx.currencies()}
 
         reconstitution = ReconstitutionEngine(
-            config=config, prices=prices, shares=shares, securities=securities,
+            config=config,
+            prices=prices,
+            shares=shares,
+            securities=securities,
             fx_rates=spot,
         )
         # No effective_dates() call first -> constituents_for falls back to screening at
@@ -183,7 +186,8 @@ class TestGoldenMaster:
         master = GoldenMaster.load(GOLDEN_DIR, "reference")
         spec = BuildSpec(
             universe_config=SyntheticConfig(n_securities=300, seed=20260809),
-            start=dt.date(2016, 1, 4), end=dt.date(2024, 12, 31),
+            start=dt.date(2016, 1, 4),
+            end=dt.date(2024, 12, 31),
         )
         result = compare(master, build_index(spec, verbose=False).history.levels)
         assert result.passed, result.report()
@@ -225,28 +229,53 @@ class TestPointInTime:
         # `to_date` must be typed as a date even though it is all-NULL. A column of
         # Nones arrives as INTEGER and DuckDB refuses to compare it to a date - which
         # is the correct behaviour and exactly the open-interval case the query is for.
-        store.register("index_membership", pd.DataFrame({
-            "index_id": ["X"], "security_id": ["SEC00000"], "weight": [1.0],
-            "from_date": pd.to_datetime([dt.date(2020, 1, 1)]),
-            "to_date": pd.Series([None], dtype="datetime64[ns]"),
-        }))
-        store.register("membership_daily", pd.DataFrame({
-            "index_id": ["X"], "security_id": ["SEC00000"],
-            "as_of_date": pd.to_datetime([dt.date(2020, 1, 1)]),
-        }))
-        store.register("signals", pd.DataFrame({
-            "as_of": pd.to_datetime([dt.date(2020, 1, 1)]),
-            "security_id": ["SEC00000"], "signal": [0.5],
-        }))
+        store.register(
+            "index_membership",
+            pd.DataFrame(
+                {
+                    "index_id": ["X"],
+                    "security_id": ["SEC00000"],
+                    "weight": [1.0],
+                    "from_date": pd.to_datetime([dt.date(2020, 1, 1)]),
+                    "to_date": pd.Series([None], dtype="datetime64[ns]"),
+                }
+            ),
+        )
+        store.register(
+            "membership_daily",
+            pd.DataFrame(
+                {
+                    "index_id": ["X"],
+                    "security_id": ["SEC00000"],
+                    "as_of_date": pd.to_datetime([dt.date(2020, 1, 1)]),
+                }
+            ),
+        )
+        store.register(
+            "signals",
+            pd.DataFrame(
+                {
+                    "as_of": pd.to_datetime([dt.date(2020, 1, 1)]),
+                    "security_id": ["SEC00000"],
+                    "signal": [0.5],
+                }
+            ),
+        )
 
         params = {
             "pit_fundamental": {"as_of": dt.date(2020, 6, 30), "items": ["BOOK_EQUITY"]},
             "ttm_fundamental": {"as_of": dt.date(2020, 6, 30), "item": "NET_INCOME"},
             "membership_as_of": {"as_of": dt.date(2020, 6, 30)},
-            "turnover_between_reviews": {"index_id": "X", "d0": dt.date(2020, 1, 1),
-                                         "d1": dt.date(2020, 6, 30)},
-            "identifier_as_of": {"id_type": "sedol", "id_value": "0000006",
-                                 "as_of": dt.date(2020, 6, 30)},
+            "turnover_between_reviews": {
+                "index_id": "X",
+                "d0": dt.date(2020, 1, 1),
+                "d1": dt.date(2020, 6, 30),
+            },
+            "identifier_as_of": {
+                "id_type": "sedol",
+                "id_value": "0000006",
+                "as_of": dt.date(2020, 6, 30),
+            },
             "stale_price_detection": {"min_run": 3},
         }
         for name, sql in SQL_PATTERNS.items():
@@ -258,8 +287,7 @@ class TestValidation:
     def test_clean_build_has_no_escalating_findings(self, built) -> None:  # type: ignore[no-untyped-def]
         assert built.validation is not None
         assert built.validation.escalating == [], (
-            f"escalating findings on clean data: "
-            f"{[f.rule for f in built.validation.escalating]}"
+            f"escalating findings on clean data: {[f.rule for f in built.validation.escalating]}"
         )
 
     def test_gate_blocks_when_a_blocking_check_fails(self) -> None:
@@ -304,21 +332,22 @@ class TestValidation:
         as_of = built.history.levels.iloc[-1]["date"]
         prior_dates = sorted(d for d in prices["date"].unique() if d < as_of)
         snapshot = built.history.weights
-        weights = snapshot[snapshot["date"] == snapshot["date"].max()].set_index(
-            "security_id")["weight"]
+        weights = snapshot[snapshot["date"] == snapshot["date"].max()].set_index("security_id")[
+            "weight"
+        ]
         quotes = list(universe._fx["quote"].unique())
 
         context = build_baseline_context(
             prices=prices[prices["date"] == as_of],
             prior_prices=prices[prices["date"] == prior_dates[-1]],
-            weights=weights, shares=universe.get_shares(None, as_of),
+            weights=weights,
+            shares=universe.get_shares(None, as_of),
             fx=universe.get_fx("USD", quotes, as_of, as_of),
             prior_fx=universe.get_fx("USD", quotes, prior_dates[-1], prior_dates[-1]),
             as_of=as_of,
             divisor=float(built.history.levels.iloc[-1]["divisor"]),
             index_level=float(built.history.levels.iloc[-1]["price_return"]),
-            total_market_value=float(
-                built.history.levels.iloc[-1]["total_market_value"]),
+            total_market_value=float(built.history.levels.iloc[-1]["total_market_value"]),
             divisor_audit=built.calculator.engine.audit_frame(),
             corp_actions=universe.get_corp_actions(None, as_of, as_of),
             config=built.history.config,
@@ -328,9 +357,7 @@ class TestValidation:
         frame, _ = run_chaos_drill(context)
         injected = frame[~frame["detail"].str.startswith("NOT INJECTED")]
         undetected = injected[~injected["detected"]]
-        assert undetected.empty, (
-            f"undetected faults: {undetected['fault_name'].tolist()}"
-        )
+        assert undetected.empty, f"undetected faults: {undetected['fault_name'].tolist()}"
         assert isinstance(frame, pd.DataFrame)
 
 
@@ -352,8 +379,7 @@ class TestManifest:
         from dataclasses import replace
 
         base = build_index(SMALL, verbose=False).manifest
-        changed_spec = replace(
-            SMALL, index_config=replace(SMALL.index_config, base_level=500.0))
+        changed_spec = replace(SMALL, index_config=replace(SMALL.index_config, base_level=500.0))
         changed = build_index(changed_spec, verbose=False).manifest
         diff = base.diff(changed)
         assert "config" in diff
@@ -363,12 +389,11 @@ class TestManifest:
 class TestIndexStateFile:
     def test_state_file_round_trips_adv(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         state = IndexState(
-            date=dt.date(2020, 1, 1), divisor=1.0,
-            constituents={"S1": Constituent("S1", price=10.0, shares=100.0,
-                                             adv=1_234_567.0)},
+            date=dt.date(2020, 1, 1),
+            divisor=1.0,
+            constituents={"S1": Constituent("S1", price=10.0, shares=100.0, adv=1_234_567.0)},
         )
-        saved = IndexStateFile.from_state("MFTSE-TEST", state, pr=100.0, gtr=100.0,
-                                           ntr=100.0)
+        saved = IndexStateFile.from_state("MFTSE-TEST", state, pr=100.0, gtr=100.0, ntr=100.0)
         saved.save(tmp_path)
         loaded = IndexStateFile.load(tmp_path, "MFTSE-TEST")
         restored = loaded.to_state()
@@ -377,18 +402,34 @@ class TestIndexStateFile:
     def test_state_file_without_adv_key_loads_with_zero_default(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         # Simulates a state file written before this field existed.
         import json
+
         path = tmp_path / "MFTSE-OLD_state.json"
-        path.write_text(json.dumps({
-            "index_id": "MFTSE-OLD", "as_of": "2020-01-01", "divisor": 1.0,
-            "level_pr": 100.0, "level_gtr": 100.0, "level_ntr": 100.0,
-            "constituents": {
-                "S1": {
-                    "price": 10.0, "shares": 100.0, "free_float_factor": 1.0,
-                    "capping_factor": 1.0, "fx_rate": 1.0, "currency": "USD",
-                    "country": "US", "icb_industry": "", "size_band": "LARGE",
+        path.write_text(
+            json.dumps(
+                {
+                    "index_id": "MFTSE-OLD",
+                    "as_of": "2020-01-01",
+                    "divisor": 1.0,
+                    "level_pr": 100.0,
+                    "level_gtr": 100.0,
+                    "level_ntr": 100.0,
+                    "constituents": {
+                        "S1": {
+                            "price": 10.0,
+                            "shares": 100.0,
+                            "free_float_factor": 1.0,
+                            "capping_factor": 1.0,
+                            "fx_rate": 1.0,
+                            "currency": "USD",
+                            "country": "US",
+                            "icb_industry": "",
+                            "size_band": "LARGE",
+                        }
+                    },
                 }
-            },
-        }), encoding="utf-8")
+            ),
+            encoding="utf-8",
+        )
         loaded = IndexStateFile.load(tmp_path, "MFTSE-OLD")
         restored = loaded.to_state()
         assert restored.constituents["S1"].adv == 0.0
@@ -410,9 +451,11 @@ class TestAiLayer:
 
         root = Path(__file__).parent.parent / "ground_rules"
         assistant = MethodologyAssistant().add_directory(root)
-        for question in ("What is the index level today?",
-                         "Should I buy this index?",
-                         "What is the MSCI free float threshold?"):
+        for question in (
+            "What is the index level today?",
+            "Should I buy this index?",
+            "What is the MSCI free float threshold?",
+        ):
             assert assistant.ask(question).abstained, question
 
     def test_eval_suite_meets_its_reported_bar(self) -> None:
@@ -425,8 +468,7 @@ class TestAiLayer:
         from miniftse.agents.rag import MethodologyAssistant
 
         root = Path(__file__).parent.parent / "ground_rules"
-        report = run_evals(MethodologyAssistant().add_directory(root),
-                           default_eval_set())
+        report = run_evals(MethodologyAssistant().add_directory(root), default_eval_set())
         assert report.accuracy >= 0.85, report.summary()
         assert report.citation_precision >= 0.95
         assert report.hallucination_rate == 0.0
@@ -438,8 +480,7 @@ class TestAiLayer:
         pack = FactPack()
         pack.add("index_return", 0.082, "index return", "IndexHistory")
         assert NumberGuard.check("The index returned 8.20%.", pack).passed
-        result = NumberGuard.check("The index returned 8.20%, and fees cost 0.42%.",
-                                   pack)
+        result = NumberGuard.check("The index returned 8.20%, and fees cost 0.42%.", pack)
         assert not result.passed
         assert "0.42" in result.unverified_numbers
 
@@ -454,8 +495,12 @@ class TestAiLayer:
         from miniftse.agents.llm import offline_drafting_client
 
         pack = FactPack()
-        pack.add("price_return_period", 0.0234,
-                 "price return over the last 21 sessions", "IndexHistory.levels")
+        pack.add(
+            "price_return_period",
+            0.0234,
+            "price return over the last 21 sessions",
+            "IndexHistory.levels",
+        )
         pack.add_text("as_of", "2019-12-30 00:00:00")
         question = "How has the index performed over the past month?"
 
@@ -464,10 +509,10 @@ class TestAiLayer:
 
         assert response.guard.passed, response.guard.message
         assert question in response.draft
-        assert "2.34%" in response.draft            # the formatted value, restated
+        assert "2.34%" in response.draft  # the formatted value, restated
         assert "price return period" in response.draft  # the key, underscores spaced
         assert "21 sessions" not in response.draft  # never the free-text description
-        assert "2019-12-30" not in response.draft   # never the raw context string
+        assert "2019-12-30" not in response.draft  # never the raw context string
 
     def test_plain_offline_llm_still_refuses_the_fact_pack_prompt(self) -> None:
         """The drafting handler is opt-in composition, not new default behaviour: a

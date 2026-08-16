@@ -106,9 +106,7 @@ _DIVERGENCE_INCIDENT: dict[str, Any] = {
     "max_divisor_divergence_bps": 0.7426,
     "divergent_dates": 65,
     "total_dates": 2311,
-    "conclusion": (
-        "A rule whose outcome depends on floating-point summation order is not a rule."
-    ),
+    "conclusion": ("A rule whose outcome depends on floating-point summation order is not a rule."),
     "quantisation_decimals": CUMULATIVE_PCT_DECIMALS,
     # What re-pinning the master after the fix actually moved, on one machine. Kept
     # with the incident because it is the strongest evidence the fix was worth making:
@@ -451,9 +449,7 @@ def create_app(
         retrieval runs on this GET, the same split `/chaos` keeps between its GET and
         its live-drill POST.
         """
-        return templates.TemplateResponse(
-            request, "ask.html", {"examples": _EXAMPLE_QUESTIONS}
-        )
+        return templates.TemplateResponse(request, "ask.html", {"examples": _EXAMPLE_QUESTIONS})
 
     @app.post("/ask/query", dependencies=[Depends(enforce_rate_limit)])
     async def ask_query(request: Request, question: str = Form(...)) -> Response:
@@ -481,9 +477,7 @@ def create_app(
 
         desk: DeskState = request.app.state.desk
         result = ask(desk, stripped)
-        return templates.TemplateResponse(
-            request, "partials/answer.html", {"result": result}
-        )
+        return templates.TemplateResponse(request, "partials/answer.html", {"result": result})
 
     @app.get("/evals")
     async def evals(request: Request) -> Response:
@@ -630,16 +624,20 @@ def create_app(
                 "capacity": desk.capacity,
                 "risk_attribution": desk.risk_attribution,
                 "scheme_labels": _SCHEME_LABELS,
-                "overview_chart_json": _embed_json({
-                    "dates": desk.overview["dates"],
-                    "pr": desk.overview["pr"],
-                    "gtr": desk.overview["gtr"],
-                    "ntr": desk.overview["ntr"],
-                }),
-                "capacity_slider_json": _embed_json({
-                    "constituents": desk.capacity["constituents"],
-                    "capacity_params": desk.capacity["capacity_params"],
-                }),
+                "overview_chart_json": _embed_json(
+                    {
+                        "dates": desk.overview["dates"],
+                        "pr": desk.overview["pr"],
+                        "gtr": desk.overview["gtr"],
+                        "ntr": desk.overview["ntr"],
+                    }
+                ),
+                "capacity_slider_json": _embed_json(
+                    {
+                        "constituents": desk.capacity["constituents"],
+                        "capacity_params": desk.capacity["capacity_params"],
+                    }
+                ),
             },
         )
 

@@ -40,7 +40,8 @@ class Memo:
 
 def _m2() -> Memo:
     return Memo(
-        "M2", "Why our index level moved 30bp when nothing traded",
+        "M2",
+        "Why our index level moved 30bp when nothing traded",
         "a client relationship manager who needs to answer this today",
         """
 A client has noticed that our index level changed on a day when, as far as they can
@@ -95,7 +96,8 @@ because the record is kept for exactly this purpose rather than reconstructed af
 
 def _m3() -> Memo:
     return Memo(
-        "M3", "Why did the index turn over 4.2% in June",
+        "M3",
+        "Why did the index turn over 4.2% in June",
         "a pension trustee who pays the trading costs",
         """
 Turnover matters to you directly: every percentage point the index turns over is
@@ -138,7 +140,8 @@ happen eventually, in larger and more concentrated blocks.
 
 def _m5() -> Memo:
     return Memo(
-        "M5", "What evidence would convince us to launch a new factor index",
+        "M5",
+        "What evidence would convince us to launch a new factor index",
         "the index governance committee",
         """
 This memo proposes the evidentiary standard we should require before publishing rules
@@ -186,7 +189,8 @@ that.
 
 def _m6() -> Memo:
     return Memo(
-        "M6", "Three roads to a value index",
+        "M6",
+        "Three roads to a value index",
         "a UK pension fund evaluating factor exposure",
         """
 You asked for cheap exposure to value with turnover below 15% a year. There are three
@@ -231,7 +235,8 @@ reflect that.
 
 def _m8() -> Memo:
     return Memo(
-        "M8", "What a constrained optimisation actually decides",
+        "M8",
+        "What a constrained optimisation actually decides",
         "a product manager scoping a climate index",
         """
 You have asked for an index that reduces carbon intensity by half, keeps sector weights
@@ -276,7 +281,8 @@ should be told, and given the chance to change it.
 
 def _m10() -> Memo:
     return Memo(
-        "M10", "Why an index provider needs software engineering, not scripts",
+        "M10",
+        "Why an index provider needs software engineering, not scripts",
         "an engineering manager assessing the platform",
         """
 The calculation behind an index is arithmetic a competent analyst could do in a
@@ -317,7 +323,8 @@ same thing as making it usable.
 
 def _m12() -> Memo:
     return Memo(
-        "M12", "What we do when the 6am calculation fails",
+        "M12",
+        "What we do when the 6am calculation fails",
         "a new joiner on the operations rota",
         """
 The index has to publish before the market opens. When something breaks at 6am, the
@@ -366,7 +373,8 @@ they fire on a morning where everything otherwise looks normal.
 
 def _m13() -> Memo:
     return Memo(
-        "M13", "Where AI belongs in index research, and where it does not",
+        "M13",
+        "Where AI belongs in index research, and where it does not",
         "the head of index research",
         """
 There is pressure to use language models more widely. This memo proposes where they earn
@@ -414,7 +422,8 @@ requires us to trust a model with anything we cannot check.
 
 def _m15() -> Memo:
     return Memo(
-        "M15", "Why changing a rule requires a public consultation",
+        "M15",
+        "Why changing a rule requires a public consultation",
         "a new analyst who thinks this is bureaucracy",
         """
 You have proposed a methodology improvement and been told it needs a consultation
@@ -491,9 +500,7 @@ def write_memos(directory: Path, context: dict[str, Any] | None = None) -> list[
         "| Module | Memo | Written for |",
         "|---|---|---|",
     ]
-    lines += [
-        f"| {m.module} | [{m.title}]({m.slug}.md) | {m.audience} |" for m in memos
-    ]
+    lines += [f"| {m.module} | [{m.title}]({m.slug}.md) | {m.audience} |" for m in memos]
     lines += [
         "",
         "> `M1_why_yfinance_lies.md` is deliberately absent from this list. It is an "

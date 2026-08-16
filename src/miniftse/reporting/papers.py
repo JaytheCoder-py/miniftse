@@ -20,14 +20,20 @@ def write_research_paper(out: Path, evidence: dict[str, Any] | None = None) -> P
     selection of the evidence.
     """
     e = {
-        "tilt_exposure": 1.46, "tilt_active_share": 0.42, "tilt_te": 0.064,
-        "tilt_turnover": 0.45, "sel_exposure": 0.98, "sel_turnover": 0.60,
-        "opt_exposure": 1.29, "opt_te": 0.062, "n_random": 200, "max_random_t": 3.2,
+        "tilt_exposure": 1.46,
+        "tilt_active_share": 0.42,
+        "tilt_te": 0.064,
+        "tilt_turnover": 0.45,
+        "sel_exposure": 0.98,
+        "sel_turnover": 0.60,
+        "opt_exposure": 1.29,
+        "opt_te": 0.062,
+        "n_random": 200,
+        "max_random_t": 3.2,
         **(evidence or {}),
     }
     lines = [
-        "# Building a value index: exposure, turnover and what the three approaches "
-        "actually cost",
+        "# Building a value index: exposure, turnover and what the three approaches actually cost",
         "",
         "**miniFTSE Research** · Working paper",
         "",
@@ -86,8 +92,7 @@ def write_research_paper(out: Path, evidence: dict[str, Any] | None = None) -> P
         f"| Tilt (strength 1.0) | {e['tilt_exposure']:.2f} | "
         f"{e['tilt_active_share']:.2f} | {e['tilt_te']:.1%} | "
         f"{e['tilt_turnover']:.0%} |",
-        f"| Optimised (TE ≤ 3%) | {e['opt_exposure']:.2f} | 0.59 | {e['opt_te']:.1%} | "
-        "80% |",
+        f"| Optimised (TE ≤ 3%) | {e['opt_exposure']:.2f} | 0.59 | {e['opt_te']:.1%} | 80% |",
         "",
         "Three observations.",
         "",
@@ -154,7 +159,7 @@ def write_research_paper(out: Path, evidence: dict[str, Any] | None = None) -> P
         "",
         "The optimised variant is technically the most efficient and we do not "
         "recommend it, for a reason that never appears in a performance table: when it "
-        "behaves unexpectedly, the explanation is \"the optimiser did it\".",
+        'behaves unexpectedly, the explanation is "the optimiser did it".',
         "",
         "---",
         "",
@@ -184,8 +189,7 @@ def write_incident_report(out: Path, incident: dict[str, Any] | None = None) -> 
     lines = [
         f"# Post-incident report — {i['incident_id']}",
         "",
-        f"**Severity** {i['severity']} · **Detected** {i['detected']} · "
-        "**Status** Resolved",
+        f"**Severity** {i['severity']} · **Detected** {i['detected']} · **Status** Resolved",
         "",
         "---",
         "",
@@ -310,8 +314,8 @@ def write_ai_retrospective(out: Path, stats: dict[str, Any] | None = None) -> Pa
         "Protocols — is where the speed-up is largest. These are well-specified "
         "problems with known shapes.",
         "",
-        "**Domain vocabulary as a starting point.** Getting from \"I need a Barra-style "
-        "risk model\" to a working weighted cross-sectional regression with an industry "
+        '**Domain vocabulary as a starting point.** Getting from "I need a Barra-style '
+        'risk model" to a working weighted cross-sectional regression with an industry '
         "collinearity constraint took minutes rather than a day of reading.",
         "",
         "**Documentation that stays current.** Several documents here are generated "
@@ -359,8 +363,8 @@ def write_ai_retrospective(out: Path, stats: dict[str, Any] | None = None) -> Pa
         "",
         "## What I would do differently",
         "",
-        "1. **Write the plausibility check before the implementation.** \"A factor "
-        "index should have tracking error in the 2–8% range\" would have caught the "
+        '1. **Write the plausibility check before the implementation.** "A factor '
+        'index should have tracking error in the 2–8% range" would have caught the '
         "capping bug on the first run instead of several sessions later.",
         "2. **Never trust a diagnostic computed by the component it measures.** Every "
         "component reported success while the product was broken.",
@@ -387,8 +391,7 @@ def write_ai_retrospective(out: Path, stats: dict[str, Any] | None = None) -> Pa
     return out
 
 
-def write_all_documents(directory: Path, context: dict[str, Any] | None = None
-                        ) -> list[Path]:
+def write_all_documents(directory: Path, context: dict[str, Any] | None = None) -> list[Path]:
     """Generate every long-form document plus the memo set and vocabulary map."""
     from miniftse.reporting.memos import write_memos
     from miniftse.reporting.vocabulary import write_vocabulary_map
@@ -405,8 +408,14 @@ def write_all_documents(directory: Path, context: dict[str, Any] | None = None
 
 
 def document_index(paths: list[Path]) -> pd.DataFrame:
-    return pd.DataFrame([
-        {"document": p.stem.replace("_", " "), "path": str(p),
-         "size_kb": round(p.stat().st_size / 1024, 1)}
-        for p in paths if p.exists()
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "document": p.stem.replace("_", " "),
+                "path": str(p),
+                "size_kb": round(p.stat().st_size / 1024, 1),
+            }
+            for p in paths
+            if p.exists()
+        ]
+    )

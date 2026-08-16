@@ -161,11 +161,13 @@ class CorpActionProvider(Protocol):
 
 @runtime_checkable
 class FxProvider(Protocol):
-    def get_fx(self, base: str, quotes: list[str], start: dt.date, end: dt.date) -> pd.DataFrame:
-        ...
+    def get_fx(
+        self, base: str, quotes: list[str], start: dt.date, end: dt.date
+    ) -> pd.DataFrame: ...
 
-    def get_deposit_rates(self, currencies: list[str], start: dt.date, end: dt.date
-                          ) -> pd.DataFrame:
+    def get_deposit_rates(
+        self, currencies: list[str], start: dt.date, end: dt.date
+    ) -> pd.DataFrame:
         """Short rates, used to synthesise forwards via covered interest parity for the
         currency-hedged index variant."""
         ...
@@ -173,8 +175,9 @@ class FxProvider(Protocol):
 
 @runtime_checkable
 class ClassificationProvider(Protocol):
-    def get_classifications(self, security_ids: list[str] | None, as_of: dt.date
-                            ) -> pd.DataFrame: ...
+    def get_classifications(
+        self, security_ids: list[str] | None, as_of: dt.date
+    ) -> pd.DataFrame: ...
 
 
 @runtime_checkable

@@ -115,9 +115,9 @@ class OfflineLlm(LlmClient):
                 "Refer this to the index governance team."
             )
         question = re.search(r"Question:\s*(.+)", prompt)
-        query_terms = set(
-            re.findall(r"[a-z]{4,}", question.group(1).lower())
-        ) if question else set()
+        query_terms = (
+            set(re.findall(r"[a-z]{4,}", question.group(1).lower())) if question else set()
+        )
 
         passages = [p.strip() for p in context.group(1).split("---") if p.strip()]
         lines = [
@@ -306,10 +306,12 @@ class AnthropicLlm(LlmClient):
             block.text for block in response.content if getattr(block, "type", "") == "text"
         )
         return LlmResponse(
-            text=text, model=self.model,
+            text=text,
+            model=self.model,
             prompt_tokens=response.usage.input_tokens,
             completion_tokens=response.usage.output_tokens,
-            stop_reason=str(response.stop_reason), raw=response,
+            stop_reason=str(response.stop_reason),
+            raw=response,
         )
 
 
@@ -341,12 +343,18 @@ class CachingLlm(LlmClient):
         max_tokens: int = 1024,
         temperature: float = 0.0,
     ) -> LlmResponse:
-        key = hashlib.sha256(json.dumps({
-            "model": self.inner.name,
-            "system": system,
-            "messages": [(m.role, m.content) for m in messages],
-            "max_tokens": max_tokens, "temperature": temperature,
-        }, sort_keys=True).encode()).hexdigest()[:32]
+        key = hashlib.sha256(
+            json.dumps(
+                {
+                    "model": self.inner.name,
+                    "system": system,
+                    "messages": [(m.role, m.content) for m in messages],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()[:32]
 
         path = self.cache_dir / f"{key}.json"
         if path.exists():
@@ -354,12 +362,18 @@ class CachingLlm(LlmClient):
             return LlmResponse(**payload)
 
         response = self.inner.complete(messages, system, max_tokens, temperature)
-        path.write_text(json.dumps({
-            "text": response.text, "model": response.model,
-            "prompt_tokens": response.prompt_tokens,
-            "completion_tokens": response.completion_tokens,
-            "stop_reason": response.stop_reason,
-        }), encoding="utf-8")
+        path.write_text(
+            json.dumps(
+                {
+                    "text": response.text,
+                    "model": response.model,
+                    "prompt_tokens": response.prompt_tokens,
+                    "completion_tokens": response.completion_tokens,
+                    "stop_reason": response.stop_reason,
+                }
+            ),
+            encoding="utf-8",
+        )
         return response
 
 

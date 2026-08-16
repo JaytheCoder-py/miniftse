@@ -122,9 +122,7 @@ generating turnover. The number is a design choice; the study behind it is in th
 buffer analysis in `research/`."""
 
 
-def screen_free_float(
-    m: SecurityMetrics, cfg: EligibilityConfig, incumbent: bool
-) -> ScreenOutcome:
+def screen_free_float(m: SecurityMetrics, cfg: EligibilityConfig, incumbent: bool) -> ScreenOutcome:
     """Minimum investable proportion, with a higher bar in emerging markets.
 
     Emerging markets carry more state and founder ownership, and a thin float in a
@@ -151,9 +149,7 @@ def screen_free_float(
     )
 
 
-def screen_liquidity(
-    m: SecurityMetrics, cfg: EligibilityConfig, incumbent: bool
-) -> ScreenOutcome:
+def screen_liquidity(m: SecurityMetrics, cfg: EligibilityConfig, incumbent: bool) -> ScreenOutcome:
     """Median daily turnover as a fraction of free-float market cap.
 
     Median rather than mean: one takeover-rumour day should not qualify a security that
@@ -235,9 +231,7 @@ def screen_security_type(
     )
 
 
-def screen_suspension(
-    m: SecurityMetrics, cfg: EligibilityConfig, incumbent: bool
-) -> ScreenOutcome:
+def screen_suspension(m: SecurityMetrics, cfg: EligibilityConfig, incumbent: bool) -> ScreenOutcome:
     """A suspended security cannot join, but is not deleted on suspension alone.
 
     Deleting immediately would crystallise a price nobody can trade at. The standard
@@ -252,8 +246,9 @@ def screen_suspension(
         value="suspended" if m.is_suspended else "trading",
         threshold="trading at the cut-off",
         detail=(
-            "incumbents are retained through a suspension and valued at the last "
-            "traded price" if incumbent and m.is_suspended else ""
+            "incumbents are retained through a suspension and valued at the last traded price"
+            if incumbent and m.is_suspended
+            else ""
         ),
     )
 
@@ -288,17 +283,12 @@ class EligibilityScreener:
         self, metrics: list[SecurityMetrics], incumbents: set[str] | None = None
     ) -> dict[str, ScreenReport]:
         incumbents = incumbents or set()
-        return {
-            m.security_id: self.screen_one(m, m.security_id in incumbents)
-            for m in metrics
-        }
+        return {m.security_id: self.screen_one(m, m.security_id in incumbents) for m in metrics}
 
     def eligible_ids(
         self, metrics: list[SecurityMetrics], incumbents: set[str] | None = None
     ) -> list[str]:
-        return [
-            sid for sid, rep in self.screen_all(metrics, incumbents).items() if rep.eligible
-        ]
+        return [sid for sid, rep in self.screen_all(metrics, incumbents).items() if rep.eligible]
 
     @staticmethod
     def rejection_summary(reports: dict[str, ScreenReport]) -> pd.DataFrame:
@@ -316,9 +306,12 @@ class EligibilityScreener:
         if not rows:
             return pd.DataFrame(columns=["rule", "n_rejected"])
         return (
-            pd.DataFrame(rows).groupby("rule", as_index=False)
-            .size().rename(columns={"size": "n_rejected"})
-            .sort_values("n_rejected", ascending=False).reset_index(drop=True)
+            pd.DataFrame(rows)
+            .groupby("rule", as_index=False)
+            .size()
+            .rename(columns={"size": "n_rejected"})
+            .sort_values("n_rejected", ascending=False)
+            .reset_index(drop=True)
         )
 
 
@@ -375,14 +368,13 @@ def compute_metrics(
     # reconciliation problem waiting to happen.
     px_sorted = px.sort_values(["security_id", "date"])
     returns = px_sorted.groupby("security_id")["close"].pct_change()
-    vol = (
-        returns.groupby(px_sorted["security_id"]).std() * np.sqrt(252)
-    ).fillna(0.0)
+    vol = (returns.groupby(px_sorted["security_id"]).std() * np.sqrt(252)).fillna(0.0)
 
     share_lookup = (
         shares[shares["knowledge_date"] <= as_of]
         .sort_values(["security_id", "effective_date", "knowledge_date"])
-        .groupby("security_id").last()
+        .groupby("security_id")
+        .last()
     )
     sec_lookup = securities.set_index("security_id")
 
@@ -398,30 +390,32 @@ def compute_metrics(
         fol = float(sh.get("foreign_ownership_limit", 1.0))
         investable = min(float_factor, fol)
         float_cap = (
-            float(row["last_close"]) * float(sh["shares_outstanding"])
-            * investable * float(row["last_fx"])
+            float(row["last_close"])
+            * float(sh["shares_outstanding"])
+            * investable
+            * float(row["last_fx"])
         )
-        turnover_ratio = (
-            float(row["median_traded_value"]) / float_cap if float_cap > 0 else 0.0
-        )
+        turnover_ratio = float(row["median_traded_value"]) / float_cap if float_cap > 0 else 0.0
 
         listing_start = meta.get("listing_start")
         age = (as_of - listing_start).days if isinstance(listing_start, dt.date) else 9999
 
-        out.append(SecurityMetrics(
-            security_id=sid,
-            free_float_factor=float_factor,
-            foreign_ownership_limit=fol,
-            float_market_cap=float_cap,
-            median_daily_turnover_ratio=turnover_ratio,
-            median_daily_traded_value=float(row["median_traded_value"]),
-            realised_volatility=float(vol.get(sid, 0.0)),
-            price_observations=int(row["observations"]),
-            security_type=SecurityType(str(meta["security_type"])),
-            market_status=MarketStatus(str(meta["market_status"])),
-            listing_age_days=age,
-            is_suspended=bool(row["any_suspended"]),
-        ))
+        out.append(
+            SecurityMetrics(
+                security_id=sid,
+                free_float_factor=float_factor,
+                foreign_ownership_limit=fol,
+                float_market_cap=float_cap,
+                median_daily_turnover_ratio=turnover_ratio,
+                median_daily_traded_value=float(row["median_traded_value"]),
+                realised_volatility=float(vol.get(sid, 0.0)),
+                price_observations=int(row["observations"]),
+                security_type=SecurityType(str(meta["security_type"])),
+                market_status=MarketStatus(str(meta["market_status"])),
+                listing_age_days=age,
+                is_suspended=bool(row["any_suspended"]),
+            )
+        )
     return out
 
 

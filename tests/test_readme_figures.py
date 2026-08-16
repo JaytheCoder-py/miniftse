@@ -82,15 +82,18 @@ class TestReadmeMatchesTheBuild:
 
     def test_annualised_return(self, metrics: dict) -> None:
         assert _number(_readme_row("Annualised return (GTR)")) == pytest.approx(
-            round(metrics["ann_return_gtr"] * 100, 1), abs=0.05)
+            round(metrics["ann_return_gtr"] * 100, 1), abs=0.05
+        )
 
     def test_annualised_volatility(self, metrics: dict) -> None:
         assert _number(_readme_row("Annualised volatility")) == pytest.approx(
-            round(metrics["ann_vol"] * 100, 1), abs=0.05)
+            round(metrics["ann_vol"] * 100, 1), abs=0.05
+        )
 
     def test_max_drawdown(self, metrics: dict) -> None:
         assert _number(_readme_row("Maximum drawdown")) == pytest.approx(
-            round(metrics["max_drawdown"] * 100, 1), abs=0.05)
+            round(metrics["max_drawdown"] * 100, 1), abs=0.05
+        )
 
     def test_divisor_events(self, metrics: dict) -> None:
         assert _number(_readme_row("Divisor events")) == metrics["divisor_events"]

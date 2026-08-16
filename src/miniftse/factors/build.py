@@ -17,10 +17,16 @@ import pandas as pd
 
 from miniftse.factors.definitions import ALL_FACTORS, FactorInputs
 
-FLOW_ITEMS = frozenset({
-    "NET_INCOME", "REVENUE", "GROSS_PROFIT", "OPERATING_CASHFLOW", "CAPEX",
-    "DIVIDENDS_PAID",
-})
+FLOW_ITEMS = frozenset(
+    {
+        "NET_INCOME",
+        "REVENUE",
+        "GROSS_PROFIT",
+        "OPERATING_CASHFLOW",
+        "CAPEX",
+        "DIVIDENDS_PAID",
+    }
+)
 """Income-statement and cash-flow items, which must be summed over four quarters.
 Balance-sheet items are levels and must not be - summing four quarters of total assets
 gives four times the company."""
@@ -47,9 +53,7 @@ class FactorInputBuilder:
         if prices.empty:
             raise ValueError(f"no price data on or before {as_of}")
 
-        latest = (
-            prices.sort_values("date").groupby("security_id").last()
-        )
+        latest = prices.sort_values("date").groupby("security_id").last()
         if security_ids is not None:
             latest = latest[latest.index.isin(security_ids)]
         ids = list(latest.index)
@@ -62,8 +66,9 @@ class FactorInputBuilder:
         shares_out = shares["shares_outstanding"].reindex(ids)
         float_factor = np.minimum(
             shares["free_float_factor"].reindex(ids).fillna(1.0),
-            shares.get("foreign_ownership_limit",
-                       pd.Series(1.0, index=shares.index)).reindex(ids).fillna(1.0),
+            shares.get("foreign_ownership_limit", pd.Series(1.0, index=shares.index))
+            .reindex(ids)
+            .fillna(1.0),
         )
 
         price = latest["close"].reindex(ids)
@@ -82,9 +87,15 @@ class FactorInputBuilder:
         returns = self._returns(prices, ids)
 
         return FactorInputs(
-            as_of=as_of, price=price, market_cap=market_cap,
-            float_market_cap=float_cap, industry=industry, country=country,
-            fundamentals=fundamentals, returns=returns, prior_fundamentals=prior,
+            as_of=as_of,
+            price=price,
+            market_cap=market_cap,
+            float_market_cap=float_cap,
+            industry=industry,
+            country=country,
+            fundamentals=fundamentals,
+            returns=returns,
+            prior_fundamentals=prior,
         )
 
     # ------------------------------------------------------------------ internals
@@ -133,9 +144,8 @@ class FactorInputBuilder:
         known = known[known["item"].isin(items)]
         # Collapse restatements: one row per (security, item, period), the latest filing
         # known on `as_of`. Skipping this double-counts every restated period.
-        known = (
-            known.sort_values("filed_date")
-            .drop_duplicates(["security_id", "item", "period_end"], keep="last")
+        known = known.sort_values("filed_date").drop_duplicates(
+            ["security_id", "item", "period_end"], keep="last"
         )
         stale_cutoff = as_of - dt.timedelta(days=550)
         known = known[known["period_end"] >= stale_cutoff]
@@ -150,14 +160,11 @@ class FactorInputBuilder:
                 # Flows accumulate: sum the last four quarters.
                 ranked = sub.sort_values(["security_id", "period_end"])
                 top4 = ranked.groupby("security_id").tail(4)
-                agg = top4.groupby("security_id").agg(v=("value", "sum"),
-                                                      n=("value", "size"))
+                agg = top4.groupby("security_id").agg(v=("value", "sum"), n=("value", "size"))
                 series = agg.loc[agg["n"] == 4, "v"]
             else:
                 # Levels do not: take the most recent balance sheet only.
-                series = (
-                    sub.sort_values("period_end").groupby("security_id")["value"].last()
-                )
+                series = sub.sort_values("period_end").groupby("security_id")["value"].last()
             out[item] = series.reindex(ids)
 
         frame = pd.DataFrame(out, index=ids)
@@ -221,9 +228,7 @@ def build_score_panels(
         for name, definition in definitions.items():
             rows[name][date] = definition.compute(inputs)
 
-    return {
-        name: pd.DataFrame(data).T.sort_index() for name, data in rows.items()
-    }
+    return {name: pd.DataFrame(data).T.sort_index() for name, data in rows.items()}
 
 
 def build_score_panel(

@@ -55,8 +55,12 @@ class Finding:
     context: dict[str, Any] = field(default_factory=dict)
 
     def format(self) -> str:
-        icon = {Severity.INFO: "i", Severity.WARN: "!", Severity.BLOCK: "X",
-                Severity.ESCALATE: "!!"}[self.severity]
+        icon = {
+            Severity.INFO: "i",
+            Severity.WARN: "!",
+            Severity.BLOCK: "X",
+            Severity.ESCALATE: "!!",
+        }[self.severity]
         head = f"[{icon}] {self.rule} ({self.category}): {self.message}"
         if self.sample:
             head += f"\n      e.g. {', '.join(self.sample[:5])}"
@@ -98,20 +102,28 @@ class ValidationReport:
         return {
             "total": len(self.findings),
             "passed": sum(f.passed for f in self.findings),
-            "warnings": sum(
-                1 for f in self.failures if f.severity == Severity.WARN),
+            "warnings": sum(1 for f in self.failures if f.severity == Severity.WARN),
             "blocking": len(self.blocking),
             "escalating": len(self.escalating),
         }
 
     def to_frame(self) -> pd.DataFrame:
-        return pd.DataFrame([
-            {"rule": f.rule, "category": f.category, "severity": f.severity.name,
-             "passed": f.passed, "message": f.message, "n_affected": f.n_affected,
-             "sample": ", ".join(f.sample[:5]), "value": f.value,
-             "threshold": f.threshold}
-            for f in self.findings
-        ])
+        return pd.DataFrame(
+            [
+                {
+                    "rule": f.rule,
+                    "category": f.category,
+                    "severity": f.severity.name,
+                    "passed": f.passed,
+                    "message": f.message,
+                    "n_affected": f.n_affected,
+                    "sample": ", ".join(f.sample[:5]),
+                    "value": f.value,
+                    "threshold": f.threshold,
+                }
+                for f in self.findings
+            ]
+        )
 
     def summary(self) -> str:
         c = self.counts()
@@ -123,8 +135,9 @@ class ValidationReport:
         ]
         if self.failures:
             lines.append("")
-            lines += ["  " + f.format() for f in sorted(
-                self.failures, key=lambda f: -f.severity.value)]
+            lines += [
+                "  " + f.format() for f in sorted(self.failures, key=lambda f: -f.severity.value)
+            ]
         return "\n".join(lines)
 
 
@@ -150,7 +163,9 @@ class Rule:
             # turn a broken check into a silent pass, which is the worst outcome
             # available - the gate would open because the guard fell over.
             return Finding(
-                rule=self.name, category=self.category, severity=Severity.BLOCK,
+                rule=self.name,
+                category=self.category,
+                severity=Severity.BLOCK,
                 passed=False,
                 message=f"the check itself failed: {type(exc).__name__}: {exc}",
             )
@@ -180,10 +195,25 @@ class ValidationContext:
     prior_fx: pd.DataFrame | None = None
     config: Any = None
 
-    _FRAME_FIELDS = ("prices", "prior_prices", "shares", "corp_actions",
-                     "divisor_audit", "reference", "alternate_source", "fx", "prior_fx")
-    _SCALAR_FIELDS = ("index_level", "prior_index_level", "divisor", "prior_divisor",
-                      "total_market_value", "official_level")
+    _FRAME_FIELDS = (
+        "prices",
+        "prior_prices",
+        "shares",
+        "corp_actions",
+        "divisor_audit",
+        "reference",
+        "alternate_source",
+        "fx",
+        "prior_fx",
+    )
+    _SCALAR_FIELDS = (
+        "index_level",
+        "prior_index_level",
+        "divisor",
+        "prior_divisor",
+        "total_market_value",
+        "official_level",
+    )
     _CONFIG_CONSTRUCTORS = {
         "global_all_cap": global_all_cap,
         "global_large_mid": global_large_mid,
@@ -197,15 +227,19 @@ class ValidationContext:
     config is ever introduced, `save()` will raise rather than silently drop it; the fix
     at that point is to store `config.to_dict()` instead of a name."""
 
-    def ok(self, rule: str, category: str, severity: Severity, message: str,
-           **kwargs: Any) -> Finding:
-        return Finding(rule=rule, category=category, severity=severity, passed=True,
-                       message=message, **kwargs)
+    def ok(
+        self, rule: str, category: str, severity: Severity, message: str, **kwargs: Any
+    ) -> Finding:
+        return Finding(
+            rule=rule, category=category, severity=severity, passed=True, message=message, **kwargs
+        )
 
-    def fail(self, rule: str, category: str, severity: Severity, message: str,
-             **kwargs: Any) -> Finding:
-        return Finding(rule=rule, category=category, severity=severity, passed=False,
-                       message=message, **kwargs)
+    def fail(
+        self, rule: str, category: str, severity: Severity, message: str, **kwargs: Any
+    ) -> Finding:
+        return Finding(
+            rule=rule, category=category, severity=severity, passed=False, message=message, **kwargs
+        )
 
     def _config_name(self) -> str | None:
         if self.config is None:
@@ -252,9 +286,7 @@ class ValidationContext:
                 frame.to_parquet(directory / f"{name}.parquet", index=False)
                 present.append(name)
         if self.weights is not None:
-            self.weights.rename("weight").to_frame().to_parquet(
-                directory / "weights.parquet"
-            )
+            self.weights.rename("weight").to_frame().to_parquet(directory / "weights.parquet")
             present.append("weights")
         meta = {
             "as_of": self.as_of.isoformat(),
@@ -279,13 +311,12 @@ class ValidationContext:
 
         frames = {
             name: pd.read_parquet(directory / f"{name}.parquet")
-            for name in cls._FRAME_FIELDS if name in present
+            for name in cls._FRAME_FIELDS
+            if name in present
         }
         weights = None
         if "weights" in present:
-            weights = pd.read_parquet(directory / "weights.parquet")["weight"].rename(
-                None
-            )
+            weights = pd.read_parquet(directory / "weights.parquet")["weight"].rename(None)
         config_name = meta["config"]
         config = cls._CONFIG_CONSTRUCTORS[config_name]() if config_name else None
 
@@ -313,8 +344,11 @@ class ValidationEngine:
         started = dt.datetime.now(dt.UTC)
         findings = [r.run(context) for r in self.rules if r.enabled]
         return ValidationReport(
-            run_id=run_id, as_of=context.as_of, findings=findings,
-            started=started, finished=dt.datetime.now(dt.UTC),
+            run_id=run_id,
+            as_of=context.as_of,
+            findings=findings,
+            started=started,
+            finished=dt.datetime.now(dt.UTC),
         )
 
     def rule_names(self) -> list[str]:
@@ -322,11 +356,18 @@ class ValidationEngine:
 
     def catalogue(self) -> pd.DataFrame:
         """The rule set as a table, for the operational runbook."""
-        return pd.DataFrame([
-            {"rule": r.name, "category": r.category, "severity": r.severity.name,
-             "enabled": r.enabled, "description": r.description}
-            for r in self.rules
-        ])
+        return pd.DataFrame(
+            [
+                {
+                    "rule": r.name,
+                    "category": r.category,
+                    "severity": r.severity.name,
+                    "enabled": r.enabled,
+                    "description": r.description,
+                }
+                for r in self.rules
+            ]
+        )
 
     @classmethod
     def default(cls) -> ValidationEngine:
@@ -363,7 +404,6 @@ class PublicationGate:
         warnings = [f for f in report.failures if f.severity == Severity.WARN]
         if warnings:
             return True, (
-                f"Published with {len(warnings)} warning(s): "
-                f"{', '.join(f.rule for f in warnings)}"
+                f"Published with {len(warnings)} warning(s): {', '.join(f.rule for f in warnings)}"
             )
         return True, "Published: all checks passed."

@@ -70,9 +70,7 @@ def validate_date(date_str: str, available: Sequence[dt.date]) -> dt.date:
     if parsed not in available:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"{parsed.isoformat()} is not a date this index published a level for."
-            ),
+            detail=(f"{parsed.isoformat()} is not a date this index published a level for."),
         )
     return parsed
 
@@ -120,8 +118,7 @@ def validate_question(question: str) -> str:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"question must be at most {MAX_QUESTION_LENGTH} characters, "
-                f"got {len(question)}."
+                f"question must be at most {MAX_QUESTION_LENGTH} characters, got {len(question)}."
             ),
         )
     return stripped
@@ -141,9 +138,7 @@ def validate_question_id(question_id: str) -> int:
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"'{question_id}' is not a valid question id (expected an integer)."
-            ),
+            detail=(f"'{question_id}' is not a valid question id (expected an integer)."),
         ) from exc
 
 

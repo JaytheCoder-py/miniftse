@@ -146,8 +146,7 @@ def accruals(x: FactorInputs) -> pd.Series:
     High accruals signal aggressive revenue recognition and reliably precede
     disappointment. Sign is flipped at the sub-signal level via `higher_is_better`.
     """
-    return _safe_divide(x.item("NET_INCOME") - x.item("OPERATING_CASHFLOW"),
-                        x.item("TOTAL_ASSETS"))
+    return _safe_divide(x.item("NET_INCOME") - x.item("OPERATING_CASHFLOW"), x.item("TOTAL_ASSETS"))
 
 
 def leverage(x: FactorInputs) -> pd.Series:
@@ -332,12 +331,16 @@ VALUE = FactorDefinition(
     ),
     sub_signals=(
         SubSignal("book_to_price", "Book equity / full market cap", book_to_price, 0.30),
-        SubSignal("earnings_to_price", "Trailing 12m net income / market cap",
-                  earnings_to_price, 0.25),
-        SubSignal("cashflow_to_price", "Operating cash flow less capex / market cap",
-                  cashflow_to_price, 0.25),
-        SubSignal("sales_to_price", "Trailing 12m revenue / market cap",
-                  sales_to_price, 0.20),
+        SubSignal(
+            "earnings_to_price", "Trailing 12m net income / market cap", earnings_to_price, 0.25
+        ),
+        SubSignal(
+            "cashflow_to_price",
+            "Operating cash flow less capex / market cap",
+            cashflow_to_price,
+            0.25,
+        ),
+        SubSignal("sales_to_price", "Trailing 12m revenue / market cap", sales_to_price, 0.20),
     ),
 )
 
@@ -350,14 +353,18 @@ QUALITY = FactorDefinition(
         "comparable across accounting regimes."
     ),
     sub_signals=(
-        SubSignal("gross_profitability", "Gross profit / total assets",
-                  gross_profitability, 0.35),
-        SubSignal("return_on_equity", "Trailing 12m net income / book equity",
-                  return_on_equity, 0.25),
-        SubSignal("accruals", "(Net income - operating cash flow) / total assets",
-                  accruals, 0.20, higher_is_better=False),
-        SubSignal("leverage", "Total debt / total assets", leverage, 0.20,
-                  higher_is_better=False),
+        SubSignal("gross_profitability", "Gross profit / total assets", gross_profitability, 0.35),
+        SubSignal(
+            "return_on_equity", "Trailing 12m net income / book equity", return_on_equity, 0.25
+        ),
+        SubSignal(
+            "accruals",
+            "(Net income - operating cash flow) / total assets",
+            accruals,
+            0.20,
+            higher_is_better=False,
+        ),
+        SubSignal("leverage", "Total debt / total assets", leverage, 0.20, higher_is_better=False),
     ),
 )
 
@@ -371,10 +378,12 @@ MOMENTUM = FactorDefinition(
         "needs a turnover budget rather than the raw signal."
     ),
     sub_signals=(
-        SubSignal("momentum_12_1", "12-month return, skipping the most recent month",
-                  momentum_12_1, 0.70),
-        SubSignal("momentum_6_1", "6-month return, skipping the most recent month",
-                  momentum_6_1, 0.30),
+        SubSignal(
+            "momentum_12_1", "12-month return, skipping the most recent month", momentum_12_1, 0.70
+        ),
+        SubSignal(
+            "momentum_6_1", "6-month return, skipping the most recent month", momentum_6_1, 0.30
+        ),
     ),
     spec=PipelineSpec(neutralise_industry=True, use_mad=True),
 )
@@ -390,12 +399,27 @@ LOW_VOLATILITY = FactorDefinition(
         "neutralisation or it becomes a utilities-and-staples bet."
     ),
     sub_signals=(
-        SubSignal("realised_volatility", "Annualised 12-month daily volatility",
-                  realised_volatility, 0.50, higher_is_better=False),
-        SubSignal("downside_volatility", "Annualised volatility of negative days",
-                  downside_volatility, 0.25, higher_is_better=False),
-        SubSignal("beta", "12-month beta to the equal-weighted universe",
-                  beta_to_market, 0.25, higher_is_better=False),
+        SubSignal(
+            "realised_volatility",
+            "Annualised 12-month daily volatility",
+            realised_volatility,
+            0.50,
+            higher_is_better=False,
+        ),
+        SubSignal(
+            "downside_volatility",
+            "Annualised volatility of negative days",
+            downside_volatility,
+            0.25,
+            higher_is_better=False,
+        ),
+        SubSignal(
+            "beta",
+            "12-month beta to the equal-weighted universe",
+            beta_to_market,
+            0.25,
+            higher_is_better=False,
+        ),
     ),
 )
 
@@ -409,8 +433,13 @@ SIZE = FactorDefinition(
         "compelling standalone index."
     ),
     sub_signals=(
-        SubSignal("log_market_cap", "Natural log of free-float market cap",
-                  log_market_cap, 1.0, higher_is_better=False),
+        SubSignal(
+            "log_market_cap",
+            "Natural log of free-float market cap",
+            log_market_cap,
+            1.0,
+            higher_is_better=False,
+        ),
     ),
     spec=PipelineSpec(neutralise_industry=False, neutralise_size=False),
 )
@@ -423,10 +452,20 @@ INVESTMENT = FactorDefinition(
         "capital."
     ),
     sub_signals=(
-        SubSignal("asset_growth", "Year-on-year growth in total assets", asset_growth,
-                  0.60, higher_is_better=False),
-        SubSignal("sales_growth", "Year-on-year growth in revenue", sales_growth, 0.40,
-                  higher_is_better=False),
+        SubSignal(
+            "asset_growth",
+            "Year-on-year growth in total assets",
+            asset_growth,
+            0.60,
+            higher_is_better=False,
+        ),
+        SubSignal(
+            "sales_growth",
+            "Year-on-year growth in revenue",
+            sales_growth,
+            0.40,
+            higher_is_better=False,
+        ),
     ),
     spec=PipelineSpec(missing_policy=MissingDataPolicy.NEUTRAL),
 )
@@ -441,10 +480,15 @@ YIELD = FactorDefinition(
         "impending dividend cuts."
     ),
     sub_signals=(
-        SubSignal("dividend_yield", "Trailing 12m dividends paid / market cap",
-                  dividend_yield, 0.70),
-        SubSignal("gross_profitability", "Gross profit / total assets, as a quality "
-                  "overlay against yield traps", gross_profitability, 0.30),
+        SubSignal(
+            "dividend_yield", "Trailing 12m dividends paid / market cap", dividend_yield, 0.70
+        ),
+        SubSignal(
+            "gross_profitability",
+            "Gross profit / total assets, as a quality overlay against yield traps",
+            gross_profitability,
+            0.30,
+        ),
     ),
 )
 

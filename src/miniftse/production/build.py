@@ -44,14 +44,16 @@ class BuildResult:
 
     def summary(self) -> dict[str, Any]:
         out = dict(self.history.summary())
-        out.update({
-            "run_id": self.manifest.run_id,
-            "git_sha": self.manifest.git_sha[:12],
-            "may_publish": self.may_publish,
-            "gate": self.gate_message,
-            "build_seconds": round(self.duration, 1),
-            "warnings": len(self.warnings),
-        })
+        out.update(
+            {
+                "run_id": self.manifest.run_id,
+                "git_sha": self.manifest.git_sha[:12],
+                "may_publish": self.may_publish,
+                "gate": self.gate_message,
+                "build_seconds": round(self.duration, 1),
+                "warnings": len(self.warnings),
+            }
+        )
         return out
 
 
@@ -100,20 +102,26 @@ def build_index(spec: BuildSpec | None = None, verbose: bool = True) -> BuildRes
     if spec.universe is None:
         log(f"[1/5] generating universe ({spec.universe_config.n_securities} securities)")
         universe: UniverseData = SyntheticUniverse(spec.universe_config)
-        manifest.record_input("universe_config", {
-            "seed": spec.universe_config.seed,
-            "n_securities": spec.universe_config.n_securities,
-            "fingerprint": spec.universe_config.fingerprint(),
-        })
+        manifest.record_input(
+            "universe_config",
+            {
+                "seed": spec.universe_config.seed,
+                "n_securities": spec.universe_config.n_securities,
+                "fingerprint": spec.universe_config.fingerprint(),
+            },
+        )
     else:
         universe = spec.universe
         log(f"[1/5] loading universe ({universe.name})")
-        manifest.record_input("universe", {
-            "name": universe.name,
-            "fingerprint": universe.fingerprint,
-            "start": universe.start.isoformat(),
-            "end": universe.end.isoformat(),
-        })
+        manifest.record_input(
+            "universe",
+            {
+                "name": universe.name,
+                "fingerprint": universe.fingerprint,
+                "start": universe.start.isoformat(),
+                "end": universe.end.isoformat(),
+            },
+        )
 
     prices = universe.prices
     shares = universe.shares
@@ -140,8 +148,11 @@ def build_index(spec: BuildSpec | None = None, verbose: bool = True) -> BuildRes
 
     log("[3/5] constructing reconstitution engine")
     reconstitution = ReconstitutionEngine(
-        config=spec.index_config, prices=prices, shares=shares,
-        securities=securities, fx_rates=spot,
+        config=spec.index_config,
+        prices=prices,
+        shares=shares,
+        securities=securities,
+        fx_rates=spot,
     )
 
     log(f"[4/5] running daily calculation {spec.start} to {spec.end}")
@@ -175,9 +186,15 @@ def build_index(spec: BuildSpec | None = None, verbose: bool = True) -> BuildRes
 
     log(f"      done in {duration:.1f}s - {gate_message}")
     return BuildResult(
-        history=history, manifest=manifest, validation=validation,
-        may_publish=may_publish, gate_message=gate_message, universe=universe,
-        reconstitution=reconstitution, calculator=calculator, duration=duration,
+        history=history,
+        manifest=manifest,
+        validation=validation,
+        may_publish=may_publish,
+        gate_message=gate_message,
+        universe=universe,
+        reconstitution=reconstitution,
+        calculator=calculator,
+        duration=duration,
         warnings=history.warnings,
     )
 
@@ -199,8 +216,7 @@ def _validate(
 
     today_prices = prices[prices["date"] == as_of]
     prior_dates = sorted(d for d in prices["date"].unique() if d < as_of)
-    prior_prices = (prices[prices["date"] == prior_dates[-1]]
-                    if prior_dates else today_prices)
+    prior_prices = prices[prices["date"] == prior_dates[-1]] if prior_dates else today_prices
 
     final_weights = pd.Series(dtype=float)
     if not history.weights.empty:
@@ -220,7 +236,8 @@ def _validate(
         prior_prices=prior_prices,
         shares=shares[shares["knowledge_date"] <= as_of]
         .sort_values(["security_id", "effective_date", "knowledge_date"])
-        .groupby("security_id", as_index=False).last(),
+        .groupby("security_id", as_index=False)
+        .last(),
         weights=final_weights,
         constituents=dict.fromkeys(final_weights.index, None),
         index_level=float(last["price_return"]),
@@ -230,11 +247,17 @@ def _validate(
         total_market_value=float(last["total_market_value"]),
         divisor_audit=todays_audit,
         corp_actions=universe.get_corp_actions(None, as_of, as_of),
-        fx=universe.get_fx(str(spec.index_config.base_currency),
-                           list(fx.currencies()), as_of, as_of),
+        fx=universe.get_fx(
+            str(spec.index_config.base_currency), list(fx.currencies()), as_of, as_of
+        ),
         prior_fx=universe.get_fx(
-            str(spec.index_config.base_currency), list(fx.currencies()),
-            prior_dates[-1], prior_dates[-1]) if prior_dates else None,
+            str(spec.index_config.base_currency),
+            list(fx.currencies()),
+            prior_dates[-1],
+            prior_dates[-1],
+        )
+        if prior_dates
+        else None,
         config=spec.index_config,
     )
 

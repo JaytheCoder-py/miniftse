@@ -33,9 +33,18 @@ from miniftse.quality.reconciliation import (
 )
 
 PROTOCOL_METHODS = [
-    "get_prices", "get_corp_actions", "get_shares", "get_shares_history",
-    "get_fundamentals", "get_fx", "get_deposit_rates", "get_classifications",
-    "get_issuers", "get_securities", "get_listings", "get_identifier_map",
+    "get_prices",
+    "get_corp_actions",
+    "get_shares",
+    "get_shares_history",
+    "get_fundamentals",
+    "get_fx",
+    "get_deposit_rates",
+    "get_classifications",
+    "get_issuers",
+    "get_securities",
+    "get_listings",
+    "get_identifier_map",
 ]
 
 
@@ -55,7 +64,8 @@ def test_reproduce_confirms_an_identical_rebuild(tmp_path):
     spec = BuildSpec(
         index_config=global_all_cap(),
         universe_config=SyntheticConfig(n_securities=40, seed=11),
-        start=dt.date(2016, 1, 4), end=dt.date(2017, 6, 30),
+        start=dt.date(2016, 1, 4),
+        end=dt.date(2017, 6, 30),
     )
     first = build_index(spec, verbose=False)
     store = ManifestStore(tmp_path)
@@ -83,7 +93,8 @@ def test_reproduce_detects_a_changed_parameter(tmp_path):
     spec = BuildSpec(
         index_config=global_all_cap(),
         universe_config=SyntheticConfig(n_securities=40, seed=11),
-        start=dt.date(2016, 1, 4), end=dt.date(2017, 6, 30),
+        start=dt.date(2016, 1, 4),
+        end=dt.date(2017, 6, 30),
     )
     original = build_index(spec, verbose=False)
     ManifestStore(tmp_path).save(original.manifest)
@@ -93,7 +104,8 @@ def test_reproduce_detects_a_changed_parameter(tmp_path):
         tampered = BuildSpec(
             index_config=global_all_cap(),
             universe_config=SyntheticConfig(n_securities=40, seed=12),  # changed
-            start=spec.start, end=spec.end,
+            start=spec.start,
+            end=spec.end,
         )
         result = build_index(tampered, verbose=False)
         return {"levels": result.history.levels, "weights": result.history.weights}
@@ -105,12 +117,18 @@ def test_reproduce_detects_a_changed_parameter(tmp_path):
 
 def test_manifest_explains_what_changed(tmp_path):
     del tmp_path
-    spec_a = BuildSpec(index_config=global_all_cap(),
-                       universe_config=SyntheticConfig(n_securities=40, seed=11),
-                       start=dt.date(2016, 1, 4), end=dt.date(2017, 1, 31))
-    spec_b = BuildSpec(index_config=global_all_cap(),
-                       universe_config=SyntheticConfig(n_securities=40, seed=12),
-                       start=dt.date(2016, 1, 4), end=dt.date(2017, 1, 31))
+    spec_a = BuildSpec(
+        index_config=global_all_cap(),
+        universe_config=SyntheticConfig(n_securities=40, seed=11),
+        start=dt.date(2016, 1, 4),
+        end=dt.date(2017, 1, 31),
+    )
+    spec_b = BuildSpec(
+        index_config=global_all_cap(),
+        universe_config=SyntheticConfig(n_securities=40, seed=12),
+        start=dt.date(2016, 1, 4),
+        end=dt.date(2017, 1, 31),
+    )
     a = build_index(spec_a, verbose=False).manifest
     b = build_index(spec_b, verbose=False).manifest
 
@@ -155,8 +173,7 @@ def test_return_reconciliation_residual_is_reported_not_absorbed():
 
     result = reconcile_returns(ours, theirs, fee_bps=20.0)
     assert result.total_difference > 0
-    assert abs(result.explained + result.unexplained
-               - result.total_difference) < 1e-12
+    assert abs(result.explained + result.unexplained - result.total_difference) < 1e-12
     frame = result.to_frame()
     assert "unexplained residual" in set(frame["component"])
 
@@ -182,7 +199,8 @@ def test_incremental_daily_matches_a_full_rebuild():
     spec = BuildSpec(
         index_config=global_all_cap(),
         universe_config=SyntheticConfig(n_securities=40, seed=11),
-        start=dt.date(2016, 1, 4), end=dt.date(2017, 6, 30),
+        start=dt.date(2016, 1, 4),
+        end=dt.date(2017, 6, 30),
     )
     first = build_index(spec, verbose=False)
     second = build_index(spec, verbose=False)
@@ -206,7 +224,9 @@ def test_every_provider_implements_the_full_protocol_surface():
     """
     providers = [
         SyntheticUniverse(SyntheticConfig(n_securities=10)),
-        YFinanceProvider(), EdgarProvider(), LsegDataProvider(),
+        YFinanceProvider(),
+        EdgarProvider(),
+        LsegDataProvider(),
         build_free_composite(),
     ]
     for provider in providers:
@@ -216,13 +236,11 @@ def test_every_provider_implements_the_full_protocol_surface():
 
 def test_unsupported_calls_raise_rather_than_return_empty():
     with pytest.raises(ProviderUnavailableError, match="point-in-time"):
-        YFinanceProvider().get_fundamentals(["AAPL"], ["BOOK_EQUITY"],
-                                            dt.date(2026, 1, 2))
+        YFinanceProvider().get_fundamentals(["AAPL"], ["BOOK_EQUITY"], dt.date(2026, 1, 2))
     with pytest.raises(ProviderUnavailableError, match="filings, not market data"):
         EdgarProvider().get_prices(["AAPL"], dt.date(2026, 1, 1), dt.date(2026, 1, 2))
     with pytest.raises(ProviderUnavailableError):
-        YFinanceProvider().get_deposit_rates(["USD"], dt.date(2026, 1, 1),
-                                             dt.date(2026, 1, 2))
+        YFinanceProvider().get_deposit_rates(["USD"], dt.date(2026, 1, 1), dt.date(2026, 1, 2))
 
 
 def test_lseg_adapter_fails_with_a_specific_reason_not_a_stub():
@@ -256,8 +274,7 @@ def test_free_composite_has_no_protocol_gaps():
     CompositeProvider and the reason the routing table is explicit.
     """
     matrix = provider_capability_matrix({"free": build_free_composite()})
-    gaps = [m for m in PROTOCOL_METHODS
-            if matrix.loc["free", m] not in ("routed", "yes")]
+    gaps = [m for m in PROTOCOL_METHODS if matrix.loc["free", m] not in ("routed", "yes")]
     assert not gaps, f"the free stack cannot serve {gaps}"
 
 
@@ -271,7 +288,8 @@ def test_capability_matrix_does_not_overstate_a_composite():
     from miniftse.data.vendors import CompositeProvider
 
     composite = CompositeProvider(
-        prices=YFinanceProvider(), fundamentals=EdgarProvider(),
+        prices=YFinanceProvider(),
+        fundamentals=EdgarProvider(),
         reference=EdgarProvider(),
     )
     matrix = provider_capability_matrix({"no-fx": composite})
@@ -330,22 +348,25 @@ def test_dagster_job_materialises_end_to_end(tmp_path):
     job = DailyJob(
         config=global_all_cap(),
         universe_config=SyntheticConfig(n_securities=60, seed=20260809),
-        state_dir=tmp_path / "state", manifest_dir=tmp_path / "manifests",
+        state_dir=tmp_path / "state",
+        manifest_dir=tmp_path / "manifests",
     )
     seed_to = dt.date(2020, 6, 1)
     job.seed_state(seed_to, verbose=False)
     stored = IndexStateFile.load(job.state_dir, job.config.index_id)
     assert stored is not None
 
-    sessions = sorted(d for d in job.universe.calendar.date
-                      if d > dt.date.fromisoformat(stored.as_of))
+    sessions = sorted(
+        d for d in job.universe.calendar.date if d > dt.date.fromisoformat(stored.as_of)
+    )
     original_build_job = dagster_defs.build_job
     try:
         # Point the ops at the isolated state directory rather than the repo's.
         dagster_defs.build_job = lambda **kwargs: DailyJob(  # type: ignore[assignment]
             config=global_all_cap(),
             universe_config=SyntheticConfig(n_securities=60, seed=20260809),
-            state_dir=tmp_path / "state", manifest_dir=tmp_path / "manifests",
+            state_dir=tmp_path / "state",
+            manifest_dir=tmp_path / "manifests",
             simulate=kwargs.get("simulate"),
         )
         outcome = dagster_defs.materialise(sessions[0])
@@ -373,6 +394,12 @@ def test_dagster_job_wraps_the_same_steps_as_the_hand_rolled_dag():
     from miniftse.production import dagster_defs
 
     source = inspect.getsource(dagster_defs)
-    for method in ("load_market_data", "validate_inputs", "calculate_index",
-                   "validate_output", "publication_gate", "publish"):
+    for method in (
+        "load_market_data",
+        "validate_inputs",
+        "calculate_index",
+        "validate_output",
+        "publication_gate",
+        "publish",
+    ):
         assert f"job.{method}(" in source, f"the Dagster job bypasses {method}"

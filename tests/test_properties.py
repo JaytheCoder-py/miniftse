@@ -25,17 +25,14 @@ from miniftse.weighting.capping import CappingError, cap_weights, verify_capping
 D = dt.date(2024, 6, 10)
 
 prices = st.floats(min_value=0.05, max_value=50_000, allow_nan=False, allow_infinity=False)
-share_counts = st.floats(min_value=1_000, max_value=5e10, allow_nan=False,
-                         allow_infinity=False)
+share_counts = st.floats(min_value=1_000, max_value=5e10, allow_nan=False, allow_infinity=False)
 factors = st.floats(min_value=0.01, max_value=1.0, allow_nan=False, allow_infinity=False)
 
-SETTINGS = settings(max_examples=150, deadline=None,
-                    suppress_health_check=[HealthCheck.too_slow])
+SETTINGS = settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 
 
 @st.composite
-def constituents(draw: st.DrawFn, min_size: int = 2, max_size: int = 12
-                 ) -> dict[str, Constituent]:
+def constituents(draw: st.DrawFn, min_size: int = 2, max_size: int = 12) -> dict[str, Constituent]:
     n = draw(st.integers(min_value=min_size, max_value=max_size))
     return {
         f"S{i}": Constituent(
@@ -44,8 +41,9 @@ def constituents(draw: st.DrawFn, min_size: int = 2, max_size: int = 12
             shares=draw(share_counts),
             free_float_factor=draw(factors),
             capping_factor=1.0,
-            fx_rate=draw(st.floats(min_value=0.001, max_value=200.0,
-                                   allow_nan=False, allow_infinity=False)),
+            fx_rate=draw(
+                st.floats(min_value=0.001, max_value=200.0, allow_nan=False, allow_infinity=False)
+            ),
             country=Country.US,
         )
         for i in range(n)
@@ -53,12 +51,15 @@ def constituents(draw: st.DrawFn, min_size: int = 2, max_size: int = 12
 
 
 @st.composite
-def weight_vectors(draw: st.DrawFn, min_size: int = 3, max_size: int = 40
-                   ) -> dict[str, float]:
+def weight_vectors(draw: st.DrawFn, min_size: int = 3, max_size: int = 40) -> dict[str, float]:
     n = draw(st.integers(min_value=min_size, max_value=max_size))
-    raw = draw(st.lists(st.floats(min_value=1e-6, max_value=1e6, allow_nan=False,
-                                  allow_infinity=False),
-                        min_size=n, max_size=n))
+    raw = draw(
+        st.lists(
+            st.floats(min_value=1e-6, max_value=1e6, allow_nan=False, allow_infinity=False),
+            min_size=n,
+            max_size=n,
+        )
+    )
     total = sum(raw)
     assume(total > 0)
     return {f"S{i}": v / total for i, v in enumerate(raw)}
@@ -174,9 +175,17 @@ class TestDivisorInvariants:
         target = next(iter(cs))
         cum = state.constituents[target].price
         engine = CorporateActionEngine()
-        event = RightsIssue("R", target, D, D, D,
-                            subscription_price=cum * (1 - discount),
-                            new_shares=new_shares, per_held=per_held, cum_price=cum)
+        event = RightsIssue(
+            "R",
+            target,
+            D,
+            D,
+            D,
+            subscription_price=cum * (1 - discount),
+            new_shares=new_shares,
+            per_held=per_held,
+            cum_price=cum,
+        )
         result = engine.apply_event(event, state)
         assert result.state.level == pytest.approx(state.level, rel=1e-8)
 
@@ -189,8 +198,7 @@ class TestDivisorInvariants:
         target = next(iter(cs))
         amount = state.constituents[target].price * amount_fraction
         engine = CorporateActionEngine()
-        result = engine.apply_event(
-            CashDividend("D", target, D, D, D, amount=amount), state)
+        result = engine.apply_event(CashDividend("D", target, D, D, D, amount=amount), state)
         assert result.state.divisor == state.divisor
         assert result.state.level <= state.level + 1e-9
         assert result.cash_distributed >= 0.0
@@ -203,13 +211,10 @@ class TestDivisorInvariants:
 
     @given(cs=constituents())
     @SETTINGS
-    def test_level_equals_market_value_over_divisor(
-        self, cs: dict[str, Constituent]
-    ) -> None:
+    def test_level_equals_market_value_over_divisor(self, cs: dict[str, Constituent]) -> None:
         """The defining identity. Everything else is downstream of it."""
         state = IndexState.initialise(D, cs, base_level=1000.0)
-        assert state.level * state.divisor == pytest.approx(
-            state.total_market_value, rel=1e-9)
+        assert state.level * state.divisor == pytest.approx(state.total_market_value, rel=1e-9)
 
 
 # --------------------------------------------------------------------------------------
@@ -220,8 +225,7 @@ class TestDivisorInvariants:
 class TestReturnInvariants:
     @given(
         cs=constituents(),
-        dividends=st.lists(st.floats(min_value=0.0, max_value=0.02), min_size=1,
-                           max_size=6),
+        dividends=st.lists(st.floats(min_value=0.0, max_value=0.02), min_size=1, max_size=6),
     )
     @SETTINGS
     def test_total_return_is_at_least_price_return(
@@ -237,7 +241,8 @@ class TestReturnInvariants:
             target = list(cs)[i % len(cs)]
             amount = state.constituents[target].price * fraction
             result = engine.apply_event(
-                CashDividend(f"D{i}", target, D, D, D, amount=amount), state)
+                CashDividend(f"D{i}", target, D, D, D, amount=amount), state
+            )
             state = result.state
             pr = state.level
             points = result.cash_distributed / state.divisor
@@ -259,8 +264,7 @@ class TestReturnInvariants:
         engine = CorporateActionEngine(withholding_tax={"US": rate})
         target = next(iter(cs))
         amount = state.constituents[target].price * fraction
-        result = engine.apply_event(
-            CashDividend("D", target, D, D, D, amount=amount), state)
+        result = engine.apply_event(CashDividend("D", target, D, D, D, amount=amount), state)
         assert result.net_cash_distributed <= result.cash_distributed + 1e-9
         assert result.net_cash_distributed >= 0.0
 

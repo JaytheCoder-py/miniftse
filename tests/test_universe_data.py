@@ -43,8 +43,9 @@ def generated() -> SyntheticUniverse:
 
 
 @pytest.fixture(scope="module")
-def snapshot(generated: SyntheticUniverse, tmp_path_factory: pytest.TempPathFactory
-             ) -> MaterialisedUniverse:
+def snapshot(
+    generated: SyntheticUniverse, tmp_path_factory: pytest.TempPathFactory
+) -> MaterialisedUniverse:
     path = tmp_path_factory.mktemp("snapshot")
     generated.materialise(path)
     return MaterialisedUniverse(path)
@@ -53,15 +54,15 @@ def snapshot(generated: SyntheticUniverse, tmp_path_factory: pytest.TempPathFact
 # --------------------------------------------------------------------------------- shape
 
 
-def test_both_satisfy_the_protocols(generated: SyntheticUniverse,
-                                    snapshot: MaterialisedUniverse) -> None:
+def test_both_satisfy_the_protocols(
+    generated: SyntheticUniverse, snapshot: MaterialisedUniverse
+) -> None:
     for universe in (generated, snapshot):
         assert isinstance(universe, MarketDataProvider)
         assert isinstance(universe, UniverseData)
 
 
-def test_generator_exposes_tables_without_private_access(
-        generated: SyntheticUniverse) -> None:
+def test_generator_exposes_tables_without_private_access(generated: SyntheticUniverse) -> None:
     """The five accessors that replaced `_generated[...]` must be non-empty."""
     for name in ("prices", "shares", "corp_actions", "fundamentals", "fx_rates"):
         table = getattr(generated, name)
@@ -69,17 +70,16 @@ def test_generator_exposes_tables_without_private_access(
         assert not table.empty, name
 
 
-@pytest.mark.parametrize(
-    "table", ["prices", "shares", "corp_actions", "fundamentals", "fx_rates"]
-)
-def test_snapshot_round_trips_every_table(generated: SyntheticUniverse,
-                                          snapshot: MaterialisedUniverse,
-                                          table: str) -> None:
+@pytest.mark.parametrize("table", ["prices", "shares", "corp_actions", "fundamentals", "fx_rates"])
+def test_snapshot_round_trips_every_table(
+    generated: SyntheticUniverse, snapshot: MaterialisedUniverse, table: str
+) -> None:
     assert getattr(snapshot, table).shape == getattr(generated, table).shape
 
 
-def test_snapshot_round_trips_the_provider_api(generated: SyntheticUniverse,
-                                               snapshot: MaterialisedUniverse) -> None:
+def test_snapshot_round_trips_the_provider_api(
+    generated: SyntheticUniverse, snapshot: MaterialisedUniverse
+) -> None:
     """Parquet returns dates as datetime64 while the engine compares against
     `datetime.date`. Left uncoerced these queries return empty rather than raising,
     which is the failure mode that would silently produce an empty index."""
@@ -102,8 +102,9 @@ def test_snapshot_round_trips_the_provider_api(generated: SyntheticUniverse,
         assert left.shape == right.shape, method
 
 
-def test_snapshot_span_matches(generated: SyntheticUniverse,
-                               snapshot: MaterialisedUniverse) -> None:
+def test_snapshot_span_matches(
+    generated: SyntheticUniverse, snapshot: MaterialisedUniverse
+) -> None:
     assert snapshot.start == generated.start
     assert snapshot.end == generated.end
     assert snapshot.n_days == len(generated.calendar)
@@ -112,8 +113,9 @@ def test_snapshot_span_matches(generated: SyntheticUniverse,
 # ------------------------------------------------------------------------------ identity
 
 
-def test_fingerprints_are_stable_and_distinct(snapshot: MaterialisedUniverse,
-                                              generated: SyntheticUniverse) -> None:
+def test_fingerprints_are_stable_and_distinct(
+    snapshot: MaterialisedUniverse, generated: SyntheticUniverse
+) -> None:
     """A snapshot hashes its bytes, a generator hashes its config. Both must be stable
     across calls - the manifest records one, and a fingerprint that moved between two
     identical builds would make every audit trail worthless."""
@@ -138,8 +140,9 @@ def test_absent_directory_raises(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------- the point
 
 
-def test_build_from_snapshot_matches_generator(generated: SyntheticUniverse,
-                                               snapshot: MaterialisedUniverse) -> None:
+def test_build_from_snapshot_matches_generator(
+    generated: SyntheticUniverse, snapshot: MaterialisedUniverse
+) -> None:
     """The seam's actual contract: same numbers in, same index out.
 
     This is what makes real data possible. If a snapshot build and a generated build
@@ -152,18 +155,15 @@ def test_build_from_snapshot_matches_generator(generated: SyntheticUniverse,
         "end": BUILD_END,
         "validate": False,
     }
-    from_generator = build_index(
-        BuildSpec(universe_config=CONFIG, **common), verbose=False)  # type: ignore[arg-type]
-    from_snapshot = build_index(
-        BuildSpec(universe=snapshot, **common), verbose=False)  # type: ignore[arg-type]
+    from_generator = build_index(BuildSpec(universe_config=CONFIG, **common), verbose=False)  # type: ignore[arg-type]
+    from_snapshot = build_index(BuildSpec(universe=snapshot, **common), verbose=False)  # type: ignore[arg-type]
 
     left = from_generator.history.levels.reset_index(drop=True)
     right = from_snapshot.history.levels.reset_index(drop=True)
     pd.testing.assert_frame_equal(left, right, check_exact=False, rtol=1e-12)
 
 
-def test_manifest_identifies_a_snapshot_build_by_its_data(
-        snapshot: MaterialisedUniverse) -> None:
+def test_manifest_identifies_a_snapshot_build_by_its_data(snapshot: MaterialisedUniverse) -> None:
     """A snapshot build must be identifiable years later by the data it used.
 
     `record_input` stores a hash, not the value, so the assertion is on *which* key is
@@ -171,22 +171,24 @@ def test_manifest_identifies_a_snapshot_build_by_its_data(
     data), a snapshot build records `universe` (only the bytes do). Recording a config
     for a snapshot build would be a lie - the config no longer determines anything.
     """
-    common = {"index_config": global_all_cap(), "start": BUILD_START,
-              "end": dt.date(2016, 6, 30), "validate": False}
-    from_snapshot = build_index(
-        BuildSpec(universe=snapshot, **common), verbose=False)  # type: ignore[arg-type]
-    from_generator = build_index(
-        BuildSpec(universe_config=CONFIG, **common), verbose=False)  # type: ignore[arg-type]
+    common = {
+        "index_config": global_all_cap(),
+        "start": BUILD_START,
+        "end": dt.date(2016, 6, 30),
+        "validate": False,
+    }
+    from_snapshot = build_index(BuildSpec(universe=snapshot, **common), verbose=False)  # type: ignore[arg-type]
+    from_generator = build_index(BuildSpec(universe_config=CONFIG, **common), verbose=False)  # type: ignore[arg-type]
 
     assert "universe" in from_snapshot.manifest.input_hashes
     assert "universe_config" not in from_snapshot.manifest.input_hashes
     assert "universe_config" in from_generator.manifest.input_hashes
 
     # Same snapshot, same recorded hash - otherwise no audit trail is reproducible.
-    again = build_index(
-        BuildSpec(universe=snapshot, **common), verbose=False)  # type: ignore[arg-type]
-    assert (again.manifest.input_hashes["universe"]
-            == from_snapshot.manifest.input_hashes["universe"])
+    again = build_index(BuildSpec(universe=snapshot, **common), verbose=False)  # type: ignore[arg-type]
+    assert (
+        again.manifest.input_hashes["universe"] == from_snapshot.manifest.input_hashes["universe"]
+    )
 
 
 # ------------------------------------------------------------------------- disclosure
@@ -194,8 +196,13 @@ def test_manifest_identifies_a_snapshot_build_by_its_data(
 
 def _build(universe: UniverseData) -> object:
     return build_index(
-        BuildSpec(universe=universe, index_config=global_all_cap(), start=BUILD_START,
-                  end=dt.date(2016, 6, 30), validate=False),
+        BuildSpec(
+            universe=universe,
+            index_config=global_all_cap(),
+            start=BUILD_START,
+            end=dt.date(2016, 6, 30),
+            validate=False,
+        ),
         verbose=False,
     )
 
@@ -203,13 +210,16 @@ def _build(universe: UniverseData) -> object:
 def test_a_generated_build_still_declares_itself_simulated(tmp_path: Path) -> None:
     from miniftse.reporting.factsheet import write_factsheet
 
-    text = write_factsheet(_build(SyntheticUniverse(CONFIG)),  # type: ignore[arg-type]
-                           tmp_path / "factsheet.md").read_text(encoding="utf-8")
+    text = write_factsheet(
+        _build(SyntheticUniverse(CONFIG)),  # type: ignore[arg-type]
+        tmp_path / "factsheet.md",
+    ).read_text(encoding="utf-8")
     assert "simulated market data" in text
 
 
 def test_a_real_snapshot_discloses_its_defects_instead(
-        generated: SyntheticUniverse, tmp_path: Path) -> None:
+    generated: SyntheticUniverse, tmp_path: Path
+) -> None:
     """The disclosure has to follow the data, not the template.
 
     `factsheet --universe` made it possible to publish a page of real-data numbers under
@@ -228,8 +238,10 @@ def test_a_real_snapshot_discloses_its_defects_instead(
     meta["provenance"] = {"defects": DEFECTS, "observed": {"no_price_history": ["SKHY"]}}
     (path / "config.json").write_text(json.dumps(meta, indent=2, default=str))
 
-    text = write_factsheet(_build(MaterialisedUniverse(path)),  # type: ignore[arg-type]
-                           tmp_path / "factsheet.md").read_text(encoding="utf-8")
+    text = write_factsheet(
+        _build(MaterialisedUniverse(path)),  # type: ignore[arg-type]
+        tmp_path / "factsheet.md",
+    ).read_text(encoding="utf-8")
 
     assert "simulated market data" not in text
     assert "real market data" in text
@@ -246,7 +258,12 @@ def test_a_review_that_selects_nothing_names_the_failing_rule() -> None:
     first_session = SyntheticUniverse(CONFIG).calendar[0].date()
     with pytest.raises(ValueError, match="price_history"):
         build_index(
-            BuildSpec(universe_config=CONFIG, index_config=global_all_cap(),
-                      start=first_session, end=dt.date(2015, 3, 31), validate=False),
+            BuildSpec(
+                universe_config=CONFIG,
+                index_config=global_all_cap(),
+                start=first_session,
+                end=dt.date(2015, 3, 31),
+                validate=False,
+            ),
             verbose=False,
         )

@@ -53,9 +53,13 @@ class ICResult:
 
     def summary(self) -> dict[str, float]:
         return {
-            "horizon_days": self.horizon, "mean_ic": self.mean_ic,
-            "std_ic": self.std_ic, "ic_ir": self.ic_ir, "t_stat": self.t_stat,
-            "p_value": self.p_value, "hit_rate": self.hit_rate,
+            "horizon_days": self.horizon,
+            "mean_ic": self.mean_ic,
+            "std_ic": self.std_ic,
+            "ic_ir": self.ic_ir,
+            "t_stat": self.t_stat,
+            "p_value": self.p_value,
+            "hit_rate": self.hit_rate,
             "n_periods": self.n_periods,
         }
 
@@ -113,10 +117,16 @@ def analyse_ic(
     t = mean / se if se and np.isfinite(se) and se > 0 else float("nan")
 
     return ICResult(
-        horizon=horizon, ic_series=ic, mean_ic=mean, std_ic=std,
-        ic_ir=mean / std if std > 0 else 0.0, t_stat=float(t),
+        horizon=horizon,
+        ic_series=ic,
+        mean_ic=mean,
+        std_ic=std,
+        ic_ir=mean / std if std > 0 else 0.0,
+        t_stat=float(t),
         p_value=float(2 * (1 - stats.t.cdf(abs(t), df=n - 1))) if np.isfinite(t) else 1.0,
-        hit_rate=float((ic > 0).mean()), n_periods=n, method=method,
+        hit_rate=float((ic > 0).mean()),
+        n_periods=n,
+        method=method,
     )
 
 
@@ -180,8 +190,9 @@ def quantile_returns(
         ).dropna()
         if len(frame) < n_quantiles * 3:
             continue
-        frame["q"] = pd.qcut(frame["s"].rank(method="first"), n_quantiles,
-                             labels=range(1, n_quantiles + 1))
+        frame["q"] = pd.qcut(
+            frame["s"].rank(method="first"), n_quantiles, labels=range(1, n_quantiles + 1)
+        )
         means = frame.groupby("q", observed=True)["r"].mean()
         rows.append({"date": date, **{f"Q{int(q)}": v for q, v in means.items()}})
 
@@ -280,16 +291,16 @@ def deflated_sharpe_ratio(
 
     euler = 0.5772156649
     e_max = (
-        (1 - euler) * stats.norm.ppf(1 - 1.0 / n_trials)
-        + euler * stats.norm.ppf(1 - 1.0 / (n_trials * np.e))
-    ) if n_trials > 1 else 0.0
+        (
+            (1 - euler) * stats.norm.ppf(1 - 1.0 / n_trials)
+            + euler * stats.norm.ppf(1 - 1.0 / (n_trials * np.e))
+        )
+        if n_trials > 1
+        else 0.0
+    )
 
-    numerator = (observed_sharpe - max(benchmark_sharpe, e_max)) * np.sqrt(
-        n_observations - 1
-    )
-    denominator = np.sqrt(
-        1 - skewness * observed_sharpe + (kurtosis - 1) / 4 * observed_sharpe**2
-    )
+    numerator = (observed_sharpe - max(benchmark_sharpe, e_max)) * np.sqrt(n_observations - 1)
+    denominator = np.sqrt(1 - skewness * observed_sharpe + (kurtosis - 1) / 4 * observed_sharpe**2)
     dsr = float(stats.norm.cdf(numerator / denominator)) if denominator > 0 else 0.0
 
     return {
@@ -329,14 +340,16 @@ def degradation_waterfall(steps: list[DegradationStep]) -> pd.DataFrame:
     prior = steps[0].sharpe
     for i, step in enumerate(steps):
         delta = step.sharpe - prior if i else 0.0
-        rows.append({
-            "step": step.name,
-            "sharpe": step.sharpe,
-            "change": delta,
-            "cumulative_loss": steps[0].sharpe - step.sharpe,
-            "pct_of_original": step.sharpe / steps[0].sharpe if steps[0].sharpe else 0.0,
-            "description": step.description,
-        })
+        rows.append(
+            {
+                "step": step.name,
+                "sharpe": step.sharpe,
+                "change": delta,
+                "cumulative_loss": steps[0].sharpe - step.sharpe,
+                "pct_of_original": step.sharpe / steps[0].sharpe if steps[0].sharpe else 0.0,
+                "description": step.description,
+            }
+        )
         prior = step.sharpe
     return pd.DataFrame(rows)
 
@@ -357,7 +370,8 @@ def random_signal_benchmark(
 
     for _ in range(n_signals):
         signal = pd.DataFrame(
-            rng.standard_normal(returns.shape), index=returns.index,
+            rng.standard_normal(returns.shape),
+            index=returns.index,
             columns=returns.columns,
         )
         ic = information_coefficient(signal.iloc[::21], fwd.iloc[::21])

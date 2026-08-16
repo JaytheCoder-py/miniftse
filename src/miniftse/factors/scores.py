@@ -82,13 +82,12 @@ class FactorScoreProvider:
         if self.composite_weights:
             from miniftse.factors.pipeline import FactorPipeline, combine_scores
 
-            scores = {
-                name: ALL_FACTORS[name].compute(inputs)
-                for name in self.composite_weights
-            }
+            scores = {name: ALL_FACTORS[name].compute(inputs) for name in self.composite_weights}
             combined = combine_scores(scores, self.composite_weights, self.combination)
             return FactorPipeline().transform(
-                combined, industry=inputs.industry, country=inputs.country,
+                combined,
+                industry=inputs.industry,
+                country=inputs.country,
                 market_cap=inputs.market_cap,
             )
 
@@ -193,18 +192,19 @@ def turnover_budget_sweep(
     rows: list[dict[str, float | str]] = []
     for parameter in parameters:
         turnover, exposure = build_fn(parameter)  # type: ignore[operator]
-        rows.append({
-            "parameter": parameter,
-            "mechanism": mechanism,
-            "annual_turnover": turnover,
-            "mean_active_exposure": exposure,
-            "exposure_per_turnover": exposure / turnover if turnover > 0 else 0.0,
-            "estimated_cost_bps": turnover * cost_bps_per_turnover,
-            "exposure_per_cost_bp": (
-                exposure / (turnover * cost_bps_per_turnover)
-                if turnover > 0 else 0.0
-            ),
-        })
+        rows.append(
+            {
+                "parameter": parameter,
+                "mechanism": mechanism,
+                "annual_turnover": turnover,
+                "mean_active_exposure": exposure,
+                "exposure_per_turnover": exposure / turnover if turnover > 0 else 0.0,
+                "estimated_cost_bps": turnover * cost_bps_per_turnover,
+                "exposure_per_cost_bp": (
+                    exposure / (turnover * cost_bps_per_turnover) if turnover > 0 else 0.0
+                ),
+            }
+        )
     frame = pd.DataFrame(rows)
 
     # The knee: where the marginal exposure per marginal unit of turnover falls below
@@ -267,22 +267,27 @@ def score_summary(provider: FactorScoreProvider, as_of: dt.date) -> pd.DataFrame
     panel = provider.scores_at(as_of)
     if panel.empty:
         return pd.DataFrame()
-    return pd.DataFrame([{
-        "as_of": as_of,
-        "n_scored": int(panel.notna().sum()),
-        "mean": float(panel.mean()),
-        "std": float(panel.std(ddof=1)),
-        "min": float(panel.min()),
-        "p10": float(panel.quantile(0.10)),
-        "median": float(panel.median()),
-        "p90": float(panel.quantile(0.90)),
-        "max": float(panel.max()),
-        "n_zero": int((panel == 0.0).sum()),
-    }])
+    return pd.DataFrame(
+        [
+            {
+                "as_of": as_of,
+                "n_scored": int(panel.notna().sum()),
+                "mean": float(panel.mean()),
+                "std": float(panel.std(ddof=1)),
+                "min": float(panel.min()),
+                "p10": float(panel.quantile(0.10)),
+                "median": float(panel.median()),
+                "p90": float(panel.quantile(0.90)),
+                "max": float(panel.max()),
+                "n_zero": int((panel == 0.0).sum()),
+            }
+        ]
+    )
 
 
-def all_factor_scores(builder: FactorInputBuilder, as_of: dt.date,
-                      fx_rates: dict[str, float] | None = None) -> pd.DataFrame:
+def all_factor_scores(
+    builder: FactorInputBuilder, as_of: dt.date, fx_rates: dict[str, float] | None = None
+) -> pd.DataFrame:
     """Every factor's scores for one cross-section, for the correlation diagnostics."""
     inputs = builder.build(as_of, fx_rates=fx_rates or {})
     return compute_all(inputs)

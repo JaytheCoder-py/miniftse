@@ -43,9 +43,7 @@ class CappingResult:
 
     def turnover_vs(self, other: dict[str, float]) -> float:
         keys = set(self.weights) | set(other)
-        return sum(
-            abs(self.weights.get(k, 0.0) - other.get(k, 0.0)) for k in keys
-        ) / 2.0
+        return sum(abs(self.weights.get(k, 0.0) - other.get(k, 0.0)) for k in keys) / 2.0
 
 
 def cap_weights(
@@ -71,8 +69,7 @@ def cap_weights(
         return CappingResult({}, {}, 0, (), True, 0.0, 0.0, ("empty universe",))
     if cap * n < 1.0 - tolerance:
         raise CappingError(
-            f"infeasible: {n} names capped at {cap:.4f} can hold at most "
-            f"{cap * n:.4f} of the index"
+            f"infeasible: {n} names capped at {cap:.4f} can hold at most {cap * n:.4f} of the index"
         )
 
     raw = np.array([weights[k] for k in names], dtype=float)
@@ -98,9 +95,7 @@ def cap_weights(
             n_free = int((~capped).sum())
             if n_free == 0:
                 if abs(residual) > tolerance:
-                    raise CappingError(
-                        "every name is at the cap but the weights do not sum to one"
-                    )
+                    raise CappingError("every name is at the cap but the weights do not sum to one")
                 break
             # Free names exist but carry essentially no weight, so proportional
             # rescaling is undefined (0/0). Distribute the residual equally instead.
@@ -162,12 +157,21 @@ def apply_ucits_5_10_40(
     if not cfg.enabled:
         total = sum(weights.values())
         norm = {k: v / total for k, v in weights.items()} if total else {}
-        return CappingResult(norm, dict.fromkeys(weights, 1.0), 0, (), True,
-                             max(norm.values(), default=0.0), 0.0, ("capping disabled",))
+        return CappingResult(
+            norm,
+            dict.fromkeys(weights, 1.0),
+            0,
+            (),
+            True,
+            max(norm.values(), default=0.0),
+            0.0,
+            ("capping disabled",),
+        )
 
     notes: list[str] = []
-    result = cap_weights(weights, cfg.max_single_weight,
-                         max_iterations=cfg.max_iterations, tolerance=cfg.tolerance)
+    result = cap_weights(
+        weights, cfg.max_single_weight, max_iterations=cfg.max_iterations, tolerance=cfg.tolerance
+    )
 
     def aggregate_above(w: dict[str, float]) -> float:
         return sum(v for v in w.values() if v > cfg.aggregate_threshold + cfg.tolerance)
@@ -175,10 +179,17 @@ def apply_ucits_5_10_40(
     agg = aggregate_above(result.weights)
     if agg <= cfg.aggregate_limit + cfg.tolerance:
         return CappingResult(
-            result.weights, result.factors, result.iterations, result.capped_names,
-            True, result.max_weight, agg,
-            (f"limb 1 satisfied at {cfg.max_single_weight:.0%}; limb 2 not binding "
-             f"({agg:.2%} <= {cfg.aggregate_limit:.0%})",),
+            result.weights,
+            result.factors,
+            result.iterations,
+            result.capped_names,
+            True,
+            result.max_weight,
+            agg,
+            (
+                f"limb 1 satisfied at {cfg.max_single_weight:.0%}; limb 2 not binding "
+                f"({agg:.2%} <= {cfg.aggregate_limit:.0%})",
+            ),
         )
 
     notes.append(
@@ -200,8 +211,7 @@ def apply_ucits_5_10_40(
     # than necessary.
     lo, hi = cfg.aggregate_threshold, cfg.max_single_weight
     try:
-        best = cap_weights(weights, lo, max_iterations=cfg.max_iterations,
-                           tolerance=cfg.tolerance)
+        best = cap_weights(weights, lo, max_iterations=cfg.max_iterations, tolerance=cfg.tolerance)
     except CappingError:
         # Even the floor is infeasible - too few constituents to spread unit weight.
         best = result
@@ -209,22 +219,30 @@ def apply_ucits_5_10_40(
             f"the {cfg.aggregate_threshold:.0%} floor is itself infeasible for "
             f"{len(weights)} constituents; 5/10/40 cannot be satisfied by this universe"
         )
-        return CappingResult(best.weights, best.factors, best.iterations,
-                             best.capped_names, False, best.max_weight, agg,
-                             tuple(notes))
+        return CappingResult(
+            best.weights,
+            best.factors,
+            best.iterations,
+            best.capped_names,
+            False,
+            best.max_weight,
+            agg,
+            tuple(notes),
+        )
 
     for _ in range(60):
         mid = (lo + hi) / 2.0
         try:
-            trial = cap_weights(weights, mid, max_iterations=cfg.max_iterations,
-                                tolerance=cfg.tolerance)
+            trial = cap_weights(
+                weights, mid, max_iterations=cfg.max_iterations, tolerance=cfg.tolerance
+            )
         except CappingError:
             hi = mid
             continue
         if aggregate_above(trial.weights) <= cfg.aggregate_limit + cfg.tolerance:
-            best, lo = trial, mid   # feasible: try a less restrictive cap
+            best, lo = trial, mid  # feasible: try a less restrictive cap
         else:
-            hi = mid                # breached: the cap must come down
+            hi = mid  # breached: the cap must come down
         if hi - lo < 1e-9:
             break
 
@@ -242,8 +260,14 @@ def apply_ucits_5_10_40(
         )
 
     return CappingResult(
-        best.weights, best.factors, best.iterations, best.capped_names,
-        satisfied, best.max_weight, final_agg, tuple(notes),
+        best.weights,
+        best.factors,
+        best.iterations,
+        best.capped_names,
+        satisfied,
+        best.max_weight,
+        final_agg,
+        tuple(notes),
     )
 
 
@@ -272,16 +296,17 @@ def cap_by_group(
             group_members.setdefault(g, []).append(name)
 
     if group_cap * len(group_members) < 1.0 - tolerance:
-        raise CappingError(
-            f"infeasible: {len(group_members)} groups capped at {group_cap:.4f}"
-        )
+        raise CappingError(f"infeasible: {len(group_members)} groups capped at {group_cap:.4f}")
 
     frozen: set[str] = set()
     iterations = 0
     for iterations in range(1, max_iterations + 1):  # noqa: B007 - reported after the loop
         totals = {g: sum(w[n] for n in members) for g, members in group_members.items()}
-        breaching = [g for g, t in totals.items() if t > group_cap + tolerance
-                     and not set(group_members[g]) <= frozen]
+        breaching = [
+            g
+            for g, t in totals.items()
+            if t > group_cap + tolerance and not set(group_members[g]) <= frozen
+        ]
         if not breaching:
             break
         for g in breaching:
@@ -304,17 +329,18 @@ def cap_by_group(
     factors = {k: (w[k] * total / weights[k] if weights[k] > 0 else 1.0) for k in weights}
     group_totals = {g: sum(w[n] for n in m) for g, m in group_members.items()}
     return CappingResult(
-        weights=w, factors=factors, iterations=iterations,
-        capped_names=tuple(sorted(frozen)), converged=True,
+        weights=w,
+        factors=factors,
+        iterations=iterations,
+        capped_names=tuple(sorted(frozen)),
+        converged=True,
         max_weight=max(w.values(), default=0.0),
         aggregate_above_threshold=max(group_totals.values(), default=0.0),
         notes=(f"{len(frozen)} names in {len(set(groups[n] for n in frozen))} capped groups",),
     )
 
 
-def verify_capping(
-    weights: dict[str, float], cap: float, tolerance: float = 1e-9
-) -> list[str]:
+def verify_capping(weights: dict[str, float], cap: float, tolerance: float = 1e-9) -> list[str]:
     """Post-conditions a capped weight vector must satisfy. Used by the property tests
     and by the pre-publication validation gate."""
     problems: list[str] = []

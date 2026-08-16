@@ -130,22 +130,24 @@ def assign_nationality(evidence: NationalityEvidence) -> NationalityDecision:
     if evidence.revenue_by_country:
         top, share = max(evidence.revenue_by_country.items(), key=lambda kv: kv[1])
         if share >= 0.50:
-            add(top, WEIGHTS["revenue"] * min(share, 1.0),
-                f"revenue concentration ({share:.0%})")
+            add(top, WEIGHTS["revenue"] * min(share, 1.0), f"revenue concentration ({share:.0%})")
         else:
             reasons.append(
-                f"revenue is dispersed (largest is {top} at {share:.0%}), so it carries "
-                "no weight"
+                f"revenue is dispersed (largest is {top} at {share:.0%}), so it carries no weight"
             )
 
     if evidence.has_local_listing_restriction and evidence.primary_listing_country:
-        add(evidence.primary_listing_country, 0.10,
+        add(
+            evidence.primary_listing_country,
+            0.10,
             "local line inaccessible to foreign investors, so the accessible listing "
-            "governs investability")
+            "governs investability",
+        )
 
     if not scores:
-        return NationalityDecision(Outcome.REVIEW, None, None, 0.0,
-                                   ("no usable evidence supplied",))
+        return NationalityDecision(
+            Outcome.REVIEW, None, None, 0.0, ("no usable evidence supplied",)
+        )
 
     total = sum(scores.values())
     winner, top_score = max(scores.items(), key=lambda kv: kv[1])

@@ -49,10 +49,16 @@ class FactPack:
     context: dict[str, str] = field(default_factory=dict)
     """Non-numeric context - index name, period, the client's question."""
 
-    def add(self, key: str, value: float, description: str, source: str,
-            fmt: str = "{:.2%}") -> FactPack:
-        self.facts[key] = Fact(key=key, value=value, formatted=fmt.format(value),
-                               description=description, source=source)
+    def add(
+        self, key: str, value: float, description: str, source: str, fmt: str = "{:.2%}"
+    ) -> FactPack:
+        self.facts[key] = Fact(
+            key=key,
+            value=value,
+            formatted=fmt.format(value),
+            description=description,
+            source=source,
+        )
         return self
 
     def add_text(self, key: str, value: str) -> FactPack:
@@ -70,13 +76,23 @@ class FactPack:
             value = fact.value
             for candidate in (
                 fact.formatted,
-                f"{value:.4f}", f"{value:.3f}", f"{value:.2f}", f"{value:.1f}",
+                f"{value:.4f}",
+                f"{value:.3f}",
+                f"{value:.2f}",
+                f"{value:.1f}",
                 f"{value:.0f}",
-                f"{value * 100:.2f}", f"{value * 100:.1f}", f"{value * 100:.0f}",
-                f"{value * 10_000:.1f}", f"{value * 10_000:.0f}",
-                f"{abs(value):.2f}", f"{abs(value) * 100:.2f}",
-                f"{abs(value) * 100:.1f}", f"{abs(value) * 100:.0f}",
-                f"{value:,.0f}", f"{value:,.2f}", f"{abs(value):,.2f}",
+                f"{value * 100:.2f}",
+                f"{value * 100:.1f}",
+                f"{value * 100:.0f}",
+                f"{value * 10_000:.1f}",
+                f"{value * 10_000:.0f}",
+                f"{abs(value):.2f}",
+                f"{abs(value) * 100:.2f}",
+                f"{abs(value) * 100:.1f}",
+                f"{abs(value) * 100:.0f}",
+                f"{value:,.0f}",
+                f"{value:,.2f}",
+                f"{abs(value):,.2f}",
             ):
                 allowed.update(_NUMBER.findall(candidate))
         for text in self.context.values():
@@ -106,9 +122,7 @@ class NumberGuard:
     #: small integers in prose. Allowing these avoids a guard so noisy it gets disabled,
     #: which is the usual fate of an over-strict check.
     STRUCTURAL = frozenset(
-        {str(y) for y in range(1990, 2101)}
-        | {str(n) for n in range(0, 13)}
-        | {"100", "0.0", "1.0"}
+        {str(y) for y in range(1990, 2101)} | {str(n) for n in range(0, 13)} | {"100", "0.0", "1.0"}
     )
 
     @classmethod
@@ -116,13 +130,17 @@ class NumberGuard:
         allowed = pack.allowed_numbers() | cls.STRUCTURAL
         found = {n.rstrip(".").lstrip("-") for n in _NUMBER.findall(draft)}
         unverified = sorted(
-            n for n in found
-            if n and n not in allowed and n.lstrip("-") not in allowed
+            n
+            for n in found
+            if n
+            and n not in allowed
+            and n.lstrip("-") not in allowed
             and n.replace(",", "") not in allowed
         )
         if unverified:
             return GuardResult(
-                passed=False, unverified_numbers=unverified,
+                passed=False,
+                unverified_numbers=unverified,
                 message=(
                     f"BLOCKED: the draft contains {len(unverified)} number(s) that do "
                     f"not trace to a computed fact: {', '.join(unverified[:10])}. "
@@ -144,8 +162,7 @@ class DraftResponse:
 
     def format(self) -> str:
         lines = [
-            f"DRAFT RESPONSE - {'PASSED' if self.guard.passed else 'BLOCKED'} number "
-            "verification",
+            f"DRAFT RESPONSE - {'PASSED' if self.guard.passed else 'BLOCKED'} number verification",
             "",
             self.draft,
             "",
@@ -192,8 +209,9 @@ class ClientResponseDrafter:
         text = self.client.complete(
             [Message("user", prompt)], system=SYSTEM_PROMPT, temperature=0.0
         ).text
-        return DraftResponse(question=question, draft=text, fact_pack=pack,
-                             guard=NumberGuard.check(text, pack))
+        return DraftResponse(
+            question=question, draft=text, fact_pack=pack, guard=NumberGuard.check(text, pack)
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -216,19 +234,38 @@ def performance_facts(history: Any, period_days: int = 252) -> FactPack:
         series = levels[column]
         if len(series) > period_days:
             change = float(series.iloc[-1] / series.iloc[-(period_days + 1)] - 1)
-            pack.add(f"{column}_period", change,
-                     f"{label} over the last {period_days} sessions",
-                     "IndexHistory.levels")
-        pack.add(f"{column}_level", float(series.iloc[-1]), f"current {label} level",
-                 "IndexHistory.levels", fmt="{:,.2f}")
+            pack.add(
+                f"{column}_period",
+                change,
+                f"{label} over the last {period_days} sessions",
+                "IndexHistory.levels",
+            )
+        pack.add(
+            f"{column}_level",
+            float(series.iloc[-1]),
+            f"current {label} level",
+            "IndexHistory.levels",
+            fmt="{:,.2f}",
+        )
 
-    pack.add("annualised_return", history.annualised_return(),
-             "annualised gross total return since inception",
-             "IndexHistory.annualised_return()")
-    pack.add("volatility", history.annualised_vol(),
-             "annualised volatility of daily returns", "IndexHistory.annualised_vol()")
-    pack.add("max_drawdown", history.max_drawdown(), "worst peak-to-trough decline",
-             "IndexHistory.max_drawdown()")
+    pack.add(
+        "annualised_return",
+        history.annualised_return(),
+        "annualised gross total return since inception",
+        "IndexHistory.annualised_return()",
+    )
+    pack.add(
+        "volatility",
+        history.annualised_vol(),
+        "annualised volatility of daily returns",
+        "IndexHistory.annualised_vol()",
+    )
+    pack.add(
+        "max_drawdown",
+        history.max_drawdown(),
+        "worst peak-to-trough decline",
+        "IndexHistory.max_drawdown()",
+    )
     return pack
 
 
@@ -236,20 +273,39 @@ def attribution_facts(attribution: Any, period: str) -> FactPack:
     """Facts for a "why did it underperform" enquiry."""
     pack = FactPack()
     pack.add_text("period", period)
-    pack.add("total_active", attribution.total_active,
-             "total return relative to the parent index", "brinson_fachler()")
-    pack.add("allocation", attribution.total_allocation,
-             "the part explained by sector weighting decisions", "brinson_fachler()")
-    pack.add("selection", attribution.total_selection,
-             "the part explained by which securities were held within sectors",
-             "brinson_fachler()")
-    pack.add("interaction", attribution.total_interaction,
-             "the combined effect of weighting and selection", "brinson_fachler()")
+    pack.add(
+        "total_active",
+        attribution.total_active,
+        "total return relative to the parent index",
+        "brinson_fachler()",
+    )
+    pack.add(
+        "allocation",
+        attribution.total_allocation,
+        "the part explained by sector weighting decisions",
+        "brinson_fachler()",
+    )
+    pack.add(
+        "selection",
+        attribution.total_selection,
+        "the part explained by which securities were held within sectors",
+        "brinson_fachler()",
+    )
+    pack.add(
+        "interaction",
+        attribution.total_interaction,
+        "the combined effect of weighting and selection",
+        "brinson_fachler()",
+    )
 
     top = attribution.by_group.head(3)
     for row in top.itertuples(index=False):
-        pack.add(f"group_{row.group}", row.total,
-                 f"contribution from {row.group}", "brinson_fachler().by_group")
+        pack.add(
+            f"group_{row.group}",
+            row.total,
+            f"contribution from {row.group}",
+            "brinson_fachler().by_group",
+        )
     return pack
 
 
@@ -257,21 +313,44 @@ def turnover_facts(review_outcome: Any, attribution: dict[str, float]) -> FactPa
     """Facts for a "why did the index turn over so much" enquiry."""
     pack = FactPack()
     pack.add_text("review_date", str(review_outcome.dates.effective))
-    pack.add("total_turnover", attribution["total"],
-             "one-way turnover at this review", "turnover_attribution()")
-    pack.add("additions", attribution["additions"],
-             "the part caused by securities joining the index",
-             "turnover_attribution()")
-    pack.add("deletions", attribution["deletions"],
-             "the part caused by securities leaving the index",
-             "turnover_attribution()")
-    pack.add("reweighting", attribution["reweighting"],
-             "the part caused by reweighting securities held throughout",
-             "turnover_attribution()")
-    pack.add("n_additions", attribution.get("n_additions", 0.0),
-             "number of securities added", "turnover_attribution()", fmt="{:.0f}")
-    pack.add("n_deletions", attribution.get("n_deletions", 0.0),
-             "number of securities removed", "turnover_attribution()", fmt="{:.0f}")
+    pack.add(
+        "total_turnover",
+        attribution["total"],
+        "one-way turnover at this review",
+        "turnover_attribution()",
+    )
+    pack.add(
+        "additions",
+        attribution["additions"],
+        "the part caused by securities joining the index",
+        "turnover_attribution()",
+    )
+    pack.add(
+        "deletions",
+        attribution["deletions"],
+        "the part caused by securities leaving the index",
+        "turnover_attribution()",
+    )
+    pack.add(
+        "reweighting",
+        attribution["reweighting"],
+        "the part caused by reweighting securities held throughout",
+        "turnover_attribution()",
+    )
+    pack.add(
+        "n_additions",
+        attribution.get("n_additions", 0.0),
+        "number of securities added",
+        "turnover_attribution()",
+        fmt="{:.0f}",
+    )
+    pack.add(
+        "n_deletions",
+        attribution.get("n_deletions", 0.0),
+        "number of securities removed",
+        "turnover_attribution()",
+        fmt="{:.0f}",
+    )
     return pack
 
 
@@ -285,13 +364,19 @@ def tracking_difference_facts(
     third that does not add up.
     """
     pack = FactPack()
-    pack.add("index_return", index_return, "the published index return",
-             "IndexHistory.levels")
-    pack.add("fund_return", fund_return, "the tracking fund's reported return",
-             "client-supplied")
-    pack.add("difference", fund_return - index_return,
-             "total difference between fund and index", "computed")
+    pack.add("index_return", index_return, "the published index return", "IndexHistory.levels")
+    pack.add("fund_return", fund_return, "the tracking fund's reported return", "client-supplied")
+    pack.add(
+        "difference",
+        fund_return - index_return,
+        "total difference between fund and index",
+        "computed",
+    )
     for name, value in components.items():
-        pack.add(name, value, f"the part attributable to {name.replace('_', ' ')}",
-                 "tracking difference decomposition")
+        pack.add(
+            name,
+            value,
+            f"the part attributable to {name.replace('_', ' ')}",
+            "tracking difference decomposition",
+        )
     return pack

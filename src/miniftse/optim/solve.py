@@ -54,9 +54,12 @@ class OptimisationResult:
 
     def summary(self) -> dict[str, object]:
         return {
-            "status": self.status, "solver": self.solver,
-            "objective": self.objective_value, "n_holdings": self.n_active,
-            "turnover": self.turnover, "tracking_error": self.tracking_error,
+            "status": self.status,
+            "solver": self.solver,
+            "objective": self.objective_value,
+            "n_holdings": self.n_active,
+            "turnover": self.turnover,
+            "tracking_error": self.tracking_error,
             "max_weight": float(self.weights.max()) if len(self.weights) else 0.0,
             "binding": ", ".join(self.binding_constraints),
             "solve_time_s": self.solve_time,
@@ -109,8 +112,12 @@ class Optimiser:
 
         return OptimisationResult(
             weights=pd.Series(0.0, index=data.securities),
-            status=problem.status or "failed", objective_value=float("nan"),
-            solver="none", solve_time=0.0, n_active=0, turnover=0.0,
+            status=problem.status or "failed",
+            objective_value=float("nan"),
+            solver="none",
+            solve_time=0.0,
+            n_active=0,
+            turnover=0.0,
             notes=[f"no solver succeeded ({last_error})"],
         )
 
@@ -158,10 +165,16 @@ class Optimiser:
                 binding.append(name)
 
         return OptimisationResult(
-            weights=weights, status=problem.status,
-            objective_value=float(problem.value), solver=solver, solve_time=elapsed,
-            n_active=int((raw > 1e-6).sum()), turnover=turnover, tracking_error=te,
-            binding_constraints=binding, duals=duals,
+            weights=weights,
+            status=problem.status,
+            objective_value=float(problem.value),
+            solver=solver,
+            solve_time=elapsed,
+            n_active=int((raw > 1e-6).sum()),
+            turnover=turnover,
+            tracking_error=te,
+            binding_constraints=binding,
+            duals=duals,
         )
 
 
@@ -174,8 +187,11 @@ def _variance(weights: pd.Series, data: ProblemData) -> float:
         x = b.T @ wv
         return float(x @ f @ x + (wv**2 * d).sum())
     if data.covariance is not None:
-        sigma = data.covariance.reindex(
-            index=data.securities, columns=data.securities).fillna(0.0).to_numpy()
+        sigma = (
+            data.covariance.reindex(index=data.securities, columns=data.securities)
+            .fillna(0.0)
+            .to_numpy()
+        )
         wv = weights.reindex(data.securities).fillna(0.0).to_numpy()
         return float(wv @ sigma @ wv)
     raise OptimisationError("no risk model supplied")
@@ -229,7 +245,10 @@ def diagnose_infeasible(
 
     if not soft:
         return InfeasibilityReport(
-            False, [], [], {},
+            False,
+            [],
+            [],
+            {},
             "Infeasible with only hard constraints present. The universe cannot "
             "support full investment under the long-only requirement - check that the "
             "candidate set is non-empty and that benchmark weights are sane.",
@@ -269,7 +288,10 @@ def diagnose_infeasible(
             relaxations[constraint.name] = best
 
     return InfeasibilityReport(
-        False, culprits, pairs, relaxations,
+        False,
+        culprits,
+        pairs,
+        relaxations,
         _narrate(baseline.status, culprits, pairs, relaxations, constraints),
     )
 
@@ -304,9 +326,7 @@ def _narrate(
             "benchmark that does not sum to one, or a non-PSD covariance matrix."
         )
     for name, factor in relaxations.items():
-        lines.append(
-            f"  Relaxing {name} by a factor of {factor:.2f} restores feasibility."
-        )
+        lines.append(f"  Relaxing {name} by a factor of {factor:.2f} restores feasibility.")
     return "\n".join(lines)
 
 
@@ -327,14 +347,16 @@ def price_constraints(
     if not base.succeeded:
         raise OptimisationError(f"base problem is not solvable: {base.status}")
 
-    rows = [{
-        "constraint": "(all constraints)",
-        "tracking_error": base.tracking_error,
-        "objective": base.objective_value,
-        "turnover": base.turnover,
-        "te_saving_bps": 0.0,
-        "binding": ", ".join(base.binding_constraints),
-    }]
+    rows = [
+        {
+            "constraint": "(all constraints)",
+            "tracking_error": base.tracking_error,
+            "objective": base.objective_value,
+            "turnover": base.turnover,
+            "te_saving_bps": 0.0,
+            "binding": ", ".join(base.binding_constraints),
+        }
+    ]
 
     for constraint in constraints:
         if constraint.is_hard:
@@ -348,17 +370,18 @@ def price_constraints(
             if base.tracking_error is not None and result.tracking_error is not None
             else float("nan")
         )
-        rows.append({
-            "constraint": f"{constraint.name} relaxed {relaxation:.1f}x",
-            "tracking_error": result.tracking_error,
-            "objective": result.objective_value,
-            "turnover": result.turnover,
-            "te_saving_bps": saving,
-            "binding": ", ".join(result.binding_constraints),
-        })
+        rows.append(
+            {
+                "constraint": f"{constraint.name} relaxed {relaxation:.1f}x",
+                "tracking_error": result.tracking_error,
+                "objective": result.objective_value,
+                "turnover": result.turnover,
+                "te_saving_bps": saving,
+                "binding": ", ".join(result.binding_constraints),
+            }
+        )
 
-    return pd.DataFrame(rows).sort_values("te_saving_bps", ascending=False).reset_index(
-        drop=True)
+    return pd.DataFrame(rows).sort_values("te_saving_bps", ascending=False).reset_index(drop=True)
 
 
 def select_top_n(
@@ -388,19 +411,29 @@ def select_top_n(
         trimmed = ProblemData(
             securities=keep,
             benchmark=data.benchmark.reindex(keep).fillna(0.0),
-            initial_weights=(data.initial_weights.reindex(keep).fillna(0.0)
-                             if data.initial_weights is not None else None),
-            expected_returns=(data.expected_returns.reindex(keep)
-                              if data.expected_returns is not None else None),
-            covariance=(data.covariance.reindex(index=keep, columns=keep)
-                        if data.covariance is not None else None),
-            factor_exposures=(data.factor_exposures.reindex(keep)
-                              if data.factor_exposures is not None else None),
+            initial_weights=(
+                data.initial_weights.reindex(keep).fillna(0.0)
+                if data.initial_weights is not None
+                else None
+            ),
+            expected_returns=(
+                data.expected_returns.reindex(keep) if data.expected_returns is not None else None
+            ),
+            covariance=(
+                data.covariance.reindex(index=keep, columns=keep)
+                if data.covariance is not None
+                else None
+            ),
+            factor_exposures=(
+                data.factor_exposures.reindex(keep) if data.factor_exposures is not None else None
+            ),
             factor_covariance=data.factor_covariance,
-            specific_variance=(data.specific_variance.reindex(keep)
-                               if data.specific_variance is not None else None),
+            specific_variance=(
+                data.specific_variance.reindex(keep) if data.specific_variance is not None else None
+            ),
             adv=data.adv.reindex(keep) if data.adv is not None else None,
-            attributes=data.attributes.reindex(keep) if not data.attributes.empty
+            attributes=data.attributes.reindex(keep)
+            if not data.attributes.empty
             else data.attributes,
         )
         result = Optimiser(objective, constraints).solve(trimmed)

@@ -1,14 +1,14 @@
 """Command line interface.
 
-    miniftse build-index          build a full history and run the publication gate
-    miniftse chaos-drill          inject faults and report validation coverage
-    miniftse desk-snapshot        precompute every artefact the ops desk serves
-    miniftse pin-golden           pin the current history as the golden master
-    miniftse check-golden         verify the current build against the pinned master
-    miniftse daily                run the production DAG for one date
-    miniftse factsheet            generate a client-facing factsheet
-    miniftse sql-cookbook         emit the SQL patterns document
-    miniftse runs                 list run manifests
+miniftse build-index          build a full history and run the publication gate
+miniftse chaos-drill          inject faults and report validation coverage
+miniftse desk-snapshot        precompute every artefact the ops desk serves
+miniftse pin-golden           pin the current history as the golden master
+miniftse check-golden         verify the current build against the pinned master
+miniftse daily                run the production DAG for one date
+miniftse factsheet            generate a client-facing factsheet
+miniftse sql-cookbook         emit the SQL patterns document
+miniftse runs                 list run manifests
 """
 
 from __future__ import annotations
@@ -38,14 +38,16 @@ CONFIGS = {
 ARTEFACTS = Path("artefacts")
 
 
-def _spec(index: str, securities: int, start: str, end: str, seed: int,
-          snapshot: Path | None = None) -> BuildSpec:
+def _spec(
+    index: str, securities: int, start: str, end: str, seed: int, snapshot: Path | None = None
+) -> BuildSpec:
     if index not in CONFIGS:
         raise typer.BadParameter(f"unknown index {index!r}; choose from {list(CONFIGS)}")
 
     universe = None
     if snapshot is not None:
         from miniftse.data.materialised import MaterialisedUniverse, SnapshotError
+
         try:
             universe = MaterialisedUniverse(snapshot)
         except SnapshotError as exc:
@@ -70,10 +72,11 @@ def build_index_cmd(
     seed: int = typer.Option(20260809),
     out: Path = typer.Option(ARTEFACTS, help="output directory"),
     universe: Path | None = typer.Option(
-        None, help="build from a materialised snapshot instead of the synthetic "
-                   "generator (see `miniftse fetch-real`)"),
-    strict: bool = typer.Option(
-        False, help="exit non-zero if the publication gate blocks"),
+        None,
+        help="build from a materialised snapshot instead of the synthetic "
+        "generator (see `miniftse fetch-real`)",
+    ),
+    strict: bool = typer.Option(False, help="exit non-zero if the publication gate blocks"),
 ) -> None:
     """Build a full index history and run it through the publication gate.
 
@@ -129,17 +132,18 @@ def chaos_drill_cmd(
         table.add_column(column)
     for row in frame.itertuples(index=False):
         table.add_row(
-            row.fault_id, row.fault_name,
+            row.fault_id,
+            row.fault_name,
             "[green]yes[/green]" if row.detected else "[red]NO[/red]",
-            row.detected_by[:48], row.highest_severity,
+            row.detected_by[:48],
+            row.highest_severity,
             "yes" if row.blocked_publication else "no",
         )
     console.print(table)
     console.print(f"\n{drill_summary(frame)}")
 
     if gaps:
-        console.print("\n[yellow]Coverage gaps - these are the checks to write next:"
-                      "[/yellow]")
+        console.print("\n[yellow]Coverage gaps - these are the checks to write next:[/yellow]")
         for gap in gaps:
             console.print(f"  - {gap}")
     else:
@@ -172,8 +176,10 @@ def desk_snapshot_cmd(
     manifest = build_snapshot(out, spec)
 
     console.print(f"\n[green]wrote[/green] {len(EXPECTED_FILES)} artefacts to {out}")
-    console.print(f"  git sha {manifest.git_sha[:12]}"
-                  f"{' [yellow](dirty tree)[/yellow]' if manifest.git_dirty else ''}")
+    console.print(
+        f"  git sha {manifest.git_sha[:12]}"
+        f"{' [yellow](dirty tree)[/yellow]' if manifest.git_dirty else ''}"
+    )
     console.print(f"  built in {manifest.duration_seconds}s")
 
 
@@ -228,8 +234,9 @@ def seed_state_cmd(
     """Build the history once and persist the closing state the daily job resumes from."""
     from miniftse.production.daily import DailyJob
 
-    job = DailyJob(config=global_all_cap(),
-                   universe_config=SyntheticConfig(n_securities=securities, seed=seed))
+    job = DailyJob(
+        config=global_all_cap(), universe_config=SyntheticConfig(n_securities=securities, seed=seed)
+    )
     path = job.seed_state(dt.date.fromisoformat(up_to))
     console.print(f"[green]seeded[/green] {path}")
 
@@ -240,7 +247,8 @@ def daily_cmd(
     securities: int = typer.Option(300),
     seed: int = typer.Option(20260809),
     simulate: str = typer.Option(
-        None, help="failure mode: late_data | outlier | missing_corp_action"),
+        None, help="failure mode: late_data | outlier | missing_corp_action"
+    ),
     show_dag: bool = typer.Option(True),
 ) -> None:
     """Run the real daily production DAG for one date.
@@ -252,14 +260,18 @@ def daily_cmd(
     from miniftse.production.daily import DailyJob, IndexStateFile
     from miniftse.production.pipeline import StepStatus
 
-    job = DailyJob(config=global_all_cap(),
-                   universe_config=SyntheticConfig(n_securities=securities, seed=seed),
-                   simulate=simulate)
+    job = DailyJob(
+        config=global_all_cap(),
+        universe_config=SyntheticConfig(n_securities=securities, seed=seed),
+        simulate=simulate,
+    )
 
     stored = IndexStateFile.load(job.state_dir, job.config.index_id)
     if stored is None:
-        console.print("[yellow]no stored state; seeding it first "
-                      "(this is also the disaster-recovery path)[/yellow]")
+        console.print(
+            "[yellow]no stored state; seeding it first "
+            "(this is also the disaster-recovery path)[/yellow]"
+        )
         job.seed_state(dt.date(2026, 6, 1), verbose=False)
         stored = IndexStateFile.load(job.state_dir, job.config.index_id)
 
@@ -280,8 +292,7 @@ def daily_cmd(
 
     if stored is not None:
         console.print(
-            f"resuming from {stored.as_of} (level {stored.level_pr:,.2f}), "
-            f"running {run_date}"
+            f"resuming from {stored.as_of} (level {stored.level_pr:,.2f}), running {run_date}"
         )
         console.print()
     run = job.run(run_date)
@@ -310,11 +321,14 @@ def factsheet_cmd(
     securities: int = typer.Option(300),
     start: str = typer.Option("2016-01-04"),
     end: str = typer.Option("2026-06-30"),
-    out: Path | None = typer.Option(None, help="default artefacts/factsheet.md, or "
-                                              "artefacts/factsheet-<snapshot>.md"),
+    out: Path | None = typer.Option(
+        None, help="default artefacts/factsheet.md, or artefacts/factsheet-<snapshot>.md"
+    ),
     universe: Path | None = typer.Option(
-        None, help="build the factsheet from a materialised snapshot instead of the "
-                   "synthetic generator (see `miniftse fetch-real`)"),
+        None,
+        help="build the factsheet from a materialised snapshot instead of the "
+        "synthetic generator (see `miniftse fetch-real`)",
+    ),
 ) -> None:
     """Generate a client-facing factsheet.
 
@@ -330,9 +344,7 @@ def factsheet_cmd(
     from miniftse.reporting.factsheet import write_factsheet
 
     if out is None:
-        out = ARTEFACTS / (
-            "factsheet.md" if universe is None else f"factsheet-{universe.name}.md"
-        )
+        out = ARTEFACTS / ("factsheet.md" if universe is None else f"factsheet-{universe.name}.md")
 
     result = build_index(_spec(index, securities, start, end, 20260809, universe))
     path = write_factsheet(result, out)
@@ -366,8 +378,7 @@ def runs_cmd(directory: Path = typer.Option(ARTEFACTS / "manifests")) -> None:
 
 
 @app.command("methodology")
-def methodology_cmd(out: Path = typer.Option(Path("ground_rules/factor_methodology.md"))
-                    ) -> None:
+def methodology_cmd(out: Path = typer.Option(Path("ground_rules/factor_methodology.md"))) -> None:
     """Generate the factor methodology document from the factor definitions."""
     from miniftse.factors.definitions import ALL_FACTORS
 
@@ -390,7 +401,8 @@ def fetch_real_cmd(
     end: str = typer.Option("2026-06-30"),
     tier: str = typer.Option("clean", help="clean | raw - labelling only, see data.real"),
     contact: str = typer.Option(
-        "", help="contact details for the SEC user agent; required by the SEC"),
+        "", help="contact details for the SEC user agent; required by the SEC"
+    ),
 ) -> None:
     """Fetch real market data and write a snapshot `build-index --universe` can load.
 
@@ -424,8 +436,7 @@ def fetch_real_cmd(
 
     meta = json.loads((destination / "config.json").read_text())
     console.print(f"\n[green]snapshot[/green] {destination}")
-    console.print(
-        f"build it with: [cyan]miniftse build-index --universe {destination}[/cyan]")
+    console.print(f"build it with: [cyan]miniftse build-index --universe {destination}[/cyan]")
     observed = meta["provenance"]["observed"]
     if observed:
         console.print("\n[yellow]observed defects[/yellow]")
@@ -490,8 +501,10 @@ def reconcile_cmd(
         write_reconciliation_study,
     )
 
-    spec = BuildSpec(index_config=global_all_cap(),
-                     universe_config=SyntheticConfig(n_securities=securities, seed=seed))
+    spec = BuildSpec(
+        index_config=global_all_cap(),
+        universe_config=SyntheticConfig(n_securities=securities, seed=seed),
+    )
     result = build_index(spec, verbose=True)
 
     weights = result.history.weights
@@ -505,8 +518,9 @@ def reconcile_cmd(
         index=levels.index,
     )
 
-    study = reconcile_against_published(ours, theirs, levels, their_levels,
-                                        as_of=last, fee_bps=20.0)
+    study = reconcile_against_published(
+        ours, theirs, levels, their_levels, as_of=last, fee_bps=20.0
+    )
     console.print(study["constituent_verdict"])
     if "return_verdict" in study:
         console.print(study["return_verdict"])

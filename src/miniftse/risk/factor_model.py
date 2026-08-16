@@ -42,14 +42,14 @@ class FactorReturns:
     residuals: pd.DataFrame
 
     def summary(self) -> pd.DataFrame:
-        return pd.DataFrame({
-            "mean_daily": self.returns.mean(),
-            "annualised": self.returns.mean() * 252,
-            "vol_annualised": self.returns.std() * np.sqrt(252),
-            "t_stat": self.returns.mean() / (
-                self.returns.std() / np.sqrt(len(self.returns))
-            ),
-        }).round(4)
+        return pd.DataFrame(
+            {
+                "mean_daily": self.returns.mean(),
+                "annualised": self.returns.mean() * 252,
+                "vol_annualised": self.returns.std() * np.sqrt(252),
+                "t_stat": self.returns.mean() / (self.returns.std() / np.sqrt(len(self.returns))),
+            }
+        ).round(4)
 
 
 @dataclass
@@ -81,8 +81,11 @@ class RiskModel:
         ids = securities or self.securities
         b = self.exposures.reindex(ids).fillna(0.0)
         systematic = b.to_numpy() @ self.factor_covariance.to_numpy() @ b.to_numpy().T
-        total = systematic + np.diag(self.specific_variance.reindex(ids).fillna(
-            float(self.specific_variance.median())).to_numpy())
+        total = systematic + np.diag(
+            self.specific_variance.reindex(ids)
+            .fillna(float(self.specific_variance.median()))
+            .to_numpy()
+        )
         return pd.DataFrame(total, index=ids, columns=ids)
 
     def portfolio_exposures(self, weights: pd.Series) -> pd.Series:
@@ -95,7 +98,8 @@ class RiskModel:
         x = self.portfolio_exposures(w).to_numpy()
         factor_var = float(x @ self.factor_covariance.to_numpy() @ x)
         specific = self.specific_variance.reindex(w.index).fillna(
-            float(self.specific_variance.median()))
+            float(self.specific_variance.median())
+        )
         specific_var = float((w.to_numpy() ** 2 * specific.to_numpy()).sum())
         return factor_var + specific_var
 
@@ -135,7 +139,8 @@ class RiskModel:
         factor_contributions = x.to_numpy() * fx  # x_k * (F x)_k, sums to x'Fx
 
         specific = self.specific_variance.reindex(ids).fillna(
-            float(self.specific_variance.median()))
+            float(self.specific_variance.median())
+        )
         specific_var = float((w.to_numpy() ** 2 * specific.to_numpy()).sum())
         total_var = float(factor_contributions.sum()) + specific_var
 
@@ -149,19 +154,21 @@ class RiskModel:
             }
             for factor, contribution in zip(f.index, factor_contributions, strict=False)
         ]
-        rows.append({
-            "source": "specific", "type": "specific", "exposure": float("nan"),
-            "variance_contribution": specific_var,
-            "pct_of_total": specific_var / total_var if total_var else 0.0,
-        })
+        rows.append(
+            {
+                "source": "specific",
+                "type": "specific",
+                "exposure": float("nan"),
+                "variance_contribution": specific_var,
+                "pct_of_total": specific_var / total_var if total_var else 0.0,
+            }
+        )
 
         frame = pd.DataFrame(rows)
         frame["risk_contribution_annualised"] = (
-            frame["variance_contribution"] / np.sqrt(max(total_var, 1e-18))
-            * np.sqrt(252)
+            frame["variance_contribution"] / np.sqrt(max(total_var, 1e-18)) * np.sqrt(252)
         )
-        return frame.sort_values("variance_contribution", ascending=False).reset_index(
-            drop=True)
+        return frame.sort_values("variance_contribution", ascending=False).reset_index(drop=True)
 
     def marginal_contributions(
         self, weights: pd.Series, benchmark: pd.Series | None = None
@@ -179,8 +186,11 @@ class RiskModel:
 
         b = self.exposures.to_numpy()
         fx = self.factor_covariance.to_numpy() @ (b.T @ w.to_numpy())
-        specific = self.specific_variance.reindex(ids).fillna(
-            float(self.specific_variance.median())).to_numpy()
+        specific = (
+            self.specific_variance.reindex(ids)
+            .fillna(float(self.specific_variance.median()))
+            .to_numpy()
+        )
         cov_w = b @ fx + specific * w.to_numpy()
         vol = np.sqrt(max(float(w.to_numpy() @ cov_w), 1e-18))
         return pd.Series(cov_w / vol * np.sqrt(252), index=ids)
@@ -272,7 +282,8 @@ class FactorModelEstimator:
 
         return FactorReturns(
             returns=pd.DataFrame(rows).set_index("date"),
-            r_squared=pd.Series(r2s), n_obs=pd.Series(n_obs),
+            r_squared=pd.Series(r2s),
+            n_obs=pd.Series(n_obs),
             residuals=pd.DataFrame(residuals).T,
         )
 
@@ -300,8 +311,7 @@ class FactorModelEstimator:
             cov += bartlett * (gamma + gamma.T)
 
         cov = _nearest_positive_definite(cov)
-        return pd.DataFrame(cov, index=factor_returns.columns,
-                            columns=factor_returns.columns)
+        return pd.DataFrame(cov, index=factor_returns.columns, columns=factor_returns.columns)
 
     def specific_variance(self, residuals: pd.DataFrame) -> pd.Series:
         """EWMA specific variance, shrunk toward the cross-sectional median."""
@@ -316,8 +326,9 @@ class FactorModelEstimator:
         var = var.where(coverage > 0.25)
 
         median = float(var.median()) if var.notna().any() else 1e-6
-        shrunk = (1 - self.specific_shrinkage) * var.fillna(median) + \
-            self.specific_shrinkage * median
+        shrunk = (1 - self.specific_shrinkage) * var.fillna(
+            median
+        ) + self.specific_shrinkage * median
         return shrunk.clip(lower=1e-10)
 
     def fit(
@@ -332,15 +343,18 @@ class FactorModelEstimator:
         specific = self.specific_variance(fr.residuals)
 
         last_date = as_of or max(exposures)
-        final_exposures = exposures[last_date] if last_date in exposures else \
-            exposures[max(exposures)]
+        final_exposures = (
+            exposures[last_date] if last_date in exposures else exposures[max(exposures)]
+        )
 
         return RiskModel(
             exposures=final_exposures.reindex(columns=cov.index).fillna(0.0),
             factor_covariance=cov,
             specific_variance=specific.reindex(final_exposures.index).fillna(
-                float(specific.median())),
-            factor_returns=fr, estimation_date=last_date,
+                float(specific.median())
+            ),
+            factor_returns=fr,
+            estimation_date=last_date,
             half_life=self.factor_half_life,
         )
 
@@ -365,15 +379,13 @@ def build_exposures(
         blocks.append(pd.DataFrame({"market": 1.0}, index=style_scores.index))
     blocks.append(style_scores)
 
-    dummies = pd.get_dummies(industry.reindex(style_scores.index), prefix="ind",
-                             dtype=float)
+    dummies = pd.get_dummies(industry.reindex(style_scores.index), prefix="ind", dtype=float)
     if include_market and dummies.shape[1] > 1:
         dummies = dummies.iloc[:, 1:]  # drop one to break collinearity with `market`
     blocks.append(dummies)
 
     if country is not None:
-        cty = pd.get_dummies(country.reindex(style_scores.index), prefix="cty",
-                             dtype=float)
+        cty = pd.get_dummies(country.reindex(style_scores.index), prefix="cty", dtype=float)
         if cty.shape[1] > 1:
             cty = cty.iloc[:, 1:]
         blocks.append(cty)

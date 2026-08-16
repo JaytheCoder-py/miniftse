@@ -51,13 +51,20 @@ def git_sha(repo: Path | None = None) -> tuple[str, bool]:
     cwd = str(repo) if repo else None
     try:
         sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
-            cwd=cwd, timeout=10, check=True,
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=10,
+            check=True,
         ).stdout.strip()
         status = subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=no"],
-            capture_output=True, text=True,
-            cwd=cwd, timeout=10, check=True,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=10,
+            check=True,
         ).stdout.strip()
         return sha, bool(status)
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
@@ -74,8 +81,7 @@ def hash_frame(df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return "empty"
     ordered = df.sort_index(axis=1)
-    cols = [c for c in ordered.columns if ordered[c].dtype != object] or list(
-        ordered.columns)
+    cols = [c for c in ordered.columns if ordered[c].dtype != object] or list(ordered.columns)
     with contextlib.suppress(TypeError, ValueError):
         ordered = ordered.sort_values(list(ordered.columns[: min(3, len(cols))]))
     payload = pd.util.hash_pandas_object(ordered, index=False).to_numpy().tobytes()
@@ -83,9 +89,7 @@ def hash_frame(df: pd.DataFrame) -> str:
 
 
 def hash_object(obj: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(obj, sort_keys=True, default=str).encode()
-    ).hexdigest()[:32]
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, default=str).encode()).hexdigest()[:32]
 
 
 def hash_file(path: Path) -> str:
@@ -130,18 +134,26 @@ class RunManifest:
         return cls(
             run_id=f"{index_id}-{as_of.isoformat()}-{now.strftime('%Y%m%dT%H%M%S')}",
             created_at=now.isoformat(),
-            index_id=index_id, as_of=as_of.isoformat(),
-            git_sha=sha, git_dirty=dirty,
-            config_hash=hash_object(payload), config=payload,
+            index_id=index_id,
+            as_of=as_of.isoformat(),
+            git_sha=sha,
+            git_dirty=dirty,
+            config_hash=hash_object(payload),
+            config=payload,
             environment={
                 "python": sys.version.split()[0],
                 "platform": platform.platform(),
                 "pandas": pd.__version__,
                 "numpy": __import__("numpy").__version__,
             },
-            notes=(["WARNING: run from a dirty working tree - the git SHA does not "
-                    "fully identify the code that produced this output"] if dirty
-                   else []),
+            notes=(
+                [
+                    "WARNING: run from a dirty working tree - the git SHA does not "
+                    "fully identify the code that produced this output"
+                ]
+                if dirty
+                else []
+            ),
         )
 
     def record_input(self, name: str, data: pd.DataFrame | Path | Any) -> RunManifest:
@@ -223,12 +235,10 @@ class RunManifest:
             return "The two runs are identical in code, configuration, inputs and outputs."
         lines = [f"Differences between {self.run_id} and {other.run_id}:"]
         if "code" in d:
-            lines.append(f"  CODE changed: {d['code']['other'][:12]} -> "
-                         f"{d['code']['this'][:12]}")
+            lines.append(f"  CODE changed: {d['code']['other'][:12]} -> {d['code']['this'][:12]}")
         if "config" in d:
             lines.append("  CONFIG changed:")
-            lines += [f"    {k}: {v['other']} -> {v['this']}"
-                      for k, v in d["config"].items()]
+            lines += [f"    {k}: {v['other']} -> {v['this']}" for k, v in d["config"].items()]
         if "inputs" in d:
             lines.append(f"  INPUT data changed: {', '.join(d['inputs'])}")
         if "outputs" in d:
@@ -268,12 +278,18 @@ class ManifestStore:
                 continue
             if index_id and m.index_id != index_id:
                 continue
-            rows.append({
-                "run_id": m.run_id, "index_id": m.index_id, "as_of": m.as_of,
-                "created_at": m.created_at, "status": m.status,
-                "git_sha": m.git_sha[:12], "dirty": m.git_dirty,
-                "duration_s": m.duration_seconds,
-            })
+            rows.append(
+                {
+                    "run_id": m.run_id,
+                    "index_id": m.index_id,
+                    "as_of": m.as_of,
+                    "created_at": m.created_at,
+                    "status": m.status,
+                    "git_sha": m.git_sha[:12],
+                    "dirty": m.git_dirty,
+                    "duration_s": m.duration_seconds,
+                }
+            )
         return pd.DataFrame(rows)
 
     def latest(self, index_id: str) -> RunManifest | None:
@@ -302,7 +318,8 @@ def reproduce(
         actual = hash_frame(outputs[name])
         results[name] = {
             "status": "match" if actual == expected else "MISMATCH",
-            "expected": expected, "actual": actual,
+            "expected": expected,
+            "actual": actual,
         }
     reproduced = all(r["status"] == "match" for r in results.values())
     return {
@@ -313,6 +330,6 @@ def reproduce(
             "Exact reproduction confirmed."
             if reproduced
             else "Reproduction FAILED. Check the git SHA and input hashes with "
-                 "explain_diff before assuming the code is at fault."
+            "explain_diff before assuming the code is at fault."
         ),
     }

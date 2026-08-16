@@ -135,9 +135,7 @@ class CorporateActionEngine:
             # so with `mv_before_override`; rebasing against the wrong baseline silently
             # erases the takeover premium or the delisting loss from the index return.
             baseline = handled.mv_before_override
-            new_state = new_state.rebase_divisor(
-                baseline if baseline is not None else mv_before
-            )
+            new_state = new_state.rebase_divisor(baseline if baseline is not None else mv_before)
             reason = f"{event.event_type}: structural change, divisor rebased"
         else:
             reason = f"{event.event_type}: market move, divisor unchanged"
@@ -155,15 +153,16 @@ class CorporateActionEngine:
             level_after=new_state.level if new_state.divisor else 0.0,
             reason=reason,
             market_value_at_rebase=(
-                handled.mv_before_override
-                if handled.mv_before_override is not None
-                else mv_before
+                handled.mv_before_override if handled.mv_before_override is not None else mv_before
             ),
         )
         self.audit.append(change)
         return EventResult(
-            state=new_state, change=change, cash_distributed=handled.cash,
-            net_cash_distributed=handled.net_cash, new_constituents=handled.created,
+            state=new_state,
+            change=change,
+            cash_distributed=handled.cash,
+            net_cash_distributed=handled.net_cash,
+            new_constituents=handled.created,
             notes=handled.notes,
         )
 
@@ -266,8 +265,7 @@ class CorporateActionEngine:
         new_price = max(c.price - event.value_per_parent_share, 0.0)
         new_state = state.replace_constituent(c.with_price(new_price))
 
-        eligible = self.spinco_eligibility.get(event.spinco_security_id,
-                                               event.spinco_enters_index)
+        eligible = self.spinco_eligibility.get(event.spinco_security_id, event.spinco_enters_index)
         if eligible:
             # Spinco enters at the implied value, inserted here rather than by the
             # caller so the audit record sees the completed state.
@@ -295,9 +293,7 @@ class CorporateActionEngine:
                 f"spinco {event.spinco_security_id} enters at {event.spinco_price:.4f}; "
                 "total market value preserved, divisor unchanged"
             )
-            return _Handled(
-                new_state.replace_constituent(spinco), created=(spinco,), notes=(note,)
-            )
+            return _Handled(new_state.replace_constituent(spinco), created=(spinco,), notes=(note,))
 
         # Spinco is ineligible: the distributed value leaves the index. Treated as a
         # distribution for total return, because the holder did receive it.
@@ -385,8 +381,9 @@ class CorporateActionEngine:
     def _apply_shares_change(self, event: SharesChange, state: IndexState) -> _Handled:
         c = state.constituents[event.security_id]
         new_c = replace(c, shares=event.new_shares)
-        note = f"shares {event.old_shares:,.0f} -> {event.new_shares:,.0f} " \
-               f"({event.pct_change:+.2%})"
+        note = (
+            f"shares {event.old_shares:,.0f} -> {event.new_shares:,.0f} ({event.pct_change:+.2%})"
+        )
         return _Handled(state.replace_constituent(new_c), notes=(note,))
 
     def _apply_float_change(self, event: FloatChange, state: IndexState) -> _Handled:
@@ -398,35 +395,45 @@ class CorporateActionEngine:
     # ------------------------------------------------------------------ helpers
 
     @staticmethod
-    def _null_change(event: CorporateAction, state: IndexState, reason: str
-                     ) -> DivisorChange:
+    def _null_change(event: CorporateAction, state: IndexState, reason: str) -> DivisorChange:
         level = state.level if state.divisor else 0.0
         return DivisorChange(
-            date=event.ex_date, event_id=event.event_id,
-            event_type=str(event.event_type), security_id=event.security_id,
-            divisor_before=state.divisor, divisor_after=state.divisor,
+            date=event.ex_date,
+            event_id=event.event_id,
+            event_type=str(event.event_type),
+            security_id=event.security_id,
+            divisor_before=state.divisor,
+            divisor_after=state.divisor,
             market_value_before=state.total_market_value,
             market_value_after=state.total_market_value,
-            level_before=level, level_after=level, reason=reason,
+            level_before=level,
+            level_after=level,
+            reason=reason,
         )
 
     def audit_frame(self):  # type: ignore[no-untyped-def]
         """The divisor audit trail as a DataFrame, for the daily production report."""
         import pandas as pd
 
-        return pd.DataFrame([
-            {
-                "date": c.date, "event_id": c.event_id, "event_type": c.event_type,
-                "security_id": c.security_id, "divisor_before": c.divisor_before,
-                "divisor_after": c.divisor_after,
-                "divisor_change_pct": c.divisor_change_pct,
-                "level_before": c.level_before, "level_after": c.level_after,
-                "continuity_error_bps": c.level_continuity_error_bps,
-                "realised_return_bps": c.realised_return_bps,
-                "reason": c.reason,
-            }
-            for c in self.audit
-        ])
+        return pd.DataFrame(
+            [
+                {
+                    "date": c.date,
+                    "event_id": c.event_id,
+                    "event_type": c.event_type,
+                    "security_id": c.security_id,
+                    "divisor_before": c.divisor_before,
+                    "divisor_after": c.divisor_after,
+                    "divisor_change_pct": c.divisor_change_pct,
+                    "level_before": c.level_before,
+                    "level_after": c.level_after,
+                    "continuity_error_bps": c.level_continuity_error_bps,
+                    "realised_return_bps": c.realised_return_bps,
+                    "reason": c.reason,
+                }
+                for c in self.audit
+            ]
+        )
 
     def continuity_breaches(self, tolerance_bps: float = 1.0) -> list[DivisorChange]:
         """Divisor events where the level moved when it should not have.
@@ -436,10 +443,15 @@ class CorporateActionEngine:
         published level is wrong.
         """
         return [
-            c for c in self.audit
+            c
+            for c in self.audit
             if c.event_type
-            not in {EventType.CASH_DIVIDEND, EventType.SPECIAL_DIVIDEND,
-                    EventType.SPLIT, EventType.REVERSE_SPLIT}
+            not in {
+                EventType.CASH_DIVIDEND,
+                EventType.SPECIAL_DIVIDEND,
+                EventType.SPLIT,
+                EventType.REVERSE_SPLIT,
+            }
             and abs(c.level_continuity_error_bps) > tolerance_bps
         ]
 
@@ -449,7 +461,7 @@ def divisor_adjustment(
 ) -> float:
     """The formula on its own, for teaching and for hand-checking.
 
-        D_new = D_old * MV_after / MV_before
+    D_new = D_old * MV_after / MV_before
     """
     if market_value_before <= EPSILON:
         raise ValueError("market value before must be positive")

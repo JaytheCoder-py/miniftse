@@ -38,11 +38,45 @@ from pathlib import Path
 from miniftse.agents.llm import LlmClient, Message, OfflineLlm
 
 _TOKEN = re.compile(r"[a-z0-9']+")
-_STOPWORDS = frozenset([
-    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "has",
-    "have", "if", "in", "into", "is", "it", "its", "of", "on", "or", "that", "the",
-    "to", "was", "were", "will", "with", "what", "which", "when", "how", "does", "do",
-])
+_STOPWORDS = frozenset(
+    [
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "but",
+        "by",
+        "for",
+        "from",
+        "has",
+        "have",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "to",
+        "was",
+        "were",
+        "will",
+        "with",
+        "what",
+        "which",
+        "when",
+        "how",
+        "does",
+        "do",
+    ]
+)
 
 
 def tokenise(text: str) -> list[str]:
@@ -125,20 +159,22 @@ def chunk_document(
         words = body.split()
         step = max(target_words - overlap_words, 1)
         for start in range(0, len(words), step):
-            piece = " ".join(words[start: start + target_words])
+            piece = " ".join(words[start : start + target_words])
             if len(piece.split()) < 20 and chunks and start > 0:
                 break
             index = len(chunks)
-            chunks.append(Chunk(
-                chunk_id=f"{document.name}#{index}",
-                document=document.name,
-                section=section_title,
-                text=piece,
-                page=1 + index // 3,
-                version=document.version,
-                superseded_by=document.superseded_by,
-                effective_from=document.effective_from,
-            ))
+            chunks.append(
+                Chunk(
+                    chunk_id=f"{document.name}#{index}",
+                    document=document.name,
+                    section=section_title,
+                    text=piece,
+                    page=1 + index // 3,
+                    version=document.version,
+                    superseded_by=document.superseded_by,
+                    effective_from=document.effective_from,
+                )
+            )
             if start + target_words >= len(words):
                 break
     return chunks
@@ -175,8 +211,9 @@ class Bm25Index:
         self._avg_len = sum(lengths) / len(lengths) if lengths else 0.0
         return self
 
-    def search(self, query: str, top_k: int = 5, include_superseded: bool = False
-               ) -> list[tuple[Chunk, float]]:
+    def search(
+        self, query: str, top_k: int = 5, include_superseded: bool = False
+    ) -> list[tuple[Chunk, float]]:
         if not self.chunks:
             return []
         terms = tokenise(query)
@@ -227,8 +264,10 @@ class RetrievedAnswer:
         if self.citations:
             lines += ["", "Sources:"] + [f"  - {c}" for c in self.citations]
         if self.abstained:
-            lines += ["", "(The assistant abstained: retrieval did not find a passage "
-                      "that answers this.)"]
+            lines += [
+                "",
+                "(The assistant abstained: retrieval did not find a passage that answers this.)",
+            ]
         return "\n".join(lines)
 
 
@@ -266,11 +305,9 @@ class MethodologyAssistant:
         self.index.add(chunk_document(document))
         return self
 
-    def add_directory(self, directory: Path, pattern: str = "*.md"
-                      ) -> MethodologyAssistant:
+    def add_directory(self, directory: Path, pattern: str = "*.md") -> MethodologyAssistant:
         for path in sorted(Path(directory).glob(pattern)):
-            self.add_document(Document(name=path.name,
-                                       text=path.read_text(encoding="utf-8")))
+            self.add_document(Document(name=path.name, text=path.read_text(encoding="utf-8")))
         return self
 
     def ask(self, question: str, include_superseded: bool = False) -> RetrievedAnswer:
@@ -285,8 +322,13 @@ class MethodologyAssistant:
         out_of_scope = self._scope_violation(question)
         if out_of_scope:
             return RetrievedAnswer(
-                question=question, answer=out_of_scope, citations=[], chunks=[],
-                scores=[], abstained=True, confidence=0.0,
+                question=question,
+                answer=out_of_scope,
+                citations=[],
+                chunks=[],
+                scores=[],
+                abstained=True,
+                confidence=0.0,
             )
 
         hits = self.index.search(question, self.top_k, include_superseded)
@@ -300,7 +342,11 @@ class MethodologyAssistant:
                     "found no passage above the relevance threshold, so any answer "
                     "would be a guess. Refer this to the index governance team."
                 ),
-                citations=[], chunks=[], scores=[], abstained=True, confidence=0.0,
+                citations=[],
+                chunks=[],
+                scores=[],
+                abstained=True,
+                confidence=0.0,
             )
 
         context = "\n---\n".join(c.for_context() for c, _ in strong)
@@ -316,9 +362,11 @@ class MethodologyAssistant:
         top = strong[0][1]
         total = sum(s for _, s in strong)
         return RetrievedAnswer(
-            question=question, answer=response.text,
+            question=question,
+            answer=response.text,
             citations=[c.citation for c, _ in strong],
-            chunks=[c for c, _ in strong], scores=[s for _, s in strong],
+            chunks=[c for c, _ in strong],
+            scores=[s for _, s in strong],
             abstained=False,
             # Concentration of retrieval score in the top hit. A single decisive match
             # is far better evidence than four mediocre ones that happen to sum high.
@@ -329,34 +377,50 @@ class MethodologyAssistant:
     #: reply each gets. Rule-based rather than model-judged so the refusal is
     #: consistent, explainable and cannot be talked out of by rephrasing.
     SCOPE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
-        (re.compile(r"\b(today|current|right now|latest|live)\b.*\b(level|value|price|"
-                    r"return|performance)\b|\b(level|value|price)\b.*\b(today|right "
-                    r"now|currently)\b", re.IGNORECASE),
-         "I cannot answer that. A live or current index level comes from the "
-         "calculation and distribution systems, not from the methodology documents. "
-         "The Ground Rules describe how the level is computed, not what it is. Please "
-         "use the index data service."),
-
-        (re.compile(r"\bshould (i|we|you)\b|\bis it a good\b|\brecommend\b|"
-                    r"\bworth (buying|investing)\b|\badvice\b", re.IGNORECASE),
-         "I cannot answer that. That is a request for investment advice, which is "
-         "outside the scope of a methodology assistant and outside what an index "
-         "administrator may provide."),
-
-        (re.compile(r"\b(msci|s&p|standard\s*&\s*poor|stoxx|nasdaq|solactive|bloomberg)\b",
-                    re.IGNORECASE),
-         "I cannot answer that. The question is about another index provider's "
-         "methodology, which is not in this document set. Answering from general "
-         "knowledge is exactly the failure mode this assistant is built to avoid - "
-         "consult that provider's published rules."),
-
-        (re.compile(r"\bexposure to\b|\bdoes (it|the index) hold\b|\bwhich (companies|"
-                    r"stocks|securities)\b|\bconstituents? (list|are)\b|"
-                    r"\bhow much .* in\b", re.IGNORECASE),
-         "I cannot answer that. Holdings and exposures are properties of a particular "
-         "index calculation on a particular date, not of the methodology. The Ground "
-         "Rules define how constituents are selected; the constituent file says who "
-         "they are."),
+        (
+            re.compile(
+                r"\b(today|current|right now|latest|live)\b.*\b(level|value|price|"
+                r"return|performance)\b|\b(level|value|price)\b.*\b(today|right "
+                r"now|currently)\b",
+                re.IGNORECASE,
+            ),
+            "I cannot answer that. A live or current index level comes from the "
+            "calculation and distribution systems, not from the methodology documents. "
+            "The Ground Rules describe how the level is computed, not what it is. Please "
+            "use the index data service.",
+        ),
+        (
+            re.compile(
+                r"\bshould (i|we|you)\b|\bis it a good\b|\brecommend\b|"
+                r"\bworth (buying|investing)\b|\badvice\b",
+                re.IGNORECASE,
+            ),
+            "I cannot answer that. That is a request for investment advice, which is "
+            "outside the scope of a methodology assistant and outside what an index "
+            "administrator may provide.",
+        ),
+        (
+            re.compile(
+                r"\b(msci|s&p|standard\s*&\s*poor|stoxx|nasdaq|solactive|bloomberg)\b",
+                re.IGNORECASE,
+            ),
+            "I cannot answer that. The question is about another index provider's "
+            "methodology, which is not in this document set. Answering from general "
+            "knowledge is exactly the failure mode this assistant is built to avoid - "
+            "consult that provider's published rules.",
+        ),
+        (
+            re.compile(
+                r"\bexposure to\b|\bdoes (it|the index) hold\b|\bwhich (companies|"
+                r"stocks|securities)\b|\bconstituents? (list|are)\b|"
+                r"\bhow much .* in\b",
+                re.IGNORECASE,
+            ),
+            "I cannot answer that. Holdings and exposures are properties of a particular "
+            "index calculation on a particular date, not of the methodology. The Ground "
+            "Rules define how constituents are selected; the constituent file says who "
+            "they are.",
+        ),
     )
 
     def _scope_violation(self, question: str) -> str | None:

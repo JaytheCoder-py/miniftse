@@ -96,12 +96,20 @@ def brinson_fachler(
         selection = wb * (rp - rb)
         interaction = (wp - wb) * (rp - rb)
 
-        rows.append({
-            "group": str(group), "portfolio_weight": wp, "benchmark_weight": wb,
-            "active_weight": wp - wb, "portfolio_return": rp, "benchmark_return": rb,
-            "allocation": allocation, "selection": selection,
-            "interaction": interaction, "total": allocation + selection + interaction,
-        })
+        rows.append(
+            {
+                "group": str(group),
+                "portfolio_weight": wp,
+                "benchmark_weight": wb,
+                "active_weight": wp - wb,
+                "portfolio_return": rp,
+                "benchmark_return": rb,
+                "allocation": allocation,
+                "selection": selection,
+                "interaction": interaction,
+                "total": allocation + selection + interaction,
+            }
+        )
 
     frame = pd.DataFrame(rows).sort_values("total", ascending=False).reset_index(drop=True)
     portfolio_total = float((pw * pr).sum() / pw.sum()) if pw.sum() > 0 else 0.0
@@ -159,13 +167,23 @@ def factor_attribution(
     explained = float(contributions.sum())
     specific = total_active - explained
 
-    frame = pd.DataFrame({
-        "factor": x.index, "exposure": x.to_numpy(),
-        "factor_return": f.to_numpy(), "contribution": contributions.to_numpy(),
-    }).sort_values("contribution", key=np.abs, ascending=False).reset_index(drop=True)
+    frame = (
+        pd.DataFrame(
+            {
+                "factor": x.index,
+                "exposure": x.to_numpy(),
+                "factor_return": f.to_numpy(),
+                "contribution": contributions.to_numpy(),
+            }
+        )
+        .sort_values("contribution", key=np.abs, ascending=False)
+        .reset_index(drop=True)
+    )
 
     return FactorAttribution(
-        by_factor=frame, specific_return=specific, total_active=total_active,
+        by_factor=frame,
+        specific_return=specific,
+        total_active=total_active,
         explained_fraction=(explained / total_active if total_active else 0.0),
     )
 
@@ -227,20 +245,16 @@ def index_vs_parent(
         {
             "component": "names held only by child",
             "contribution": float((cw[only_child] * r[only_child]).sum()),
-            "note": f"{int(only_child.sum())} names, "
-                    f"{float(cw[only_child].sum()):.1%} weight",
+            "note": f"{int(only_child.sum())} names, {float(cw[only_child].sum()):.1%} weight",
         },
         {
             "component": "names dropped from parent",
             "contribution": -float((pw[only_parent] * r[only_parent]).sum()),
-            "note": f"{int(only_parent.sum())} names, "
-                    f"{float(pw[only_parent].sum()):.1%} weight",
+            "note": f"{int(only_parent.sum())} names, {float(pw[only_parent].sum()):.1%} weight",
         },
         {
             "component": "reweighting of shared names",
-            "contribution": float(
-                ((cw[held_by_both] - pw[held_by_both]) * r[held_by_both]).sum()
-            ),
+            "contribution": float(((cw[held_by_both] - pw[held_by_both]) * r[held_by_both]).sum()),
             "note": f"{int(held_by_both.sum())} names in both",
         },
     ]
@@ -249,40 +263,48 @@ def index_vs_parent(
         cf = capping_factors.reindex(ids).fillna(1.0)
         uncapped = cw / cf.where(cf > 0, 1.0)
         uncapped = uncapped / uncapped.sum() if uncapped.sum() > 0 else uncapped
-        rows.append({
-            "component": "capping",
-            "contribution": float(((cw - uncapped) * r).sum()),
-            "note": f"{int((cf < 0.999).sum())} names capped",
-        })
+        rows.append(
+            {
+                "component": "capping",
+                "contribution": float(((cw - uncapped) * r).sum()),
+                "note": f"{int((cf < 0.999).sum())} names capped",
+            }
+        )
 
     if currency_returns is not None:
         fx = currency_returns.reindex(ids).fillna(0.0)
-        rows.append({
-            "component": "currency composition",
-            "contribution": float(((cw - pw) * fx).sum()),
-            "note": "differing currency weights",
-        })
+        rows.append(
+            {
+                "component": "currency composition",
+                "contribution": float(((cw - pw) * fx).sum()),
+                "note": "differing currency weights",
+            }
+        )
 
     if groups is not None:
         g = groups.reindex(ids)
         largest = (
             pd.DataFrame({"g": g, "active": cw - pw, "r": r})
-            .dropna().groupby("g")
+            .dropna()
+            .groupby("g")
             .apply(lambda d: float((d["active"] * d["r"]).sum()), include_groups=False)
         )
         if not largest.empty:
             top = largest.abs().idxmax()
-            rows.append({
-                "component": f"largest group effect ({top})",
-                "contribution": 0.0,
-                "note": f"{float(largest[top]):+.3%} from {top}; memo item, already "
-                        "counted in reweighting",
-            })
+            rows.append(
+                {
+                    "component": f"largest group effect ({top})",
+                    "contribution": 0.0,
+                    "note": f"{float(largest[top]):+.3%} from {top}; memo item, already "
+                    "counted in reweighting",
+                }
+            )
 
     frame = pd.DataFrame(rows)
     counted = float(frame[frame["contribution"] != 0]["contribution"].sum())
     return IndexAttribution(
-        components=frame, total_active=total_active,
+        components=frame,
+        total_active=total_active,
         unexplained=total_active - counted,
     )
 
@@ -313,13 +335,26 @@ class BacktestLiveBridge:
         explained = sum(float(r["impact"]) for r in self.rows)
         residual = (live_return - backtest_return) - explained
         frame = pd.DataFrame(
-            [{"item": "backtest return", "impact": backtest_return,
-              "explanation": "as published in the research paper"}]
+            [
+                {
+                    "item": "backtest return",
+                    "impact": backtest_return,
+                    "explanation": "as published in the research paper",
+                }
+            ]
             + self.rows
-            + [{"item": "unexplained residual", "impact": residual,
-                "explanation": "not attributable to any identified difference"},
-               {"item": "live return", "impact": live_return,
-                "explanation": "actual published index"}]
+            + [
+                {
+                    "item": "unexplained residual",
+                    "impact": residual,
+                    "explanation": "not attributable to any identified difference",
+                },
+                {
+                    "item": "live return",
+                    "impact": live_return,
+                    "explanation": "actual published index",
+                },
+            ]
         )
         frame["cumulative"] = frame["impact"].cumsum()
         return frame
@@ -334,19 +369,34 @@ def standard_bridge_items() -> BacktestLiveBridge:
     """
     return (
         BacktestLiveBridge()
-        .add("data vintage", 0.0,
-             "the backtest used data as it stands today, including restatements and "
-             "vendor corrections that were not available at the time")
-        .add("pro-forma reviews", 0.0,
-             "backtest reviews were applied on the theoretical schedule; live reviews "
-             "have announcement lags, committee exceptions and fast entries")
-        .add("survivorship in the candidate universe", 0.0,
-             "the backtest universe was built from securities that exist today unless "
-             "explicitly corrected for")
-        .add("transaction costs", 0.0,
-             "an index does not itself trade, but a comparison against a tracking fund "
-             "must include the fund's costs")
-        .add("corporate action treatment", 0.0,
-             "the backtest applied a simplified corporate action model; live treatment "
-             "follows the full published rules including exceptions")
+        .add(
+            "data vintage",
+            0.0,
+            "the backtest used data as it stands today, including restatements and "
+            "vendor corrections that were not available at the time",
+        )
+        .add(
+            "pro-forma reviews",
+            0.0,
+            "backtest reviews were applied on the theoretical schedule; live reviews "
+            "have announcement lags, committee exceptions and fast entries",
+        )
+        .add(
+            "survivorship in the candidate universe",
+            0.0,
+            "the backtest universe was built from securities that exist today unless "
+            "explicitly corrected for",
+        )
+        .add(
+            "transaction costs",
+            0.0,
+            "an index does not itself trade, but a comparison against a tracking fund "
+            "must include the fund's costs",
+        )
+        .add(
+            "corporate action treatment",
+            0.0,
+            "the backtest applied a simplified corporate action model; live treatment "
+            "follows the full published rules including exceptions",
+        )
     )

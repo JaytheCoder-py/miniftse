@@ -100,8 +100,7 @@ class PipelineRun:
     @property
     def succeeded(self) -> bool:
         return all(
-            r.status in {StepStatus.SUCCESS, StepStatus.SKIPPED}
-            for r in self.results.values()
+            r.status in {StepStatus.SUCCESS, StepStatus.SKIPPED} for r in self.results.values()
         )
 
     @property
@@ -109,14 +108,13 @@ class PipelineRun:
         return [r for r in self.results.values() if r.status == StepStatus.FAILED]
 
     def summary(self) -> str:
-        lines = [
-            f"Pipeline run for {self.run_date}: "
-            f"{'SUCCESS' if self.succeeded else 'FAILED'}"
-        ]
+        lines = [f"Pipeline run for {self.run_date}: {'SUCCESS' if self.succeeded else 'FAILED'}"]
         for r in self.results.values():
             mark = {
-                StepStatus.SUCCESS: "ok", StepStatus.FAILED: "FAIL",
-                StepStatus.BLOCKED: "blocked", StepStatus.SKIPPED: "skipped",
+                StepStatus.SUCCESS: "ok",
+                StepStatus.FAILED: "FAIL",
+                StepStatus.BLOCKED: "blocked",
+                StepStatus.SKIPPED: "skipped",
             }.get(r.status, "?")
             line = f"  [{mark:>7}] {r.name} ({r.duration:.2f}s"
             line += f", {r.attempts} attempts)" if r.attempts > 1 else ")"
@@ -146,7 +144,9 @@ class Pipeline:
         names = {s.name for s in self.steps}
         problems = [
             f"step '{s.name}' depends on unknown step '{d}'"
-            for s in self.steps for d in s.depends_on if d not in names
+            for s in self.steps
+            for d in s.depends_on
+            if d not in names
         ]
         try:
             self._topological_order()
@@ -162,9 +162,7 @@ class Pipeline:
         def visit(name: str, path: tuple[str, ...]) -> None:
             state = visited.get(name, 0)
             if state == 1:
-                raise PipelineError(
-                    f"dependency cycle: {' -> '.join([*path, name])}"
-                )
+                raise PipelineError(f"dependency cycle: {' -> '.join([*path, name])}")
             if state == 2:
                 return
             visited[name] = 1
@@ -178,14 +176,14 @@ class Pipeline:
             visit(step.name, ())
         return order
 
-    def run(self, run_date: dt.date, context: dict[str, Any] | None = None
-            ) -> PipelineRun:
+    def run(self, run_date: dt.date, context: dict[str, Any] | None = None) -> PipelineRun:
         problems = self.validate_graph()
         if problems:
             raise PipelineError("invalid pipeline: " + "; ".join(problems))
 
-        run = PipelineRun(run_date=run_date, context=dict(context or {}),
-                          started=dt.datetime.now(dt.UTC))
+        run = PipelineRun(
+            run_date=run_date, context=dict(context or {}), started=dt.datetime.now(dt.UTC)
+        )
         run.context["run_date"] = run_date
 
         for step in self._topological_order():
@@ -194,13 +192,15 @@ class Pipeline:
             # a second, unrelated failure - which is exactly what a duty analyst at 6am
             # does not need.
             upstream_failed = [
-                d for d in step.depends_on
+                d
+                for d in step.depends_on
                 if run.results.get(d)
                 and run.results[d].status in {StepStatus.FAILED, StepStatus.BLOCKED}
             ]
             if upstream_failed:
                 run.results[step.name] = StepResult(
-                    name=step.name, status=StepStatus.BLOCKED,
+                    name=step.name,
+                    status=StepStatus.BLOCKED,
                     error=f"upstream step(s) failed: {', '.join(upstream_failed)}",
                 )
                 continue
@@ -225,8 +225,10 @@ class Pipeline:
             try:
                 output = step.run(run.context)
                 return StepResult(
-                    name=step.name, status=StepStatus.SUCCESS,
-                    duration=time.perf_counter() - started, attempts=attempts,
+                    name=step.name,
+                    status=StepStatus.SUCCESS,
+                    duration=time.perf_counter() - started,
+                    attempts=attempts,
                     output=output,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -236,8 +238,10 @@ class Pipeline:
                 time.sleep(step.retry_delay)
 
         return StepResult(
-            name=step.name, status=StepStatus.FAILED,
-            duration=time.perf_counter() - started, attempts=attempts,
+            name=step.name,
+            status=StepStatus.FAILED,
+            duration=time.perf_counter() - started,
+            attempts=attempts,
             error=f"{type(last).__name__}: {last}",
             traceback=traceback.format_exc(),
         )
@@ -282,46 +286,78 @@ def build_daily_pipeline(
     """
     return (
         Pipeline(name="daily-index-production", on_failure=on_failure)
-        .add(Step(
-            "load_market_data", load_market_data, retries=3, retry_delay=30.0,
-            retry_on=(DataNotReadyError, ConnectionError, TimeoutError),
-            description="Fetch prices, FX, corporate actions and reference data. "
-                        "Retries because late files are routine.",
-        ))
-        .add(Step(
-            "validate_inputs", validate_inputs, depends_on=("load_market_data",),
-            retries=0,
-            description="Schema, range and cross-source checks on raw inputs. No "
-                        "retry: a failure here means the data is wrong, not late.",
-        ))
-        .add(Step(
-            "calculate_index", calculate_index,
-            depends_on=("validate_inputs",), retries=0,
-            description="Apply corporate actions, roll the divisor, compute PR, GTR "
-                        "and NTR.",
-        ))
-        .add(Step(
-            "validate_output", validate_output, depends_on=("calculate_index",),
-            retries=0,
-            description="Aggregate, temporal and reconciliation checks on the "
-                        "calculated index.",
-        ))
-        .add(Step(
-            "publication_gate", publication_gate, depends_on=("validate_output",),
-            retries=0,
-            description="THE GATE. Blocks publication on any blocking finding. Not "
-                        "overridable in code - an override is a signed human decision.",
-        ))
-        .add(Step(
-            "publish", publish, depends_on=("publication_gate",), retries=2,
-            retry_delay=10.0, retry_on=(ConnectionError, TimeoutError),
-            description="Write levels and constituents to the distribution store.",
-        ))
-        .add(Step(
-            "notify", notify, depends_on=("publish",), retries=1, critical=False,
-            description="Tell downstream consumers. Non-critical: a failed "
-                        "notification must not block a good index.",
-        ))
+        .add(
+            Step(
+                "load_market_data",
+                load_market_data,
+                retries=3,
+                retry_delay=30.0,
+                retry_on=(DataNotReadyError, ConnectionError, TimeoutError),
+                description="Fetch prices, FX, corporate actions and reference data. "
+                "Retries because late files are routine.",
+            )
+        )
+        .add(
+            Step(
+                "validate_inputs",
+                validate_inputs,
+                depends_on=("load_market_data",),
+                retries=0,
+                description="Schema, range and cross-source checks on raw inputs. No "
+                "retry: a failure here means the data is wrong, not late.",
+            )
+        )
+        .add(
+            Step(
+                "calculate_index",
+                calculate_index,
+                depends_on=("validate_inputs",),
+                retries=0,
+                description="Apply corporate actions, roll the divisor, compute PR, GTR and NTR.",
+            )
+        )
+        .add(
+            Step(
+                "validate_output",
+                validate_output,
+                depends_on=("calculate_index",),
+                retries=0,
+                description="Aggregate, temporal and reconciliation checks on the "
+                "calculated index.",
+            )
+        )
+        .add(
+            Step(
+                "publication_gate",
+                publication_gate,
+                depends_on=("validate_output",),
+                retries=0,
+                description="THE GATE. Blocks publication on any blocking finding. Not "
+                "overridable in code - an override is a signed human decision.",
+            )
+        )
+        .add(
+            Step(
+                "publish",
+                publish,
+                depends_on=("publication_gate",),
+                retries=2,
+                retry_delay=10.0,
+                retry_on=(ConnectionError, TimeoutError),
+                description="Write levels and constituents to the distribution store.",
+            )
+        )
+        .add(
+            Step(
+                "notify",
+                notify,
+                depends_on=("publish",),
+                retries=1,
+                critical=False,
+                description="Tell downstream consumers. Non-critical: a failed "
+                "notification must not block a good index.",
+            )
+        )
     )
 
 
@@ -341,8 +377,7 @@ class FailureSimulator:
     fire_on_attempt: int = 1
     _attempts: int = 0
 
-    def wrap(self, step_fn: Callable[[dict[str, Any]], Any]
-             ) -> Callable[[dict[str, Any]], Any]:
+    def wrap(self, step_fn: Callable[[dict[str, Any]], Any]) -> Callable[[dict[str, Any]], Any]:
         def wrapped(context: dict[str, Any]) -> Any:
             self._attempts += 1
             if self.mode == "late_data" and self._attempts <= self.fire_on_attempt:

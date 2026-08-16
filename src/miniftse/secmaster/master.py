@@ -103,8 +103,10 @@ class SecurityMaster:
         ticker has two open rows and every as-of lookup after the reassignment is
         ambiguous.
         """
-        key = (mapping.identifier_type, self._normalise(mapping.identifier_type,
-                                                        mapping.identifier_value))
+        key = (
+            mapping.identifier_type,
+            self._normalise(mapping.identifier_type, mapping.identifier_value),
+        )
         existing = self._by_value[key]
         for i, prior in enumerate(existing):
             if prior.valid_to is None and prior.valid_from < mapping.valid_from:
@@ -165,8 +167,9 @@ class SecurityMaster:
             raise SecurityNotFoundError(f"issuer {security.issuer_id} is not in the master")
 
         listing = self._pick_listing(matched, security.security_id, as_of, matched_type, level)
-        return ResolvedSecurity(as_of=as_of, issuer=issuer, security=security,
-                                listing=listing, matched_on=matched_type)
+        return ResolvedSecurity(
+            as_of=as_of, issuer=issuer, security=security, listing=listing, matched_on=matched_type
+        )
 
     def _candidates(
         self, identifier: str, as_of: dt.date, id_type: str | None
@@ -204,9 +207,7 @@ class SecurityMaster:
             if self.listings[lid].is_active(as_of)
         ]
         if not active:
-            raise SecurityNotFoundError(
-                f"security {security_id} has no active listing on {as_of}"
-            )
+            raise SecurityNotFoundError(f"security {security_id} has no active listing on {as_of}")
         if len(active) == 1:
             return active[0]
 
@@ -245,8 +246,9 @@ class SecurityMaster:
         has to see GOOGL and GOOG as one object.
         """
         sec = self.securities[security_id]
-        return [s for s in self.securities_for_issuer(sec.issuer_id)
-                if s.security_id != security_id]
+        return [
+            s for s in self.securities_for_issuer(sec.issuer_id) if s.security_id != security_id
+        ]
 
     def multiline_issuers(self) -> dict[IssuerId, list[SecurityId]]:
         return {iss: sids for iss, sids in self._by_issuer.items() if len(sids) > 1}
@@ -267,23 +269,25 @@ class SecurityMaster:
             if sec is None:
                 continue
             iss = self.issuers.get(sec.issuer_id)
-            rows.append({
-                "listing_id": str(listing.listing_id),
-                "security_id": str(sec.security_id),
-                "issuer_id": str(sec.issuer_id),
-                "currency": str(listing.currency),
-                "country": str(iss.nationality if iss else listing.country),
-                "market_status": str(iss.market_status) if iss else None,
-                "icb_industry": str(sec.icb_industry),
-                "security_type": str(sec.security_type),
-                "shares_outstanding": sec.shares_outstanding,
-                "free_float_factor": sec.free_float_factor,
-                "foreign_ownership_limit": sec.foreign_ownership_limit,
-                "investable_factor": sec.investable_factor,
-                "is_primary_line": sec.is_primary_line,
-                "isin": listing.identifiers.isin,
-                "sedol": listing.identifiers.sedol,
-            })
+            rows.append(
+                {
+                    "listing_id": str(listing.listing_id),
+                    "security_id": str(sec.security_id),
+                    "issuer_id": str(sec.issuer_id),
+                    "currency": str(listing.currency),
+                    "country": str(iss.nationality if iss else listing.country),
+                    "market_status": str(iss.market_status) if iss else None,
+                    "icb_industry": str(sec.icb_industry),
+                    "security_type": str(sec.security_type),
+                    "shares_outstanding": sec.shares_outstanding,
+                    "free_float_factor": sec.free_float_factor,
+                    "foreign_ownership_limit": sec.foreign_ownership_limit,
+                    "investable_factor": sec.investable_factor,
+                    "is_primary_line": sec.is_primary_line,
+                    "isin": listing.identifiers.isin,
+                    "sedol": listing.identifiers.sedol,
+                }
+            )
         return pd.DataFrame(rows)
 
     # ---------------------------------------------------------------- loading
@@ -306,59 +310,79 @@ class SecurityMaster:
             iid = IssuerId(str(row.issuer_id))
             if iid not in master.issuers:
                 country = Country(str(row.country))
-                master.add_issuer(Issuer(
-                    issuer_id=iid, name=f"Issuer {iid}",
-                    country_of_incorporation=country, country_of_domicile=country,
-                    nationality=country, market_status=MarketStatus(str(row.market_status)),
-                ))
+                master.add_issuer(
+                    Issuer(
+                        issuer_id=iid,
+                        name=f"Issuer {iid}",
+                        country_of_incorporation=country,
+                        country_of_domicile=country,
+                        nationality=country,
+                        market_status=MarketStatus(str(row.market_status)),
+                    )
+                )
             sh = share_lookup.get(str(row.security_id), {})
-            master.add_security(Security(
-                security_id=SecurityId(str(row.security_id)),
-                issuer_id=iid, name=f"Security {row.security_id}",
-                security_type=SecurityType(str(row.security_type)),
-                currency=Currency(str(row.currency)),
-                icb_industry=IcbIndustry(str(row.icb_industry)),
-                is_primary_line=True,
-                shares_outstanding=float(sh.get("shares_outstanding", 0.0) or 0.0),
-                free_float_factor=float(sh.get("free_float_factor", 1.0) or 1.0),
-                foreign_ownership_limit=float(
-                    sh.get("foreign_ownership_limit", getattr(row, "foreign_ownership_limit", 1.0))
-                    or 1.0
-                ),
-            ))
+            master.add_security(
+                Security(
+                    security_id=SecurityId(str(row.security_id)),
+                    issuer_id=iid,
+                    name=f"Security {row.security_id}",
+                    security_type=SecurityType(str(row.security_type)),
+                    currency=Currency(str(row.currency)),
+                    icb_industry=IcbIndustry(str(row.icb_industry)),
+                    is_primary_line=True,
+                    shares_outstanding=float(sh.get("shares_outstanding", 0.0) or 0.0),
+                    free_float_factor=float(sh.get("free_float_factor", 1.0) or 1.0),
+                    foreign_ownership_limit=float(
+                        sh.get(
+                            "foreign_ownership_limit", getattr(row, "foreign_ownership_limit", 1.0)
+                        )
+                        or 1.0
+                    ),
+                )
+            )
 
-        ident_by_listing = {
-            str(r.listing_id): r for r in identifiers.itertuples(index=False)
-        }
+        ident_by_listing = {str(r.listing_id): r for r in identifiers.itertuples(index=False)}
         for row in listings.itertuples(index=False):
             ident = ident_by_listing.get(str(row.listing_id))
-            master.add_listing(Listing(
-                listing_id=ListingId(str(row.listing_id)),
-                security_id=SecurityId(str(row.security_id)),
-                mic=str(row.mic), currency=Currency(str(row.currency)),
-                country=Country(str(row.country)), is_primary_listing=True,
-                listing_start=row.listing_start, listing_end=row.listing_end,
-                identifiers=IdentifierSet(
-                    isin=ident.isin if ident is not None else None,
-                    sedol=ident.sedol if ident is not None else None,
-                    ticker=ident.ticker if ident is not None else None,
-                ),
-            ))
+            master.add_listing(
+                Listing(
+                    listing_id=ListingId(str(row.listing_id)),
+                    security_id=SecurityId(str(row.security_id)),
+                    mic=str(row.mic),
+                    currency=Currency(str(row.currency)),
+                    country=Country(str(row.country)),
+                    is_primary_listing=True,
+                    listing_start=row.listing_start,
+                    listing_end=row.listing_end,
+                    identifiers=IdentifierSet(
+                        isin=ident.isin if ident is not None else None,
+                        sedol=ident.sedol if ident is not None else None,
+                        ticker=ident.ticker if ident is not None else None,
+                    ),
+                )
+            )
 
         for r in identifiers.itertuples(index=False):
             for id_type in ("isin", "sedol", "ticker"):
                 value = getattr(r, id_type, None)
                 if not value:
                     continue
-                master.add_mapping(IdentifierMapping(
-                    identifier_type=id_type, identifier_value=str(value),
-                    security_id=SecurityId(str(r.security_id)),
-                    # Only listing-level identifiers pin a listing. An ISIN does not,
-                    # which is exactly what makes it ambiguous for a multi-listed name.
-                    listing_id=(ListingId(str(r.listing_id))
-                                if IDENTIFIER_LEVELS.get(id_type) == "listing" else None),
-                    valid_from=r.valid_from, valid_to=r.valid_to,
-                ))
+                master.add_mapping(
+                    IdentifierMapping(
+                        identifier_type=id_type,
+                        identifier_value=str(value),
+                        security_id=SecurityId(str(r.security_id)),
+                        # Only listing-level identifiers pin a listing. An ISIN does not,
+                        # which is exactly what makes it ambiguous for a multi-listed name.
+                        listing_id=(
+                            ListingId(str(r.listing_id))
+                            if IDENTIFIER_LEVELS.get(id_type) == "listing"
+                            else None
+                        ),
+                        valid_from=r.valid_from,
+                        valid_to=r.valid_to,
+                    )
+                )
         return master
 
     def validate(self) -> list[str]:
@@ -370,15 +394,19 @@ class SecurityMaster:
         problems: list[str] = []
         for sec in self.securities.values():
             if sec.issuer_id not in self.issuers:
-                problems.append(f"security {sec.security_id} references missing issuer "
-                                f"{sec.issuer_id}")
+                problems.append(
+                    f"security {sec.security_id} references missing issuer {sec.issuer_id}"
+                )
             if not 0.0 <= sec.free_float_factor <= 1.0:
-                problems.append(f"security {sec.security_id} has free float "
-                                f"{sec.free_float_factor} outside [0, 1]")
+                problems.append(
+                    f"security {sec.security_id} has free float "
+                    f"{sec.free_float_factor} outside [0, 1]"
+                )
         for lst in self.listings.values():
             if lst.security_id not in self.securities:
-                problems.append(f"listing {lst.listing_id} references missing security "
-                                f"{lst.security_id}")
+                problems.append(
+                    f"listing {lst.listing_id} references missing security {lst.security_id}"
+                )
             try:
                 lst.identifiers.validate()
             except ValueError as exc:

@@ -131,8 +131,7 @@ class CappingConfig:
 
     def as_concentrated_20_35(self) -> Self:
         """The relaxed variant used by concentrated and single-country indices."""
-        return replace(self, max_single_weight=0.35, aggregate_threshold=0.20,
-                       aggregate_limit=1.0)
+        return replace(self, max_single_weight=0.35, aggregate_threshold=0.20, aggregate_limit=1.0)
 
 
 @dataclass(frozen=True, slots=True)

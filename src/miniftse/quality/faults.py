@@ -68,16 +68,14 @@ def _copy(ctx: ValidationContext) -> ValidationContext:
         weights=ctx.weights.copy() if ctx.weights is not None else None,
         fx=ctx.fx.copy() if ctx.fx is not None else None,
         prior_fx=ctx.prior_fx.copy() if ctx.prior_fx is not None else None,
-        divisor_audit=(ctx.divisor_audit.copy()
-                       if ctx.divisor_audit is not None else None),
+        divisor_audit=(ctx.divisor_audit.copy() if ctx.divisor_audit is not None else None),
     )
 
 
 # --------------------------------------------------------------------------------------
 
 
-def fault_price_factor_ten(ctx: ValidationContext, rng: np.random.Generator
-                           ) -> InjectionRecord:
+def fault_price_factor_ten(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
     """A price off by a factor of ten - the classic decimal error."""
     c = _copy(ctx)
     assert c.prices is not None
@@ -87,8 +85,7 @@ def fault_price_factor_ten(ctx: ValidationContext, rng: np.random.Generator
     return InjectionRecord(c, (sec,), f"{sec} price multiplied by 10")
 
 
-def fault_missing_dividend(ctx: ValidationContext, rng: np.random.Generator
-                           ) -> InjectionRecord:
+def fault_missing_dividend(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
     """A dividend in the feed that never reached the divisor audit."""
     c = _copy(ctx)
     if c.divisor_audit is None or c.divisor_audit.empty:
@@ -121,12 +118,12 @@ def fault_stale_feed(ctx: ValidationContext, rng: np.random.Generator) -> Inject
         if sec in prior.index:
             c.prices.iloc[i, c.prices.columns.get_loc("close")] = float(prior[sec])
             affected.append(sec)
-    return InjectionRecord(c, tuple(affected[:5]),
-                           f"{len(affected)} prices held at yesterday's close")
+    return InjectionRecord(
+        c, tuple(affected[:5]), f"{len(affected)} prices held at yesterday's close"
+    )
 
 
-def fault_swapped_identifiers(ctx: ValidationContext, rng: np.random.Generator
-                              ) -> InjectionRecord:
+def fault_swapped_identifiers(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
     """Two securities' prices swapped - a mapping file with two rows transposed."""
     c = _copy(ctx)
     assert c.prices is not None
@@ -156,11 +153,10 @@ def fault_inverted_fx(ctx: ValidationContext, rng: np.random.Generator) -> Injec
     ccy = str(c.fx.loc[idx, "quote"])
     rate = float(c.fx.loc[idx, "rate"])
     c.fx.loc[idx, "rate"] = 1.0 / rate if rate else 0.0
-    return InjectionRecord(c, (ccy,), f"{ccy} rate inverted ({rate:.4f} -> {1/rate:.4f})")
+    return InjectionRecord(c, (ccy,), f"{ccy} rate inverted ({rate:.4f} -> {1 / rate:.4f})")
 
 
-def fault_double_split(ctx: ValidationContext, rng: np.random.Generator
-                       ) -> InjectionRecord:
+def fault_double_split(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
     """A split applied twice - two jobs both processing the same event file."""
     c = _copy(ctx)
     assert c.prices is not None
@@ -170,8 +166,7 @@ def fault_double_split(ctx: ValidationContext, rng: np.random.Generator
     return InjectionRecord(c, (sec,), f"{sec} halved by a duplicate split")
 
 
-def fault_negative_price(ctx: ValidationContext, rng: np.random.Generator
-                         ) -> InjectionRecord:
+def fault_negative_price(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
     """A negative price - a sign error in a manual correction."""
     c = _copy(ctx)
     assert c.prices is not None
@@ -181,16 +176,16 @@ def fault_negative_price(ctx: ValidationContext, rng: np.random.Generator
     return InjectionRecord(c, (sec,), f"{sec} price sign flipped")
 
 
-def fault_weights_dont_sum(ctx: ValidationContext, rng: np.random.Generator
-                           ) -> InjectionRecord:
+def fault_weights_dont_sum(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
     """Weights that no longer sum to one - a constituent dropped after normalisation."""
     c = _copy(ctx)
     if c.weights is None or c.weights.empty:
         return InjectionRecord(c, (), "no weights")
     victim = str(c.weights.index[int(rng.integers(0, len(c.weights)))])
     c.weights = c.weights.drop(index=victim)
-    return InjectionRecord(c, (victim,),
-                           f"{victim} removed from the weight vector after normalisation")
+    return InjectionRecord(
+        c, (victim,), f"{victim} removed from the weight vector after normalisation"
+    )
 
 
 def fault_cap_breach(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
@@ -205,8 +200,7 @@ def fault_cap_breach(ctx: ValidationContext, rng: np.random.Generator) -> Inject
     return InjectionRecord(c, (victim,), f"{victim} pushed to {c.weights[victim]:.1%}")
 
 
-def fault_duplicate_row(ctx: ValidationContext, rng: np.random.Generator
-                        ) -> InjectionRecord:
+def fault_duplicate_row(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
     """A duplicated price row - a file loaded twice."""
     c = _copy(ctx)
     assert c.prices is not None
@@ -216,20 +210,17 @@ def fault_duplicate_row(ctx: ValidationContext, rng: np.random.Generator
     return InjectionRecord(c, (sec,), f"price row for {sec} duplicated")
 
 
-def fault_delisted_still_held(ctx: ValidationContext, rng: np.random.Generator
-                              ) -> InjectionRecord:
+def fault_delisted_still_held(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
     """A constituent whose price stopped arriving but which never left the index."""
     c = _copy(ctx)
     if c.weights is None or c.prices is None or c.weights.empty:
         return InjectionRecord(c, (), "no weights")
     victim = str(c.weights.index[int(rng.integers(0, len(c.weights)))])
     c.prices = c.prices[c.prices["security_id"] != victim]
-    return InjectionRecord(c, (victim,),
-                           f"{victim} still weighted but has no price row")
+    return InjectionRecord(c, (victim,), f"{victim} still weighted but has no price row")
 
 
-def fault_shares_wrong_sign(ctx: ValidationContext, rng: np.random.Generator
-                            ) -> InjectionRecord:
+def fault_shares_wrong_sign(ctx: ValidationContext, rng: np.random.Generator) -> InjectionRecord:
     """A negative share count from a badly parsed fundamental file."""
     c = _copy(ctx)
     if c.shares is None or c.shares.empty:
@@ -242,42 +233,102 @@ def fault_shares_wrong_sign(ctx: ValidationContext, rng: np.random.Generator
 
 
 FAULTS: tuple[Fault, ...] = (
-    Fault("F01", "price off by 10x", "A single close multiplied by ten.",
-          "Decimal error in a manual price override, or a vendor sending pence for "
-          "pounds.", fault_price_factor_ten, "price_outliers"),
-    Fault("F02", "missing dividend", "A dividend present in the feed but never applied.",
-          "The corporate action file arrived after the calculation job started.",
-          fault_missing_dividend, "corp_actions_applied"),
-    Fault("F03", "stale feed", "A third of prices held at yesterday's close.",
-          "A regional feed stopped publishing and the job carried the last value "
-          "forward.", fault_stale_feed, "stale_prices"),
-    Fault("F04", "swapped identifiers", "Two securities' prices transposed.",
-          "Two rows swapped in a mapping file after a SEDOL change.",
-          fault_swapped_identifiers, "price_outliers"),
-    Fault("F05", "inverted FX rate", "One currency stored as its reciprocal.",
-          "A new currency onboarded with the quote convention the wrong way round.",
-          fault_inverted_fx, "fx_continuity"),
-    Fault("F06", "double-applied split", "A split applied twice.",
-          "Two jobs processing the same corporate action file after a retry.",
-          fault_double_split, "price_outliers"),
-    Fault("F07", "negative price", "A price with the sign flipped.",
-          "A sign error in a manual correction.", fault_negative_price,
-          "positive_prices"),
-    Fault("F08", "weights do not sum", "A constituent dropped after normalisation.",
-          "A filter applied downstream of the weighting step.",
-          fault_weights_dont_sum, "weights_sum"),
-    Fault("F09", "cap breach", "A constituent above the published cap.",
-          "Iterative capping hit its iteration limit and returned anyway.",
-          fault_cap_breach, "max_weight"),
-    Fault("F10", "duplicate row", "A price row present twice.",
-          "A daily file loaded twice after a failed run was retried.",
-          fault_duplicate_row, "no_duplicate_prices"),
-    Fault("F11", "delisted but still held", "A weighted constituent with no price.",
-          "A delisting processed in the reference feed but not in the index.",
-          fault_delisted_still_held, "constituents_priced"),
-    Fault("F12", "negative share count", "A share count with the sign flipped.",
-          "A badly parsed fundamental file where brackets meant negative.",
-          fault_shares_wrong_sign, "shares_plausible"),
+    Fault(
+        "F01",
+        "price off by 10x",
+        "A single close multiplied by ten.",
+        "Decimal error in a manual price override, or a vendor sending pence for pounds.",
+        fault_price_factor_ten,
+        "price_outliers",
+    ),
+    Fault(
+        "F02",
+        "missing dividend",
+        "A dividend present in the feed but never applied.",
+        "The corporate action file arrived after the calculation job started.",
+        fault_missing_dividend,
+        "corp_actions_applied",
+    ),
+    Fault(
+        "F03",
+        "stale feed",
+        "A third of prices held at yesterday's close.",
+        "A regional feed stopped publishing and the job carried the last value forward.",
+        fault_stale_feed,
+        "stale_prices",
+    ),
+    Fault(
+        "F04",
+        "swapped identifiers",
+        "Two securities' prices transposed.",
+        "Two rows swapped in a mapping file after a SEDOL change.",
+        fault_swapped_identifiers,
+        "price_outliers",
+    ),
+    Fault(
+        "F05",
+        "inverted FX rate",
+        "One currency stored as its reciprocal.",
+        "A new currency onboarded with the quote convention the wrong way round.",
+        fault_inverted_fx,
+        "fx_continuity",
+    ),
+    Fault(
+        "F06",
+        "double-applied split",
+        "A split applied twice.",
+        "Two jobs processing the same corporate action file after a retry.",
+        fault_double_split,
+        "price_outliers",
+    ),
+    Fault(
+        "F07",
+        "negative price",
+        "A price with the sign flipped.",
+        "A sign error in a manual correction.",
+        fault_negative_price,
+        "positive_prices",
+    ),
+    Fault(
+        "F08",
+        "weights do not sum",
+        "A constituent dropped after normalisation.",
+        "A filter applied downstream of the weighting step.",
+        fault_weights_dont_sum,
+        "weights_sum",
+    ),
+    Fault(
+        "F09",
+        "cap breach",
+        "A constituent above the published cap.",
+        "Iterative capping hit its iteration limit and returned anyway.",
+        fault_cap_breach,
+        "max_weight",
+    ),
+    Fault(
+        "F10",
+        "duplicate row",
+        "A price row present twice.",
+        "A daily file loaded twice after a failed run was retried.",
+        fault_duplicate_row,
+        "no_duplicate_prices",
+    ),
+    Fault(
+        "F11",
+        "delisted but still held",
+        "A weighted constituent with no price.",
+        "A delisting processed in the reference feed but not in the index.",
+        fault_delisted_still_held,
+        "constituents_priced",
+    ),
+    Fault(
+        "F12",
+        "negative share count",
+        "A share count with the sign flipped.",
+        "A badly parsed fundamental file where brackets meant negative.",
+        fault_shares_wrong_sign,
+        "shares_plausible",
+    ),
 )
 
 
@@ -318,9 +369,7 @@ def run_chaos_drill(
     # and so has one whose affected count jumps. Comparing rule names alone scored
     # three genuine detections as misses - the cap breach and the unpriced constituent
     # were both caught, by rules that were already grumbling about ordinary drift.
-    baseline_state = {
-        f.rule: (f.severity.value, f.n_affected) for f in clean.failures
-    }
+    baseline_state = {f.rule: (f.severity.value, f.n_affected) for f in clean.failures}
 
     results: list[DrillResult] = []
     for fault in faults:
@@ -329,45 +378,59 @@ def run_chaos_drill(
             # The injector could not place this fault in the chosen cross-section -
             # no dividend with today's ex-date, for instance. Not a coverage gap;
             # reported separately so it cannot masquerade as one.
-            results.append(DrillResult(
-                fault_id=fault.fault_id, fault_name=fault.name, detected=False,
-                detected_by=(), expected_detector=fault.expected_detector,
-                caught_by_expected=False, highest_severity="n/a",
-                blocked_publication=False,
-                detail=f"NOT INJECTED - {record.detail}",
-            ))
+            results.append(
+                DrillResult(
+                    fault_id=fault.fault_id,
+                    fault_name=fault.name,
+                    detected=False,
+                    detected_by=(),
+                    expected_detector=fault.expected_detector,
+                    caught_by_expected=False,
+                    highest_severity="n/a",
+                    blocked_publication=False,
+                    detail=f"NOT INJECTED - {record.detail}",
+                )
+            )
             continue
 
         report = engine.run(record.context, f"drill-{fault.fault_id}")
         triggered = tuple(
-            f.rule for f in report.failures
+            f.rule
+            for f in report.failures
             if f.rule not in baseline_state
             or f.severity.value > baseline_state[f.rule][0]
             or f.n_affected > baseline_state[f.rule][1]
         )
         severities = [f.severity for f in report.failures if f.rule in triggered]
-        results.append(DrillResult(
-            fault_id=fault.fault_id, fault_name=fault.name,
-            detected=bool(triggered), detected_by=triggered,
-            expected_detector=fault.expected_detector,
-            caught_by_expected=fault.expected_detector in triggered,
-            highest_severity=(max(severities, key=lambda s: s.value).name
-                              if severities else "-"),
-            blocked_publication=not report.may_publish,
-            detail=record.detail,
-        ))
+        results.append(
+            DrillResult(
+                fault_id=fault.fault_id,
+                fault_name=fault.name,
+                detected=bool(triggered),
+                detected_by=triggered,
+                expected_detector=fault.expected_detector,
+                caught_by_expected=fault.expected_detector in triggered,
+                highest_severity=(
+                    max(severities, key=lambda s: s.value).name if severities else "-"
+                ),
+                blocked_publication=not report.may_publish,
+                detail=record.detail,
+            )
+        )
 
     frame = pd.DataFrame([r.__dict__ for r in results])
     frame["detected_by"] = frame["detected_by"].apply(lambda t: ", ".join(t))
 
     gaps = [
         f"{r.fault_id} ({r.fault_name}): {r.detail} - NOT DETECTED by any rule"
-        for r in results if not r.detected and not r.detail.startswith("NOT INJECTED")
+        for r in results
+        if not r.detected and not r.detail.startswith("NOT INJECTED")
     ] + [
         f"{r.fault_id} ({r.fault_name}): caught, but by "
         f"{', '.join(r.detected_by)} rather than the expected "
         f"'{r.expected_detector}' - the intended check has a blind spot"
-        for r in results if r.detected and not r.caught_by_expected
+        for r in results
+        if r.detected and not r.caught_by_expected
     ]
     return frame, gaps
 
@@ -405,11 +468,21 @@ def build_baseline_context(
 ) -> ValidationContext:
     """A clean context for the drill to corrupt."""
     return ValidationContext(
-        as_of=as_of, prices=prices, prior_prices=prior_prices, weights=weights,
-        shares=shares, fx=fx, divisor=divisor, index_level=index_level,
-        total_market_value=total_market_value, divisor_audit=divisor_audit,
-        corp_actions=corp_actions, prior_fx=prior_fx, config=config,
-        prior_index_level=prior_index_level, prior_divisor=prior_divisor,
+        as_of=as_of,
+        prices=prices,
+        prior_prices=prior_prices,
+        weights=weights,
+        shares=shares,
+        fx=fx,
+        divisor=divisor,
+        index_level=index_level,
+        total_market_value=total_market_value,
+        divisor_audit=divisor_audit,
+        corp_actions=corp_actions,
+        prior_fx=prior_fx,
+        config=config,
+        prior_index_level=prior_index_level,
+        prior_divisor=prior_divisor,
         constituents=dict.fromkeys(weights.index, None),
     )
 
@@ -472,11 +545,14 @@ def baseline_from_build(result: BuildResult) -> ValidationContext:
 
     quotes = list(universe.fx_rates["quote"].unique())
     return build_baseline_context(
-        prices=today, prior_prices=yesterday, weights=weights,
+        prices=today,
+        prior_prices=yesterday,
+        weights=weights,
         shares=universe.get_shares(None, as_of),
         fx=universe.get_fx("USD", quotes, as_of, as_of),
         prior_fx=universe.get_fx("USD", quotes, prior_dates[-1], prior_dates[-1]),
-        as_of=as_of, divisor=float(last["divisor"]),
+        as_of=as_of,
+        divisor=float(last["divisor"]),
         index_level=float(last["price_return"]),
         total_market_value=float(last["total_market_value"]),
         divisor_audit=result.calculator.engine.audit_frame(),

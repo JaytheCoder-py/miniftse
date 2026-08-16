@@ -68,19 +68,23 @@ class VariantSpec:
         if self.factor:
             bits.append(f"factor: {self.factor}")
         if self.composite:
-            bits.append("composite: " + ", ".join(
-                f"{k} {v:.0%}" for k, v in self.composite.items()))
+            bits.append(
+                "composite: " + ", ".join(f"{k} {v:.0%}" for k, v in self.composite.items())
+            )
         if self.weighter_kind == "tilt":
             bits.append(f"tilt strength {self.tilt_strength:g}")
         if self.weighter_kind == "selection":
             bits.append(f"top {self.top_fraction:.0%}")
         if self.weighter_kind == "optimised":
-            bits.append(f"TE cap {self.tracking_error_limit:.1%}, "
-                        f"sector +/-{self.sector_deviation:.1%}, "
-                        f"turnover {self.max_turnover:.0%}")
+            bits.append(
+                f"TE cap {self.tracking_error_limit:.1%}, "
+                f"sector +/-{self.sector_deviation:.1%}, "
+                f"turnover {self.max_turnover:.0%}"
+            )
         if self.fund_size:
-            bits.append(f"capacity for {self.fund_size / 1e9:.0f}bn at "
-                        f"{self.max_days_to_trade:g} days")
+            bits.append(
+                f"capacity for {self.fund_size / 1e9:.0f}bn at {self.max_days_to_trade:g} days"
+            )
         if self.hedged:
             bits.append(f"currency hedged at {self.hedge_ratio:.0%}")
         return " | ".join(bits)
@@ -107,9 +111,11 @@ class VariantResult:
             float(reviews["one_way_turnover"].mean()) if not reviews.empty else 0.0
         )
         out["annual_turnover"] = out["mean_review_turnover"] * len(
-            self.history.config.review.months)
-        out.update({k: v for k, v in self.weighter_diagnostics.items()
-                    if isinstance(v, int | float | str)})
+            self.history.config.review.months
+        )
+        out.update(
+            {k: v for k, v in self.weighter_diagnostics.items() if isinstance(v, int | float | str)}
+        )
         return out
 
 
@@ -178,16 +184,17 @@ class VariantBuilder:
         started = time.perf_counter()
         log = print if verbose else (lambda *a, **k: None)
         config = spec.index_config or replace(
-            self.base_config, index_id=spec.variant_id, name=spec.name)
+            self.base_config, index_id=spec.variant_id, name=spec.name
+        )
 
         universe = self.universe
         prices = universe.prices
 
         manifest = RunManifest.start(config.index_id, self.end, config)
         manifest.record_input("prices", prices)
-        manifest.record_input("universe",
-                              {"name": universe.name,
-                               "fingerprint": universe.fingerprint})
+        manifest.record_input(
+            "universe", {"name": universe.name, "fingerprint": universe.fingerprint}
+        )
         manifest.record_input("variant", spec.describe())
 
         score_provider: FactorScoreProvider | None = None
@@ -204,9 +211,13 @@ class VariantBuilder:
         log(f"  building {spec.variant_id}: {spec.describe()}")
 
         reconstitution = ReconstitutionEngine(
-            config=config, prices=prices, shares=universe.shares,
-            securities=universe.get_securities(), fx_rates=self.spot,
-            score_provider=score_provider, weighter=weighter,
+            config=config,
+            prices=prices,
+            shares=universe.shares,
+            securities=universe.get_securities(),
+            fx_rates=self.spot,
+            score_provider=score_provider,
+            weighter=weighter,
             fund_size=spec.fund_size,
         )
         engine = CorporateActionEngine(
@@ -214,8 +225,11 @@ class VariantBuilder:
         )
         calculator = IndexCalculator(config=config, fx=self.fx, engine=engine)
         history = calculator.run(
-            prices, universe.corp_actions, reconstitution,
-            self.start, self.end,
+            prices,
+            universe.corp_actions,
+            reconstitution,
+            self.start,
+            self.end,
         )
 
         hedge: pd.DataFrame | None = None
@@ -230,10 +244,15 @@ class VariantBuilder:
         manifest.finish("success", time.perf_counter() - started)
 
         return VariantResult(
-            spec=spec, history=history, reconstitution=reconstitution,
-            calculator=calculator, manifest=manifest, score_provider=score_provider,
+            spec=spec,
+            history=history,
+            reconstitution=reconstitution,
+            calculator=calculator,
+            manifest=manifest,
+            score_provider=score_provider,
             weighter_diagnostics=dict(reconstitution._weighter_diagnostics),
-            hedge=hedge, duration=time.perf_counter() - started,
+            hedge=hedge,
+            duration=time.perf_counter() - started,
         )
 
     @staticmethod
@@ -259,7 +278,8 @@ class VariantBuilder:
 
         if spec.fund_size:
             weighter = CapacityConstrainedWeighter(
-                inner=weighter, fund_size=spec.fund_size,
+                inner=weighter,
+                fund_size=spec.fund_size,
                 max_days_to_trade=spec.max_days_to_trade,
             )
         return weighter
@@ -330,21 +350,26 @@ class VariantBuilder:
             hedged_level *= 1.0 + unhedged_return + hedge_return
             prev_unhedged = unhedged
 
-            decomposition = hedger.decompose(date, current) if current else {
-                "carry": 0.0, "hedge_error": 0.0, "total_hedge_pnl": 0.0}
-            rows.append({
-                "date": date,
-                "unhedged_gtr": unhedged,
-                "hedged_gtr": hedged_level,
-                "hedge_return": hedge_return,
-                # Carry and hedge error are levels of the current position, not daily
-                # increments, so they are reported as a decomposition of the open
-                # position rather than summed across days.
-                "position_carry": decomposition["carry"] / market_value,
-                "position_hedge_error": decomposition["hedge_error"] / market_value,
-                "cumulative_pnl": pnl / market_value,
-                "n_legs": len(hedger._legs),
-            })
+            decomposition = (
+                hedger.decompose(date, current)
+                if current
+                else {"carry": 0.0, "hedge_error": 0.0, "total_hedge_pnl": 0.0}
+            )
+            rows.append(
+                {
+                    "date": date,
+                    "unhedged_gtr": unhedged,
+                    "hedged_gtr": hedged_level,
+                    "hedge_return": hedge_return,
+                    # Carry and hedge error are levels of the current position, not daily
+                    # increments, so they are reported as a decomposition of the open
+                    # position rather than summed across days.
+                    "position_carry": decomposition["carry"] / market_value,
+                    "position_hedge_error": decomposition["hedge_error"] / market_value,
+                    "cumulative_pnl": pnl / market_value,
+                    "n_legs": len(hedger._legs),
+                }
+            )
         return pd.DataFrame(rows)
 
 
@@ -362,16 +387,29 @@ def standard_variants(factor: str = "value") -> list[VariantSpec]:
     """
     return [
         VariantSpec("MFTSE-GLOBAL", "miniFTSE Global All Cap", "float_cap"),
-        VariantSpec(f"MFTSE-{factor.upper()}-SEL",
-                    f"miniFTSE Global {factor.title()} (Selection)",
-                    "selection", factor=factor, top_fraction=0.30),
-        VariantSpec(f"MFTSE-{factor.upper()}-TILT",
-                    f"miniFTSE Global {factor.title()} (Tilt)",
-                    "tilt", factor=factor, tilt_strength=1.0),
-        VariantSpec(f"MFTSE-{factor.upper()}-OPT",
-                    f"miniFTSE Global {factor.title()} (Optimised)",
-                    "optimised", factor=factor, tracking_error_limit=0.03,
-                    sector_deviation=0.05, max_turnover=0.20),
+        VariantSpec(
+            f"MFTSE-{factor.upper()}-SEL",
+            f"miniFTSE Global {factor.title()} (Selection)",
+            "selection",
+            factor=factor,
+            top_fraction=0.30,
+        ),
+        VariantSpec(
+            f"MFTSE-{factor.upper()}-TILT",
+            f"miniFTSE Global {factor.title()} (Tilt)",
+            "tilt",
+            factor=factor,
+            tilt_strength=1.0,
+        ),
+        VariantSpec(
+            f"MFTSE-{factor.upper()}-OPT",
+            f"miniFTSE Global {factor.title()} (Optimised)",
+            "optimised",
+            factor=factor,
+            tracking_error_limit=0.03,
+            sector_deviation=0.05,
+            max_turnover=0.20,
+        ),
     ]
 
 
@@ -395,9 +433,12 @@ def compare_variants(results: list[VariantResult]) -> pd.DataFrame:
     # is not a result, it is a units error.
     scorer = next((r.score_provider for r in results if r.score_provider), None)
     parent_weights_by_date = (
-        {d: g.set_index("security_id")["weight"].to_dict()
-         for d, g in parent.history.weights.groupby("date")}
-        if parent is not None and not parent.history.weights.empty else {}
+        {
+            d: g.set_index("security_id")["weight"].to_dict()
+            for d, g in parent.history.weights.groupby("date")
+        }
+        if parent is not None and not parent.history.weights.empty
+        else {}
     )
 
     for result in results:
@@ -413,47 +454,59 @@ def compare_variants(results: list[VariantResult]) -> pd.DataFrame:
         if parent is not None and result is not parent:
             merged = levels[["date", "gross_total_return"]].merge(
                 parent.history.levels[["date", "gross_total_return"]],
-                on="date", suffixes=("", "_parent"))
-            active = (merged["gross_total_return"].pct_change()
-                      - merged["gross_total_return_parent"].pct_change()).dropna()
+                on="date",
+                suffixes=("", "_parent"),
+            )
+            active = (
+                merged["gross_total_return"].pct_change()
+                - merged["gross_total_return_parent"].pct_change()
+            ).dropna()
             active_te = float(active.std() * np.sqrt(252))
             active_return = ann - float(
-                (parent.history.levels["gross_total_return"].iloc[-1]
-                 / parent.history.levels["gross_total_return"].iloc[0])
-                ** (1 / years) - 1)
+                (
+                    parent.history.levels["gross_total_return"].iloc[-1]
+                    / parent.history.levels["gross_total_return"].iloc[0]
+                )
+                ** (1 / years)
+                - 1
+            )
 
-        turnover = (float(reviews["one_way_turnover"].mean())
-                    * len(result.history.config.review.months)
-                    if not reviews.empty else 0.0)
+        turnover = (
+            float(reviews["one_way_turnover"].mean()) * len(result.history.config.review.months)
+            if not reviews.empty
+            else 0.0
+        )
         diagnostics = result.weighter_diagnostics
-        exposure, active_share = _exposure_and_active_share(
-            result, parent_weights_by_date, scorer)
+        exposure, active_share = _exposure_and_active_share(result, parent_weights_by_date, scorer)
 
-        rows.append({
-            "variant": result.spec.variant_id,
-            "weighting": result.spec.weighter_kind,
-            "n_constituents": float(levels["n_constituents"].mean()),
-            "ann_return": ann,
-            "ann_vol": vol,
-            "max_drawdown": result.history.max_drawdown(),
-            "active_return": active_return,
-            "tracking_error": active_te,
-            "information_ratio": (active_return / active_te
-                                  if active_te and np.isfinite(active_te) else np.nan),
-            "annual_turnover": turnover,
-            "active_share": active_share,
-            "factor_exposure": exposure,
-            "max_weight": float(
-                result.history.weights.groupby("date")["weight"].max().mean()
-            ) if not result.history.weights.empty else np.nan,
-            "days_to_trade": diagnostics.get("weighted_days_to_trade_after", np.nan),
-            "explainability": {
-                "float_cap": "highest - the market",
-                "tilt": "high - cap weight scaled by score",
-                "selection": "high - the best 30% by score",
-                "optimised": "lowest - constrained optimisation",
-            }[result.spec.weighter_kind],
-        })
+        rows.append(
+            {
+                "variant": result.spec.variant_id,
+                "weighting": result.spec.weighter_kind,
+                "n_constituents": float(levels["n_constituents"].mean()),
+                "ann_return": ann,
+                "ann_vol": vol,
+                "max_drawdown": result.history.max_drawdown(),
+                "active_return": active_return,
+                "tracking_error": active_te,
+                "information_ratio": (
+                    active_return / active_te if active_te and np.isfinite(active_te) else np.nan
+                ),
+                "annual_turnover": turnover,
+                "active_share": active_share,
+                "factor_exposure": exposure,
+                "max_weight": float(result.history.weights.groupby("date")["weight"].max().mean())
+                if not result.history.weights.empty
+                else np.nan,
+                "days_to_trade": diagnostics.get("weighted_days_to_trade_after", np.nan),
+                "explainability": {
+                    "float_cap": "highest - the market",
+                    "tilt": "high - cap weight scaled by score",
+                    "selection": "high - the best 30% by score",
+                    "optimised": "lowest - constrained optimisation",
+                }[result.spec.weighter_kind],
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -480,8 +533,7 @@ def _exposure_and_active_share(
             continue
         own = group.set_index("security_id")["weight"].to_dict()
         keys = set(own) | set(parent)
-        shares.append(
-            sum(abs(own.get(k, 0.0) - parent.get(k, 0.0)) for k in keys) / 2.0)
+        shares.append(sum(abs(own.get(k, 0.0) - parent.get(k, 0.0)) for k in keys) / 2.0)
         if scorer is not None:
             panel = scorer.scores_at(_nearest_scored_date(scorer, date))
             if not panel.empty:
@@ -507,20 +559,21 @@ def _nearest_scored_date(scorer: FactorScoreProvider, date: Any) -> Any:
     return max(computed) if computed else date
 
 
-def recommend_variant(comparison: pd.DataFrame, max_turnover: float = 0.15,
-                      client: str = "a UK pension fund") -> str:
+def recommend_variant(
+    comparison: pd.DataFrame, max_turnover: float = 0.15, client: str = "a UK pension fund"
+) -> str:
     """Turn the comparison into a recommendation for a named client type.
 
     A comparison table without a recommendation is homework. The job is to say which one
     and why, and to name the constraint that decided it.
     """
     eligible = comparison[
-        (comparison["weighting"] != "float_cap")
-        & (comparison["annual_turnover"] <= max_turnover)
+        (comparison["weighting"] != "float_cap") & (comparison["annual_turnover"] <= max_turnover)
     ]
     if eligible.empty:
         cheapest = comparison[comparison["weighting"] != "float_cap"].nsmallest(
-            1, "annual_turnover")
+            1, "annual_turnover"
+        )
         if cheapest.empty:
             return "No factor variant was built, so there is nothing to recommend."
         row = cheapest.iloc[0]
@@ -540,7 +593,7 @@ def recommend_variant(comparison: pd.DataFrame, max_turnover: float = 0.15,
         f"annual one-way turnover, at {best['tracking_error']:.2%} tracking error.\n\n"
         f"Explainability: {best['explainability']}. That matters more than it sounds — "
         "the variant with the highest exposure per unit of tracking error is the "
-        "optimised one, and I am not recommending it, because \"the optimiser did it\" "
+        'optimised one, and I am not recommending it, because "the optimiser did it" '
         "is not an answer a trustee board can act on. The tilt buys slightly less "
         "exposure for a story that survives a governance meeting."
     )

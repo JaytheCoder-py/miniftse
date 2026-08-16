@@ -88,9 +88,7 @@ class ReviewOutcome:
         }
 
 
-def review_calendar(
-    start: dt.date, end: dt.date, config: IndexConfig
-) -> list[ReviewDates]:
+def review_calendar(start: dt.date, end: dt.date, config: IndexConfig) -> list[ReviewDates]:
     """Generate the review calendar.
 
     Effective dates are the third Friday of each review month, which is the usual
@@ -107,8 +105,7 @@ def review_calendar(
                 continue
             announcement = effective - dt.timedelta(days=review.announcement_lag_days)
             cutoff = announcement - dt.timedelta(days=review.cutoff_lag_days)
-            out.append(ReviewDates(cutoff=cutoff, announcement=announcement,
-                                   effective=effective))
+            out.append(ReviewDates(cutoff=cutoff, announcement=announcement, effective=effective))
     return sorted(out, key=lambda r: r.effective)
 
 
@@ -215,9 +212,7 @@ class ReconstitutionEngine:
         caps = {sid: m.float_market_cap for sid, m in eligible.items()}
         bands = assign_bands(caps, self.config.banding, self._previous_bands)
         wanted = set(self.config.size_bands)
-        in_scope = {
-            sid: m for sid, m in eligible.items() if str(bands[sid].band) in wanted
-        }
+        in_scope = {sid: m for sid, m in eligible.items() if str(bands[sid].band) in wanted}
 
         # --- fast entry --------------------------------------------------------
         fast = self._fast_entries(metrics, in_scope, caps, dates)
@@ -231,9 +226,10 @@ class ReconstitutionEngine:
             # security then fails `price_history`, because there is none behind the
             # cut-off to measure.
             rejections = EligibilityScreener.rejection_summary(reports)
-            by_rule = ", ".join(
-                f"{r.rule} {r.n_rejected}" for r in rejections.itertuples(index=False)
-            ) or "none - every security was screened in but fell outside the size bands"
+            by_rule = (
+                ", ".join(f"{r.rule} {r.n_rejected}" for r in rejections.itertuples(index=False))
+                or "none - every security was screened in but fell outside the size bands"
+            )
             raise ValueError(
                 f"review at {dates.effective} selected nothing: {len(metrics)} securities "
                 f"had data at the cut-off {dates.cutoff}, {len(eligible)} passed the "
@@ -246,7 +242,7 @@ class ReconstitutionEngine:
             sid: SecurityInputs(
                 security_id=sid,
                 price=1.0,
-                shares=m.float_market_cap,   # cap already includes float and FX
+                shares=m.float_market_cap,  # cap already includes float and FX
                 free_float_factor=1.0,
                 score=self._score(sid, dates.cutoff),
                 # Absolute traded value, not the ratio the liquidity screen uses. The
@@ -263,10 +259,10 @@ class ReconstitutionEngine:
             previous_weights=dict(self._last_weights),
             parent_weights=float_market_cap_weights(inputs),
             returns=self._returns_to(dates.cutoff, list(in_scope)),
-            industry={sid: str(self._meta.get(sid, {}).get("icb_industry", "?"))
-                      for sid in in_scope},
-            country={sid: str(self._meta.get(sid, {}).get("country", "?"))
-                     for sid in in_scope},
+            industry={
+                sid: str(self._meta.get(sid, {}).get("icb_industry", "?")) for sid in in_scope
+            },
+            country={sid: str(self._meta.get(sid, {}).get("country", "?")) for sid in in_scope},
             fund_size=self.fund_size,
         )
         # Float-cap weights on the same candidate set: the denominator the index
@@ -285,7 +281,8 @@ class ReconstitutionEngine:
         share_lookup = (
             self.shares[self.shares["knowledge_date"] <= dates.cutoff]
             .sort_values(["security_id", "effective_date", "knowledge_date"])
-            .groupby("security_id").last()
+            .groupby("security_id")
+            .last()
         )
         constituents: dict[str, ConstituentSpec] = {}
         for sid in in_scope:
@@ -307,10 +304,7 @@ class ReconstitutionEngine:
             # share at the review published an index with 0.003 active share against
             # its parent. The weighter, the scores and the capping were all correct;
             # the factor that carried them into the index was not.
-            factor = (
-                capped.weights[sid] / float_cap[sid]
-                if float_cap.get(sid) else 1.0
-            )
+            factor = capped.weights[sid] / float_cap[sid] if float_cap.get(sid) else 1.0
             constituents[sid] = ConstituentSpec(
                 security_id=sid,
                 shares=float(sh["shares_outstanding"]),
@@ -335,10 +329,17 @@ class ReconstitutionEngine:
         self._last_weights = dict(capped.weights)
 
         return ReviewOutcome(
-            dates=dates, constituents=constituents, screen_reports=reports,
-            band_assignments=bands, raw_weights=raw, capped_weights=capped.weights,
-            additions=additions, deletions=deletions, fast_entries=tuple(fast),
-            turnover=turnover, capping_notes=capped.notes,
+            dates=dates,
+            constituents=constituents,
+            screen_reports=reports,
+            band_assignments=bands,
+            raw_weights=raw,
+            capped_weights=capped.weights,
+            additions=additions,
+            deletions=deletions,
+            fast_entries=tuple(fast),
+            turnover=turnover,
+            capping_notes=capped.notes,
             n_held_by_buffer=sum(1 for a in bands.values() if a.held_by_buffer),
         )
 
@@ -389,9 +390,7 @@ class ReconstitutionEngine:
         if not review.fast_entry_enabled or not caps:
             return []
 
-        threshold_cap = pd.Series(list(caps.values())).quantile(
-            review.fast_entry_min_percentile
-        )
+        threshold_cap = pd.Series(list(caps.values())).quantile(review.fast_entry_min_percentile)
         out: list[str] = []
         for m in metrics:
             if m.security_id in in_scope:
@@ -409,9 +408,9 @@ class ReconstitutionEngine:
         if not self._last_weights:
             return 0.0
         keys = set(self._last_weights) | set(new_weights)
-        return sum(
-            abs(new_weights.get(k, 0.0) - self._last_weights.get(k, 0.0)) for k in keys
-        ) / 2.0
+        return (
+            sum(abs(new_weights.get(k, 0.0) - self._last_weights.get(k, 0.0)) for k in keys) / 2.0
+        )
 
     # ------------------------------------------------------------------ reporting
 

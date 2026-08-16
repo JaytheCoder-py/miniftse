@@ -83,12 +83,19 @@ def sample_covariance(returns: pd.DataFrame, min_obs: int = 60) -> CovarianceEst
     eig = np.linalg.eigvalsh(cov.to_numpy())
     cond = float(eig.max() / eig.min()) if eig.min() > 0 else float("inf")
     return CovarianceEstimate(
-        matrix=cov, method="sample", n_obs=len(r), condition_number=cond,
+        matrix=cov,
+        method="sample",
+        n_obs=len(r),
+        condition_number=cond,
         notes=(
             f"{r.shape[1]} assets from {len(r)} observations; "
-            + ("singular or near-singular - N exceeds T"
-               if r.shape[1] >= len(r)
-               else "full rank but ill-conditioned" if cond > 1e4 else "well conditioned")
+            + (
+                "singular or near-singular - N exceeds T"
+                if r.shape[1] >= len(r)
+                else "full rank but ill-conditioned"
+                if cond > 1e4
+                else "well conditioned"
+            )
         ),
     )
 
@@ -139,9 +146,7 @@ def ledoit_wolf(returns: pd.DataFrame, min_obs: int = 60) -> CovarianceEstimate:
         term[i, :] = ((yi**2)[:, None] * x).T @ yi / t - sample[i, :] * sample[i, i]
     with np.errstate(divide="ignore", invalid="ignore"):
         ratio = np.where(vols > 0, 1.0 / vols, 0.0)
-    rho_off = mean_corr * (
-        (np.outer(vols, ratio) * term + np.outer(ratio, vols) * term.T) / 2.0
-    )
+    rho_off = mean_corr * ((np.outer(vols, ratio) * term + np.outer(ratio, vols) * term.T) / 2.0)
     np.fill_diagonal(rho_off, 0.0)
     rho = float(np.trace(phi_mat) + rho_off.sum())
 
@@ -155,7 +160,9 @@ def ledoit_wolf(returns: pd.DataFrame, min_obs: int = 60) -> CovarianceEstimate:
 
     return CovarianceEstimate(
         matrix=pd.DataFrame(shrunk, index=r.columns, columns=r.columns),
-        method="ledoit-wolf", n_obs=t, shrinkage_intensity=delta,
+        method="ledoit-wolf",
+        n_obs=t,
+        shrinkage_intensity=delta,
         condition_number=cond,
         notes=(
             f"shrunk {delta:.1%} toward a constant-correlation target with mean "
@@ -189,7 +196,8 @@ def ewma_covariance(
     eig = np.linalg.eigvalsh(cov)
     return CovarianceEstimate(
         matrix=pd.DataFrame(cov, index=r.columns, columns=r.columns),
-        method=f"ewma(half_life={half_life})", n_obs=t,
+        method=f"ewma(half_life={half_life})",
+        n_obs=t,
         condition_number=float(eig.max() / eig.min()) if eig.min() > 0 else float("inf"),
         notes=f"effective sample size {1 / (weights**2).sum():.0f} of {t} observations",
     )
@@ -224,7 +232,8 @@ def pca_covariance(
     explained = float(values[:k].sum() / values.sum()) if values.sum() > 0 else 0.0
     return CovarianceEstimate(
         matrix=pd.DataFrame(reconstructed, index=r.columns, columns=r.columns),
-        method=f"pca({k})", n_obs=len(x),
+        method=f"pca({k})",
+        n_obs=len(x),
         condition_number=float(np.linalg.cond(reconstructed)),
         notes=f"{k} components explain {explained:.1%} of total variance",
     )
@@ -235,9 +244,7 @@ def pca_covariance(
 # --------------------------------------------------------------------------------------
 
 
-def bias_test(
-    predicted_vol: pd.Series, realised_returns: pd.Series
-) -> dict[str, float]:
+def bias_test(predicted_vol: pd.Series, realised_returns: pd.Series) -> dict[str, float]:
     """The standard test of whether a risk model is honest.
 
     Standardise each realised return by the volatility the model forecast for that
@@ -300,8 +307,8 @@ def estimator_bakeoff(
         realised: list[float] = []
         predicted: list[float] = []
         for start in starts:
-            train = returns.iloc[start - estimation_window: start]
-            test = returns.iloc[start: start + holding_period]
+            train = returns.iloc[start - estimation_window : start]
+            test = returns.iloc[start : start + holding_period]
             try:
                 est = build(train)
                 w = minimum_variance_weights(est)
@@ -317,13 +324,15 @@ def estimator_bakeoff(
         if not realised:
             continue
         realised_arr, predicted_arr = np.array(realised), np.array(predicted)
-        rows.append({
-            "estimator": name,
-            "mean_realised_vol": float(realised_arr.mean()),
-            "mean_predicted_vol": float(predicted_arr.mean()),
-            "bias_ratio": float((realised_arr / predicted_arr).mean()),
-            "n_windows": float(len(realised)),
-        })
+        rows.append(
+            {
+                "estimator": name,
+                "mean_realised_vol": float(realised_arr.mean()),
+                "mean_predicted_vol": float(predicted_arr.mean()),
+                "bias_ratio": float((realised_arr / predicted_arr).mean()),
+                "n_windows": float(len(realised)),
+            }
+        )
     return pd.DataFrame(rows).sort_values("mean_realised_vol").reset_index(drop=True)
 
 

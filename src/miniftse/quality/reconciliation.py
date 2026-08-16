@@ -128,14 +128,16 @@ def reconcile_constituents(
             category = "held_by_them_only"
         else:
             category = "weight_difference"
-        differences.append(WeightDifference(key, our_weight, their_weight, diff,
-                                            category))
+        differences.append(WeightDifference(key, our_weight, their_weight, diff, category))
         total += abs(diff)
 
     return ConstituentReconciliation(
-        as_of=as_of, n_ours=len(ours), n_theirs=len(theirs),
+        as_of=as_of,
+        n_ours=len(ours),
+        n_theirs=len(theirs),
         n_common=len(set(ours.index) & set(theirs.index)),
-        differences=differences, total_absolute_difference=total,
+        differences=differences,
+        total_absolute_difference=total,
     )
 
 
@@ -166,24 +168,44 @@ class ReturnReconciliation:
 
     @property
     def explained_share(self) -> float:
-        return (abs(self.explained) / abs(self.total_difference)
-                if abs(self.total_difference) > 1e-12 else 1.0)
+        return (
+            abs(self.explained) / abs(self.total_difference)
+            if abs(self.total_difference) > 1e-12
+            else 1.0
+        )
 
     def add(self, name: str, impact: float, note: str) -> None:
         self.components.append({"component": name, "impact": impact, "note": note})
 
     def to_frame(self) -> pd.DataFrame:
-        rows = [{"component": "their return", "impact": self.their_return,
-                 "cumulative": self.their_return, "note": "the published series"}]
+        rows = [
+            {
+                "component": "their return",
+                "impact": self.their_return,
+                "cumulative": self.their_return,
+                "note": "the published series",
+            }
+        ]
         running = self.their_return
         for component in self.components:
             running += component["impact"]
             rows.append({**component, "cumulative": running})
-        rows.append({"component": "unexplained residual", "impact": self.unexplained,
-                     "cumulative": running + self.unexplained,
-                     "note": "not attributable to an identified cause"})
-        rows.append({"component": "our return", "impact": 0.0,
-                     "cumulative": self.our_return, "note": "the rebuilt series"})
+        rows.append(
+            {
+                "component": "unexplained residual",
+                "impact": self.unexplained,
+                "cumulative": running + self.unexplained,
+                "note": "not attributable to an identified cause",
+            }
+        )
+        rows.append(
+            {
+                "component": "our return",
+                "impact": 0.0,
+                "cumulative": self.our_return,
+                "note": "the rebuilt series",
+            }
+        )
         return pd.DataFrame(rows)
 
     def verdict(self) -> str:
@@ -241,20 +263,24 @@ def reconcile_returns(
     their_return = float(theirs.iloc[-1] / theirs.iloc[0] - 1.0)
 
     reconciliation = ReturnReconciliation(
-        period_start=start, period_end=end,
-        our_return=our_return, their_return=their_return,
+        period_start=start,
+        period_end=end,
+        our_return=our_return,
+        their_return=their_return,
     )
 
     if fee_bps:
         impact = fee_bps / 10_000 * years
         reconciliation.add(
-            "management fee", impact,
+            "management fee",
+            impact,
             f"{fee_bps:.0f}bp a year over {years:.2f} years. The index bears no fee; "
             "the fund does, so the fund must lag by at least this much.",
         )
     if withholding_difference:
         reconciliation.add(
-            "withholding tax treatment", withholding_difference,
+            "withholding tax treatment",
+            withholding_difference,
             "difference between the fund's actual reclaim experience and the notional "
             "non-resident investor the net index assumes",
         )
@@ -265,7 +291,8 @@ def reconcile_returns(
         # precision is worse than a wider bound honestly labelled.
         weight_gap = constituent_diff.total_absolute_difference / 2
         reconciliation.add(
-            "membership and weight differences", 0.0,
+            "membership and weight differences",
+            0.0,
             f"{weight_gap:.2%} of weight is allocated differently across "
             f"{len(constituent_diff.differences)} securities. Upper bound on the return "
             "impact, not a measurement.",
@@ -293,8 +320,7 @@ def reconcile_against_published(
         "constituent_verdict": constituents.verdict(),
     }
     if our_levels is not None and their_levels is not None:
-        returns = reconcile_returns(our_levels, their_levels, constituents,
-                                    fee_bps=fee_bps)
+        returns = reconcile_returns(our_levels, their_levels, constituents, fee_bps=fee_bps)
         out["returns"] = returns
         out["return_verdict"] = returns.verdict()
     return out
@@ -316,15 +342,15 @@ def self_reconciliation(
     b = history_b.levels.set_index("date")["gross_total_return"]
     common = a.index.intersection(b.index)
     if len(common) == 0:
-        return {"overlapping_dates": 0, "identical": False,
-                "note": "the two runs share no dates"}
+        return {"overlapping_dates": 0, "identical": False, "note": "the two runs share no dates"}
 
     diff = (a.loc[common] - b.loc[common]).abs()
     relative = diff / b.loc[common].abs().clip(lower=1e-12)
     worst_date = relative.idxmax()
 
     return {
-        "label_a": label_a, "label_b": label_b,
+        "label_a": label_a,
+        "label_b": label_b,
         "overlapping_dates": len(common),
         "max_absolute_difference": float(diff.max()),
         "max_relative_difference_bps": float(relative.max() * 10_000),
@@ -334,8 +360,8 @@ def self_reconciliation(
             "Identical to floating-point precision."
             if relative.max() < 1e-9
             else f"Diverges by up to {relative.max() * 10_000:.2f}bp, worst on "
-                 f"{worst_date}. Both runs used the same inputs, so this is a bug "
-                 "rather than a data difference."
+            f"{worst_date}. Both runs used the same inputs, so this is a bug "
+            "rather than a data difference."
         ),
     }
 
@@ -394,8 +420,7 @@ def write_reconciliation_study(result: dict[str, Any], title: str, out: Any) -> 
         ]
         for row in returns.to_frame().itertuples(index=False):
             lines.append(
-                f"| {row.component} | {row.impact:+.4%} | {row.cumulative:.4%} | "
-                f"{row.note} |"
+                f"| {row.component} | {row.impact:+.4%} | {row.cumulative:.4%} | {row.note} |"
             )
         lines += ["", f"**{returns.verdict()}**", ""]
 

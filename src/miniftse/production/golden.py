@@ -56,13 +56,15 @@ class GoldenMaster:
         from miniftse.production.manifest import git_sha
 
         sha, _ = git_sha()
-        payload = (config.to_dict() if hasattr(config, "to_dict")
-                   else dict(config or {}))
+        payload = config.to_dict() if hasattr(config, "to_dict") else dict(config or {})
         return cls(
-            name=name, levels=levels.reset_index(drop=True),
-            content_hash=hash_frame(levels), git_sha=sha,
+            name=name,
+            levels=levels.reset_index(drop=True),
+            content_hash=hash_frame(levels),
+            git_sha=sha,
             created_at=dt.datetime.now(dt.UTC).isoformat(),
-            config=payload, tolerance_bps=tolerance_bps,
+            config=payload,
+            tolerance_bps=tolerance_bps,
             metrics=_metrics(levels),
         )
 
@@ -76,12 +78,23 @@ class GoldenMaster:
             frame["date"] = pd.to_datetime(frame["date"])
         frame.to_parquet(data_path, index=False)
 
-        meta_path.write_text(json.dumps({
-            "name": self.name, "content_hash": self.content_hash,
-            "created_at": self.created_at, "git_sha": self.git_sha,
-            "config": self.config, "metrics": self.metrics,
-            "tolerance_bps": self.tolerance_bps, "n_rows": len(self.levels),
-        }, indent=2, default=str), encoding="utf-8")
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "name": self.name,
+                    "content_hash": self.content_hash,
+                    "created_at": self.created_at,
+                    "git_sha": self.git_sha,
+                    "config": self.config,
+                    "metrics": self.metrics,
+                    "tolerance_bps": self.tolerance_bps,
+                    "n_rows": len(self.levels),
+                },
+                indent=2,
+                default=str,
+            ),
+            encoding="utf-8",
+        )
         return data_path, meta_path
 
     @classmethod
@@ -91,9 +104,13 @@ class GoldenMaster:
         if "date" in levels.columns:
             levels["date"] = pd.to_datetime(levels["date"]).dt.date
         return cls(
-            name=meta["name"], levels=levels, content_hash=meta["content_hash"],
-            created_at=meta["created_at"], git_sha=meta["git_sha"],
-            config=meta.get("config", {}), metrics=meta.get("metrics", {}),
+            name=meta["name"],
+            levels=levels,
+            content_hash=meta["content_hash"],
+            created_at=meta["created_at"],
+            git_sha=meta["git_sha"],
+            config=meta.get("config", {}),
+            metrics=meta.get("metrics", {}),
             tolerance_bps=meta.get("tolerance_bps", DEFAULT_TOLERANCE_BPS),
         )
 
@@ -121,27 +138,37 @@ class ComparisonResult:
             )
         if self.divergent_dates:
             shown = ", ".join(str(d) for d in self.divergent_dates[:8])
-            more = (f" (+{len(self.divergent_dates) - 8} more)"
-                    if len(self.divergent_dates) > 8 else "")
+            more = (
+                f" (+{len(self.divergent_dates) - 8} more)" if len(self.divergent_dates) > 8 else ""
+            )
             lines.append(f"  Divergent dates: {shown}{more}")
         if self.missing_dates:
-            lines.append(f"  {len(self.missing_dates)} dates in the golden master are "
-                         "absent from the new run")
+            lines.append(
+                f"  {len(self.missing_dates)} dates in the golden master are "
+                "absent from the new run"
+            )
         if self.extra_dates:
-            lines.append(f"  {len(self.extra_dates)} dates in the new run are absent "
-                         "from the golden master")
+            lines.append(
+                f"  {len(self.extra_dates)} dates in the new run are absent from the golden master"
+            )
         if self.column_diffs:
             lines.append("  Largest difference per column (bp):")
-            lines += [f"    {k}: {v:.4f}" for k, v in
-                      sorted(self.column_diffs.items(), key=lambda kv: -kv[1])]
+            lines += [
+                f"    {k}: {v:.4f}"
+                for k, v in sorted(self.column_diffs.items(), key=lambda kv: -kv[1])
+            ]
         return "\n".join(lines)
 
 
 def compare(
     golden: GoldenMaster,
     candidate: pd.DataFrame,
-    columns: tuple[str, ...] = ("price_return", "gross_total_return",
-                                "net_total_return", "divisor"),
+    columns: tuple[str, ...] = (
+        "price_return",
+        "gross_total_return",
+        "net_total_return",
+        "divisor",
+    ),
 ) -> ComparisonResult:
     """Compare a fresh run against the pinned history."""
     g = golden.levels.copy()
@@ -158,7 +185,15 @@ def compare(
 
     if len(common) == 0:
         return ComparisonResult(
-            False, 0, float("inf"), float("inf"), None, [], missing, extra, {},
+            False,
+            0,
+            float("inf"),
+            float("inf"),
+            None,
+            [],
+            missing,
+            extra,
+            {},
             "GOLDEN MASTER FAILED: no overlapping dates between the pinned history "
             "and the new run.",
         )
@@ -194,11 +229,16 @@ def compare(
         )
 
     return ComparisonResult(
-        passed=passed, n_compared=len(common), max_diff_bps=max_diff,
+        passed=passed,
+        n_compared=len(common),
+        max_diff_bps=max_diff,
         mean_diff_bps=float(worst_series.mean()),
         first_divergence=divergent[0] if divergent else None,
-        divergent_dates=divergent, missing_dates=missing, extra_dates=extra,
-        column_diffs=column_diffs, message=message,
+        divergent_dates=divergent,
+        missing_dates=missing,
+        extra_dates=extra,
+        column_diffs=column_diffs,
+        message=message,
     )
 
 
@@ -215,8 +255,9 @@ def _metrics(levels: pd.DataFrame) -> dict[str, Any]:
     return out
 
 
-def introduce_regression(levels: pd.DataFrame, bps: float = 0.5,
-                         from_index: int = 500) -> pd.DataFrame:
+def introduce_regression(
+    levels: pd.DataFrame, bps: float = 0.5, from_index: int = 500
+) -> pd.DataFrame:
     """Perturb a history, to prove the golden master actually catches drift.
 
     A regression test nobody has watched fail is a regression test of unknown value.

@@ -19,8 +19,7 @@ if TYPE_CHECKING:
     from miniftse.production.build import BuildResult
 
 
-def performance_table(levels: pd.DataFrame, column: str = "gross_total_return"
-                      ) -> pd.DataFrame:
+def performance_table(levels: pd.DataFrame, column: str = "gross_total_return") -> pd.DataFrame:
     """Standard trailing-period returns, annualised beyond one year."""
     frame = levels.copy()
     frame["date"] = pd.to_datetime(frame["date"])
@@ -28,8 +27,13 @@ def performance_table(levels: pd.DataFrame, column: str = "gross_total_return"
     end = series.index[-1]
 
     periods = {
-        "1 month": 21, "3 months": 63, "6 months": 126, "1 year": 252,
-        "3 years": 756, "5 years": 1260, "Since inception": len(series) - 1,
+        "1 month": 21,
+        "3 months": 63,
+        "6 months": 126,
+        "1 year": 252,
+        "3 years": 756,
+        "5 years": 1260,
+        "Since inception": len(series) - 1,
     }
     rows = []
     for label, days in periods.items():
@@ -41,11 +45,13 @@ def performance_table(levels: pd.DataFrame, column: str = "gross_total_return"
         end_value = float(series.iloc[-1])
         total = end_value / start_value - 1.0
         years = days / 252.0
-        rows.append({
-            "period": label,
-            "total_return": total,
-            "annualised": (1 + total) ** (1 / years) - 1 if years > 1 else np.nan,
-        })
+        rows.append(
+            {
+                "period": label,
+                "total_return": total,
+                "annualised": (1 + total) ** (1 / years) - 1 if years > 1 else np.nan,
+            }
+        )
     del end
     return pd.DataFrame(rows)
 
@@ -78,8 +84,13 @@ def calendar_year_returns(levels: pd.DataFrame) -> pd.DataFrame:
     frame = levels.copy()
     frame["date"] = pd.to_datetime(frame["date"])
     frame = frame.set_index("date")
-    yearly = frame[["price_return", "gross_total_return", "net_total_return"]].resample(
-        "YE").last().pct_change().dropna()
+    yearly = (
+        frame[["price_return", "gross_total_return", "net_total_return"]]
+        .resample("YE")
+        .last()
+        .pct_change()
+        .dropna()
+    )
     yearly.index = yearly.index.year
     return yearly
 
@@ -155,7 +166,8 @@ def write_factsheet(result: BuildResult, out: Path) -> Path:
     # cover is a wrong number on a client document, not a presentational nicety.
     first = pd.to_datetime(levels.iloc[0]["date"]).date()
     inception = (
-        "" if first == config.base_date
+        ""
+        if first == config.base_date
         else f" · **Series begins** {first} (rebased to {config.base_level:,.0f})"
     )
     lines: list[str] = [
@@ -193,8 +205,13 @@ def write_factsheet(result: BuildResult, out: Path) -> Path:
         for r in perf.itertuples(index=False)
     ]
 
-    lines += ["", "## Calendar year returns", "",
-              "| Year | Price | Gross TR | Net TR |", "|---|---:|---:|---:|"]
+    lines += [
+        "",
+        "## Calendar year returns",
+        "",
+        "| Year | Price | Gross TR | Net TR |",
+        "|---|---:|---:|---:|",
+    ]
     lines += [
         f"| {year} | {row['price_return']:+.2%} | "
         f"{row['gross_total_return']:+.2%} | {row['net_total_return']:+.2%} |"
@@ -208,13 +225,13 @@ def write_factsheet(result: BuildResult, out: Path) -> Path:
         "sharpe_ratio_zero_rf": "Return / volatility",
         "sortino_ratio": "Sortino ratio",
         "max_drawdown": "Maximum drawdown",
-        "best_day": "Best day", "worst_day": "Worst day",
+        "best_day": "Best day",
+        "worst_day": "Worst day",
         "positive_days": "Positive days",
     }
     for key, label in labels.items():
         value = risk[key]
-        formatted = (f"{value:.2f}" if "ratio" in key or "/" in label
-                     else f"{value:+.2%}")
+        formatted = f"{value:.2f}" if "ratio" in key or "/" in label else f"{value:+.2%}"
         lines.append(f"| {label} | {formatted} |")
     lines.append("")
     lines.append(
@@ -223,7 +240,9 @@ def write_factsheet(result: BuildResult, out: Path) -> Path:
     )
 
     lines += [
-        "", "## Turnover", "",
+        "",
+        "## Turnover",
+        "",
         f"| Reviews in period | {len(reviews)} |",
         "|---|---:|",
         f"| Mean one-way turnover per review | {mean_turnover:.2%} |",

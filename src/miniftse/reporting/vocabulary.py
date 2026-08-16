@@ -282,8 +282,6 @@ def write_vocabulary_map(out: Path) -> Path:
     lines = [
         "# LSEG vocabulary map",
         "",
-        "**Module 14, Practice P14.1.**",
-        "",
         "Every concept this repository uses, mapped to the LSEG product that supplies "
         "it in production, the Worldscope item number where there is one, and the free "
         "source used here instead.",

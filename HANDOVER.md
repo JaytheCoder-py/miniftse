@@ -6,18 +6,15 @@
 
 ## What this repo is
 
-Two things sharing one directory, deliberately kept apart:
+A complete, working rules-based index platform on `master` — security master, corporate
+actions, divisor-based calculation, factor variants, a risk model, a validation gate, and
+the production scaffolding around them. Read it, run it, break it.
 
-| Path | Branch | Purpose |
-|---|---|---|
-| `miniftse/` | `master` | The **reference implementation** — a complete, working index platform. Read it, run it, break it. |
-| `miniftse-training/` | `training/week-01` | **Jason's learning track.** Untouched since the tutor session. Tag `v0.0-tutor-start`. |
-
-Both are live git worktrees of the same repository, so they exist on disk simultaneously.
-`cd miniftse-training` to work on the exercises; `cd miniftse` to consult the answer.
-
-The original plan is `../TRAINING_PLAN.md`. Compressed 12-week track: M1, M2, M3, M5,
-M6, M8, M10, M13, M15.
+Everything is agent-implemented and owner-reviewed. That makes the repo two artefacts at
+once: an index platform, and a record of what verifying AI-written code actually costs.
+`docs/ai_development_retrospective.md` is the account of the second, and the eight
+locally-plausible/globally-wrong defects it documents are the reason the checks described
+below exist in the shape they do.
 
 ---
 
@@ -37,7 +34,7 @@ uv run miniftse fetch-real --contact you@example.com --securities 200
 uv run miniftse build-index --universe data/snapshots/real-clean
 ```
 
-- **86 source files.** `ruff` clean, **340 tests** (2 skipped here; the Dagster tests skip
+- **86 source files.** `ruff` clean, **343 tests** (2 skipped here; the Dagster tests skip
   without the orchestration extra). Nine of those are `tests/test_readme_figures.py`,
   which pins the README's published numbers to the run manifest — added after the README
   was found quoting a +10.4% annualised return against an actual +3.7%.
@@ -45,25 +42,24 @@ uv run miniftse build-index --universe data/snapshots/real-clean
 - The **default** build is still the deterministic synthetic universe — no API keys, no
   network. Real data is opt-in via `--universe`, and is a separate path with its own
   provenance (see D-018 and `docs/superpowers/specs/2026-08-13-real-universe-design.md`).
-- ✅ **`make ci` passes in full**, verified 2026-08-14: `ruff check` clean, `mypy --strict`
-  clean on 86 files, 331 tests, and the golden master matches to 0.0000bp on every column.
-  The earlier note here — that `typecheck` failed with 18 `unused-ignore` errors — is
-  **stale and has been removed**; mypy is clean today.
-- ⚠️ **The GitHub workflow is red where `make ci` is green, and the two do not run the
-  same checks.** `.github/workflows/ci.yml`'s lint job runs `ruff format --check src tests`;
-  the Makefile's `lint` target runs only `ruff check`. That extra step reports **63 files
-  would be reformatted, 31 already formatted**. All 63 are pre-existing and unrelated to
-  any recent work — running `make format` would touch them all in one sweep, which is why
-  it has not been done incidentally (D-021 records the decision to keep format checks
-  scoped to the files a task owns). Fixing this is a prerequisite to the repo being
-  public: a reviewer who clones it and sees a red CI badge has learned something untrue.
+- ✅ **`make ci` passes in full**, verified 2026-08-17: `ruff check` and
+  `ruff format --check` clean, `mypy --strict` clean on 86 source files, **343 passing and
+  2 skipped**, and the golden master matches across 2,311 dates to 0.0000bp on every
+  column.
+- ✅ **`make ci` and the GitHub workflow now run the same checks.** They did not: the
+  workflow's lint job ran `ruff format --check src tests` and the Makefile's `lint` target
+  ran only `ruff check`, so a green `make ci` sat on a tree GitHub Actions rejected — 64
+  files out of format, all pre-existing. Both the divergence and its symptom are fixed:
+  `lint` runs the format check too, and the 64 files are formatted. The golden master
+  re-verified afterwards, since a formatting sweep across the calculation code is exactly
+  the change you want a regression pin to have an opinion about.
 
 ---
 
 ## What was built, and what is genuinely finished
 
-Modules 1–3, 5–6, 8, 10, 13, 15 are implemented and wired. Beyond the plan, five index
-variants build end to end from one shared universe:
+Every stage of the platform is implemented and wired, and five index variants build end
+to end from one shared universe:
 
 | Variant | Active share | Factor exposure | Ann. turnover |
 |---|---:|---:|---:|
@@ -117,7 +113,7 @@ is written up in the commit that fixed it.
 
 ## What is NOT done
 
-Everything the plan describes is implemented and exercised. The three fronts the
+The platform is complete and exercised end to end. The three fronts the
 previous handover listed as open are closed — see `85f3d0f` and `598f525`.
 
 What remains is bounded by **access, not effort**:
@@ -138,8 +134,9 @@ What remains is bounded by **access, not effort**:
 - **Free-data gaps are structural.** Free float, corporate action detail, analyst
   estimates and delisted securities have no free source. `docs/lseg_vocabulary_map.md`
   names each and what supplies it.
-- **`M1_why_yfinance_lies.md` is deliberately unwritten** — it is Jason's assigned
-  exercise. Do not fill it in.
+- **Module 1 has no memo.** What it would have covered — why a free price API cannot
+  supply historical market capitalisation — lives in the `vendors.py` provider docstrings
+  and `data/real.py` instead, next to the code that has to cope with it.
 
 ### Measurement caveats — reported, not tuned away
 - The risk model **over-forecasts** (bias statistic 0.62), largely because exposures are
@@ -212,7 +209,7 @@ met a real model.**
 
 ## Where to pick up
 
-The build is complete against the plan. Natural next steps, none of them blocking:
+The build is complete. Natural next steps, none of them blocking:
 
 1. **Point it at real data.** `build_free_composite()` (Yahoo + EDGAR + FRED) has full
    Protocol coverage. Running the engine against it is the strongest remaining
@@ -238,8 +235,9 @@ The build is complete against the plan. Natural next steps, none of them blockin
 
 ## Things to know before touching anything
 
-- **Never edit `miniftse-training/`.** That is Jason's work.
-- **Never fill in `memos/M1_why_yfinance_lies.md`.** It is an assigned exercise.
+- `memos/README.md` is **generated** by `reporting/memos.py`, as is every memo beside it.
+  Edit the generator and re-run `uv run miniftse documents`; a hand edit is reverted on
+  the next run.
 - The golden master will fail if you change the parent index's numbers. If that is
   intentional, regenerate it deliberately (`make pin-golden`) and say so in the commit.
 - The synthetic universe is a **simulation**. Value and quality predict returns in it

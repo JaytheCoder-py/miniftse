@@ -2,7 +2,7 @@
 
 One page per module, each written for a specific non-technical reader.
 
-The plan is explicit about why these exist: the role is half communication, and a folder of well-written one-pagers is the only credible evidence of that before you are hired. Claiming the skill is not evidence of it.
+These exist because index work is half communication: a rule change, a reconstitution surprise or a failed calculation has to be explained to a trustee, a governance committee or an analyst on the rota, in their language and without hedging. Each memo names its reader at the top and is written to them.
 
 | Module | Memo | Written for |
 |---|---|---|
@@ -16,4 +16,4 @@ The plan is explicit about why these exist: the role is half communication, and 
 | M13 | [Where AI belongs in index research, and where it does not](M13_where_ai_belongs_in_index_research_and_where_it_does_not.md) | the head of index research |
 | M15 | [Why changing a rule requires a public consultation](M15_why_changing_a_rule_requires_a_public_consultation.md) | a new analyst who thinks this is bureaucracy |
 
-> `M1_why_yfinance_lies.md` is deliberately absent from this list. It is an assigned exercise in the training track and is not written by the reference implementation.
+> Module 1 has no memo here. What it would have covered — why a free price API cannot supply historical market capitalisation, and what that does to a backtest — is documented where the code has to live with it: the `YahooProvider` and `ISharesProvider` docstrings in `data/vendors.py`, and `data/real.py`'s account of the adjusted-close problem.

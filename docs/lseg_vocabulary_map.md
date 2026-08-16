@@ -1,7 +1,5 @@
 # LSEG vocabulary map
 
-**Module 14, Practice P14.1.**
-
 Every concept this repository uses, mapped to the LSEG product that supplies it in production, the Worldscope item number where there is one, and the free source used here instead.
 
 > Generated from `LsegDataProvider.FIELD_MAP` by `reporting/vocabulary.py`. The table and the adapter cannot drift apart, which matters — a vocabulary map that disagrees with the code is worse than none, because it is confidently wrong in an interview.

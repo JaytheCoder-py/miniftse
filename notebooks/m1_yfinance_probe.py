@@ -1,8 +1,11 @@
-"""Fetch-and-cache helper for Practice P1.1 ("break yfinance on purpose").
+"""Fetch-and-cache helper for probing what a free price API actually returns.
 
-This script does the plumbing only. It pulls each ticker three ways and caches to
-parquet so you can iterate on the *analysis* without re-hitting the API. The
-analysis is yours — see memos/M1_why_yfinance_lies.md.
+Plumbing only: it pulls each ticker three ways (unadjusted, auto-adjusted, share
+counts) and caches to parquet so the comparison can be iterated on without
+re-hitting the API. What the comparison found is recorded in the ``YahooProvider``
+docstring in `miniftse/data/vendors.py` and in `miniftse/data/real.py` — split
+adjustment destroys the as-traded series, delisted tickers return nothing at all,
+and spin-offs appear in neither the dividends nor the splits column.
 
 Usage:
     uv run python notebooks/m1_yfinance_probe.py
@@ -61,7 +64,7 @@ CASES: list[Case] = [
 
 
 def _pull(ticker: str) -> dict[str, pd.DataFrame]:
-    """Pull the three views of a ticker that the exercise needs to compare."""
+    """Pull the three views of a ticker the comparison needs."""
     t = yf.Ticker(ticker)
     out: dict[str, pd.DataFrame] = {}
 

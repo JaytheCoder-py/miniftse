@@ -289,16 +289,19 @@ def write_incident_report(out: Path, incident: dict[str, Any] | None = None) -> 
 
 
 def write_ai_retrospective(out: Path, stats: dict[str, Any] | None = None) -> Path:
-    """Practice P13.4: where AI assistance helped and where it introduced bugs.
+    """Where AI assistance helped, and where it introduced bugs.
 
-    The plan asks for concrete examples from this repository. Generic observations about
-    language models are not the deliverable; specific defects are.
+    Concrete examples from this repository. Generic observations about language models
+    are not the deliverable; specific defects are.
+
+    The size figures below are pinned by `tests/test_readme_figures.py`. They were
+    literals here for a long time and went stale at ~20,000 lines / 68 modules / 89
+    tests while the repo grew past 29,000 / 86 / 345 — the same drift the README
+    suffered, in the document that argues published numbers need pinning.
     """
-    s = {"n_files": 68, "n_tests": 89, "n_lines": "~20,000", **(stats or {})}
+    s = {"n_files": 86, "n_tests": 345, "n_lines": "29,500", **(stats or {})}
     lines = [
         "# AI-assisted development: a retrospective",
-        "",
-        "**Module 13, Practice P13.4**",
         "",
         f"This platform is roughly {s['n_lines']} lines across {s['n_files']} modules "
         f"with {s['n_tests']} tests, built with heavy AI assistance. This is an "

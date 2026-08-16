@@ -1,9 +1,9 @@
 """Module memos: one page per module, aimed at a non-technical reader.
 
-The plan asks for fifteen of these, and is explicit about why: the role is half
-communication, and a folder of well-written one-pagers is the only credible evidence of
-that before you are hired. Claiming you can explain things to non-technical stakeholders
-is not evidence; fifteen pages that do it are.
+Index work is half communication. A rule change, a reconstitution surprise or a failed
+6am calculation has to be explained to a trustee, a governance committee or an analyst
+on the rota — in their language, with the number that matters, and without hedging. So
+each memo names its reader at the top and is written to them.
 
 Written as prose with the numbers injected from the code, so a memo cannot quote a
 figure the repository no longer produces. Every one follows the same shape: what the
@@ -493,9 +493,11 @@ def write_memos(directory: Path, context: dict[str, Any] | None = None) -> list[
         "",
         "One page per module, each written for a specific non-technical reader.",
         "",
-        "The plan is explicit about why these exist: the role is half communication, "
-        "and a folder of well-written one-pagers is the only credible evidence of that "
-        "before you are hired. Claiming the skill is not evidence of it.",
+        "These exist because index work is half communication: a rule change, a "
+        "reconstitution surprise or a failed calculation has to be explained to a "
+        "trustee, a governance committee or an analyst on the rota, in their language "
+        "and without hedging. Each memo names its reader at the top and is written to "
+        "them.",
         "",
         "| Module | Memo | Written for |",
         "|---|---|---|",
@@ -503,9 +505,11 @@ def write_memos(directory: Path, context: dict[str, Any] | None = None) -> list[
     lines += [f"| {m.module} | [{m.title}]({m.slug}.md) | {m.audience} |" for m in memos]
     lines += [
         "",
-        "> `M1_why_yfinance_lies.md` is deliberately absent from this list. It is an "
-        "assigned exercise in the training track and is not written by the reference "
-        "implementation.",
+        "> Module 1 has no memo here. What it would have covered — why a free price API "
+        "cannot supply historical market capitalisation, and what that does to a "
+        "backtest — is documented where the code has to live with it: the "
+        "`YahooProvider` and `ISharesProvider` docstrings in `data/vendors.py`, and "
+        "`data/real.py`'s account of the adjusted-close problem.",
         "",
     ]
     index = directory / "README.md"

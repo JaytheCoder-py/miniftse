@@ -136,3 +136,50 @@ class TestReadmeInternalConsistency:
             f"README claims {claimed} tests but {collected} test functions are defined; "
             "the claim is stale"
         )
+
+
+class TestRetrospectiveSizeClaims:
+    """`docs/ai_development_retrospective.md` opens with the repo's size.
+
+    Those three numbers were literals in `reporting/papers.py` that nobody updated,
+    so the document arguing that published figures need pinning drifted to ~20,000
+    lines / 68 modules / 89 tests against a repo at 29,000 / 86 / 342. Pin them.
+
+    The line count is quoted as "roughly", so it is checked with slack: normal
+    development must not turn CI red, but a claim half the size of the repo must.
+    """
+
+    RETRO = REPO / "docs" / "ai_development_retrospective.md"
+
+    @staticmethod
+    def _measured() -> tuple[int, int, int]:
+        """Source files, total source lines, and test functions defined."""
+        sources = sorted((REPO / "src" / "miniftse").rglob("*.py"))
+        lines = sum(len(p.read_text(encoding="utf-8").splitlines()) for p in sources)
+        tests = sum(
+            len(re.findall(r"^\s*def test_", p.read_text(encoding="utf-8"), re.M))
+            for p in (REPO / "tests").glob("test_*.py")
+        )
+        return len(sources), lines, tests
+
+    def _claims(self) -> re.Match[str]:
+        text = self.RETRO.read_text(encoding="utf-8")
+        m = re.search(r"roughly ~?([\d,]+) lines across (\d+) modules with (\d+) tests", text)
+        assert m, "the retrospective no longer opens with a size claim in the known shape"
+        return m
+
+    def test_module_count_is_exact(self) -> None:
+        n_files, _, _ = self._measured()
+        assert int(self._claims().group(2)) == n_files
+
+    def test_test_count_is_not_below_what_is_defined(self) -> None:
+        _, _, n_tests = self._measured()
+        claimed = int(self._claims().group(3))
+        assert claimed >= n_tests, f"retrospective claims {claimed} tests against {n_tests} defined"
+
+    def test_line_count_is_the_right_order_of_magnitude(self) -> None:
+        _, n_lines, _ = self._measured()
+        claimed = int(self._claims().group(1).replace(",", ""))
+        assert claimed == pytest.approx(n_lines, rel=0.10), (
+            f"retrospective claims {claimed:,} lines against {n_lines:,} measured"
+        )

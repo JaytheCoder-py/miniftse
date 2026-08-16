@@ -39,10 +39,12 @@ quantifiable but not fixable from free sources:
    ``free_float_factor = 1.0``, which turns float-adjusted capitalisation weighting into
    full-cap weighting. The methodology in `config.EligibilityConfig` still runs, but its
    float screens can never bind.
-3. **Prices are split-adjusted.** Yahoo has no as-traded series - the finding in
-   `memos/M1_why_yfinance_lies.md`. Historical market capitalisation therefore cannot be
-   reconstructed from price x shares, because the two series sit on different bases
-   either side of every split.
+3. **Prices are split-adjusted.** Yahoo has no as-traded series - see the
+   ``YahooProvider`` docstring in `vendors.py`. Historical market capitalisation
+   therefore cannot be reconstructed from price x shares, because the two series sit on
+   different bases either side of every split. Historical iShares holdings files do not
+   have this problem: each row carries its own as-traded price, and
+   ``market_value / quantity`` reproduces it.
 
 Of those three, only the second is a property of free data. The first and third are
 properties of *these two sources* - the SEC current-registrant list and Yahoo - and both
@@ -51,8 +53,8 @@ dissolve if the universe and prices come from historical iShares holdings files 
 quoting any of this as a reason a study cannot be run.
 
 The fourth, spin-offs missing from the actions series, is handled: the corporate action
-engine never sees the event, so the parent's ex-date drop is read as a price fall. That
-is precisely the error the M1 memo measures.
+engine never sees the event, so the parent's ex-date drop is read as a price fall - a
+one-day total-return error of well over 100bp on a name like GE in 2023.
 """
 
 from __future__ import annotations

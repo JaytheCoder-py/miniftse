@@ -1,8 +1,6 @@
 # AI-assisted development: a retrospective
 
-**Module 13, Practice P13.4**
-
-This platform is roughly ~20,000 lines across 68 modules with 89 tests, built with heavy AI assistance. This is an opinionated account of where that helped and where it actively hurt, with specific examples.
+This platform is roughly 29,500 lines across 86 modules with 345 tests, built with heavy AI assistance. This is an opinionated account of where that helped and where it actively hurt, with specific examples.
 
 ---
 

@@ -5,8 +5,11 @@ divisor-based calculation, factor variants, a Barra-style risk model, a constrai
 optimiser, a validation gate, and the production scaffolding an index provider actually
 needs — run manifests, golden-master regression tests, and an orchestrated daily DAG.
 
-Built as a reference implementation against a 12-week training plan for index research
-and design.
+Everything here is agent-implemented and owner-reviewed, which makes the repo two things
+at once: an index platform, and a record of what verifying AI-written code actually costs.
+Eight locally-plausible, globally-wrong defects are documented alongside the check that
+caught each — see [`docs/ai_development_retrospective.md`](docs/ai_development_retrospective.md)
+and [Bugs the tests found](#bugs-the-tests-found) below.
 
 ```bash
 make setup && make test && make build-index
@@ -72,7 +75,7 @@ existed — it quoted a +10.4% return against an actual +3.7%.
 
 | Gate | Result |
 |---|---|
-| Tests | 340 passing, 2 skipped — hand-computed, property-based, golden master |
+| Tests | 343 passing, 2 skipped — hand-computed, property-based, golden master |
 | `ruff` | clean |
 | `mypy` | clean (strict on the core; see [D-011](DECISIONS.md)) |
 | Validation | 27 rules; 12 faults defined, 11 injectable in a single cross-section, 11/11 detected |
@@ -100,7 +103,8 @@ src/miniftse/
   attrib/         Brinson-Fachler, factor attribution, backtest-to-live bridge
   quality/        27 validation rules, publication gate, chaos drill
   production/     run manifests, daily DAG, golden master, build orchestration
-  agents/         RAG assistant, triage agent, client drafter, eval harness
+  agents/         RAG assistant, data-quality triage agent, client drafter, evals
+  triage/         corporate-action extraction, graded in basis points of index impact
 
 ground_rules/     the published methodology, and generated factor definitions
 communications/   consultation paper, five client responses, stakeholder memo
@@ -198,8 +202,8 @@ Kept as a list because it is the most honest summary of what the test suite is f
 
 ## Scope and honest limits
 
-Everything the plan describes is implemented and exercised. What remains is bounded by
-access, not by effort:
+The platform is complete and exercised end to end. What remains is bounded by access, not
+by effort:
 
 - **The LSEG adapter cannot be run here.** It is real code behind an import guard —
   Datastream history, Worldscope fundamentals with point-in-time `SDate`, IBES
@@ -214,4 +218,13 @@ access, not by effort:
   (bias statistic 0.62), largely because exposures are held fixed while the index
   rebalances quarterly. The RAG eval has 5 documented failures out of 40. Both are kept
   as honest baselines.
+- **No line of `triage/` has ever met a real model.** The corporate-action extraction
+  package grades an extracted event in basis points of index impact rather than
+  classification accuracy, and its 82 tests all run against a *scripted* client. The
+  real-model smoke test needs an API key, network and spend, and `anthropic` is
+  deliberately not a dependency — `AnthropicLlm` imports it lazily and raises a clear
+  error. So what is measured here is the grader and the scaffolding, not any model's
+  accuracy. Four further gaps in the grading are written down in `HANDOVER.md`, including
+  a fixture whose three identical constituents make one class of defect structurally
+  invisible.
 

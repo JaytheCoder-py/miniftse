@@ -43,9 +43,9 @@ data → secmaster → corpactions → calc → universe/review
 
 500 securities, 2016–2026, quarterly reviews:
 
-- **+10.4%** annualised, **17.7%** volatility, **−32.6%** max drawdown
-- **7,335** divisor events, **zero** continuity breaches
-- 70 tests, 27 validation rules, a pinned golden master
+- **+3.7%** annualised, **17.1%** volatility, **−36.4%** max drawdown
+- **7,590** divisor events, **zero** continuity breaches
+- 345 tests, 27 validation rules, a pinned golden master
 
 ```bash
 make setup && make test && make build-index

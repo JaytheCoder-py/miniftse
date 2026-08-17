@@ -1616,7 +1616,7 @@ that reason — see D-035.
 tree for the re-derivation patterns a consumer of published index figures has no business
 writing — `* 100`, `/ 10_000`, `* 10_000`, `* 252`, `** (1/n)`, `** 0.5` — and fails
 unless each hit carries a `# desk-arithmetic-allowlist: <reason>` comment with real text
-after the colon (commit `8d4bfdf` made the reason mandatory). It scanned
+after the colon (commit `094e104` made the reason mandatory). It scanned
 `src/miniftse/desk` only.
 
 `triage/verify.py` cites that constraint by name in its module docstring ("the same
@@ -1670,7 +1670,7 @@ fails the suite. The cost is that `triage/` now inherits a constraint it did not
 including its false positives: a legitimate `* 100` in a future `triage/` module needs a
 written reason, which is the intended friction. `_SCANNED_FOR_INDEX_ARITHMETIC` is the
 place to add the next tree; the scan is worth what it covers, and `verify.py` cited it by
-name from the moment it was written (Task 2, commit `f2a2544`) through two whole-branch
+name from the moment it was written (Task 2, commit `c720f85`) through two whole-branch
 reviews and a fix wave without ever being inside its root.
 
 ---

@@ -91,14 +91,14 @@ is written up in the commit that fixed it.
 1. **The capping factor never carried the tilt.** `C_i` was `capped/raw`, but `raw` is
    already the weighter's output, so `C ≈ 1` and the published index silently reverted
    to float-cap weights. A tilt with 0.40 active share at the review published an index
-   with 0.003 active share. `C_i` must be `target/floatcap`. (`f81d052`)
+   with 0.003 active share. `C_i` must be `target/floatcap`. (`df89802`)
 2. **The optimised variant was infeasible at every review** and fell back to a tilt
    while reporting success — its weight bound sat below the parent's own concentration.
    The benchmark must be the *capped* parent so "hold the parent" is always admissible.
 3. **The hedge added cumulative mark-to-market daily** instead of the daily change,
    more than doubling the hedged index over six years.
 4. **Brinson was run across six years and 24 reviews**, reporting +23.8% of active
-   return against an actual +10.6%. Brinson is a single-period method. (`203480b`)
+   return against an actual +10.6%. Brinson is a single-period method. (`b55c944`)
 5. **The price generator compounded arithmetic returns**, so σ²/2 volatility drag turned
    the reference index negative over a decade.
 6. **Beta earned a linear return premium**, so the low-volatility factor came out with
@@ -107,14 +107,14 @@ is written up in the commit that fixed it.
 7. **Divisor was rebased twice on removals**; **spin-off children inherited cap factor
    1.0** instead of the parent's, breaking continuity.
 8. **BLOCKED didn't propagate through the DAG**, so downstream steps ran and died with
-   misleading KeyErrors. (`e358448`)
+   misleading KeyErrors. (`c296af6`)
 
 ---
 
 ## What is NOT done
 
 The platform is complete and exercised end to end. The three fronts the
-previous handover listed as open are closed — see `85f3d0f` and `598f525`.
+previous handover listed as open are closed — see `507e389` and `b4b71aa`.
 
 What remains is bounded by **access, not effort**:
 

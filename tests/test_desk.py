@@ -2078,7 +2078,7 @@ module docstring (`verify.py:45-46`) and D-029 cite *this* test by name as the c
 they honour - which was an assertion and not a check until `triage/` was actually
 scanned. Adding it here found both of `verify.py`'s `x 10_000` bps conversions unmarked;
 they are legitimate presentation, so they now carry the marker, exactly as
-`services._to_bps` has since commit 8d4bfdf. See D-034."""
+`services._to_bps` has since commit 094e104. See D-034."""
 
 
 def test_desk_contains_no_index_arithmetic():

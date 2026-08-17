@@ -76,9 +76,9 @@ jobs:
         # numbers have not moved. A refactor that shifts the index by half a basis
         # point is a recalculation event, not a tidy-up.
         #
-        # This job runs on Linux. The banding fix (27502f6, "band assignment must not
+        # This job runs on Linux. The banding fix (0915343, "band assignment must not
         # depend on floating-point summation order") was developed and re-pinned
-        # (ff73906) on Windows, where the platform-dependent `np.cumsum` bug that
+        # (46416f5) on Windows, where the platform-dependent `np.cumsum` bug that
         # motivated it was actually found - Task 11's local golden check could not by
         # itself prove the fix holds cross-platform. This is that proof: the first time
         # the post-fix master is checked against a from-scratch rebuild on a different

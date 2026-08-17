@@ -2,7 +2,7 @@
 
 **Index code** `MFTSE-GLOBAL` · **Base currency** USD · **Base date** 2016-01-04 (= 1,000)
 
-*Data as at 2026-06-30. Generated 2026-08-10 from run `MFTSE-GLOBAL-2026-06-30-20260810T132420`, code `4c9671cafd10`.*
+*Data as at 2026-06-30. Generated 2026-08-10 from run `MFTSE-GLOBAL-2026-06-30-20260810T132420`, code `ab57cfbb0384`.*
 
 ---
 

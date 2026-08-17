@@ -1740,3 +1740,46 @@ baseline of exactly zero is what makes any later distribution readable. It also 
 the known bias D-025 now discloses: the slice gives each label its own filing, so the
 many-to-one contradiction case is deliberately not present here and must not be read as
 evidence that it does not exist.
+
+## D-036 — The coverage gate is set at the measured floor, not the aspiration
+**Date:** 2026-08-17 · **Module:** infrastructure · **Status:** accepted
+
+**Context.** The workflow's coverage gate was `--fail-under=70` from the day it was
+written. It had never run. This repository had no GitHub remote until 2026-08-17, and
+`make ci` ran `pytest tests/ -q` with no coverage flags, so nothing local enforced it
+either. The first real CI run measured **56%** and the job went red — on a tree where
+lint, `mypy --strict`, all 343 tests, the golden master, the chaos drill, the evals and
+the desk smoke test were green.
+
+This is the second instance of one defect: a check that existed only in CI, against a
+`make ci` that claimed to run "everything CI runs". The formatting divergence was the
+first, and 64 files had drifted behind it.
+
+**Decision.** Set the gate to 55 — one point under the measured floor — and make
+`make ci` run it, so the local command and the workflow enforce the same thing.
+
+**Why not raise coverage to 70 instead.** Because that is ~1,440 statements of new tests,
+and pretending otherwise by leaving the gate at 70 buys nothing: a permanently red badge
+teaches a reader that the build is broken, which is less true than 56%.
+
+**Why not delete the gate.** A ratchet at the floor still catches a regression. A deleted
+gate catches nothing.
+
+**What holds the number down**, because the reasons are not equivalent:
+
+| Module | Cover | Why |
+|---|---:|---|
+| `agents/triage.py` | 0% | No test imports it. A real hole. |
+| `attrib/brinson.py` | 0% | No test imports it — and Brinson is where bug #4 in the README lived, run across 24 reviews reporting +23.8% against an actual +10.6%. Untested code that has already been wrong once. |
+| `cli.py` | 22% | Argument wiring over tested library calls. |
+| `data/vendors.py` | 31% | Network paths. Tests are offline by design (D-004). |
+| `data/real.py` | 41% | Same. |
+
+The last three are a design choice and should stay uncovered. The first two are not, and
+`brinson.py` is the one worth fixing first: it is pure arithmetic over frames, needs no
+network, and its single documented defect was a methodology error a hand-computed test
+would have caught. Raise the gate when it lands.
+
+**Alternatives rejected.** Excluding the untested modules from measurement with
+`# pragma: no cover` or a `.coveragerc` omit list — it would lift the percentage without
+covering a line, and hide exactly the two modules a reader should be told about.

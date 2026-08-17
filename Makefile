@@ -23,6 +23,10 @@ test-fast:  ## Unit and property tests only, skipping the slow integration tests
 coverage:  ## Run tests with a coverage report
 	$(UV) run pytest tests/ -q --cov=miniftse --cov-report=term-missing
 
+coverage-gate:  ## The coverage floor CI enforces. Slow - instrumentation roughly doubles the suite.
+	$(UV) run pytest tests/ -q --cov=miniftse --cov-report=term-missing
+	$(UV) run coverage report --fail-under=55
+
 lint:  ## Lint
 	$(UV) run ruff check src tests
 	# CI runs this too. Without it here, `make ci` passes on a tree GitHub rejects -
@@ -85,6 +89,7 @@ clean:  ## Remove build artefacts and caches
 		coverage.xml htmlcov/
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
-ci: lint typecheck test check-golden  ## Everything CI runs
+ci: lint typecheck coverage-gate check-golden  ## Everything CI runs
+	@echo "ci: green. This runs the coverage gate, so it is slower than \`make test\`."
 
 all: setup ci build-index factsheet  ## Full pipeline from a clean clone

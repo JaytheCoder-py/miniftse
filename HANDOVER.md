@@ -46,6 +46,11 @@ uv run miniftse build-index --universe data/snapshots/real-clean
   `ruff format --check` clean, `mypy --strict` clean on 86 source files, **343 passing and
   2 skipped**, and the golden master matches across 2,311 dates to 0.0000bp on every
   column.
+- ⚠️ **Coverage is 56%; the gate is 55% and should ratchet up.** The workflow's gate was
+  `--fail-under=70` and had never run — no remote until 2026-08-17, and `make ci` ran no
+  coverage. The first real run went red at 56% with everything else green. `agents/triage.py`
+  and `attrib/brinson.py` are imported by no test; `brinson.py` is worth doing first, being
+  pure frame arithmetic with a documented past defect. See D-036.
 - ✅ **`make ci` and the GitHub workflow now run the same checks.** They did not: the
   workflow's lint job ran `ruff format --check src tests` and the Makefile's `lint` target
   ran only `ruff check`, so a green `make ci` sat on a tree GitHub Actions rejected — 64

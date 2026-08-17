@@ -218,6 +218,12 @@ by effort:
   (bias statistic 0.62), largely because exposures are held fixed while the index
   rebalances quarterly. The RAG eval has 5 documented failures out of 40. Both are kept
   as honest baselines.
+- **Test coverage is 56%, and two modules have none at all.** `agents/triage.py` and
+  `attrib/brinson.py` are imported by no test. The remaining uncovered code is mostly
+  network and CLI paths that are deliberately not exercised offline, but those two are a
+  genuine hole — and `brinson.py` is where bug #4 above lived. The CI gate sits at 55%,
+  one point under the measured floor, as a ratchet rather than a claim; see
+  [D-036](DECISIONS.md).
 - **No line of `triage/` has ever met a real model.** The corporate-action extraction
   package grades an extracted event in basis points of index impact rather than
   classification accuracy, and its 82 tests all run against a *scripted* client. The
